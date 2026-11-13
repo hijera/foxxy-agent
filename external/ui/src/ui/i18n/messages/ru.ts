@@ -68,6 +68,15 @@ export const messagesRu: Record<string, string> = {
     "Вход включён, но учётная запись не настроена. Выполните `foxxycode serve set-password` на сервере.",
   "auth.signIn.crossSite": "Запрос пришёл не с этой страницы.",
   "auth.signIn.failed": "Войти не удалось ({status}).",
+  "auth.signIn.notKept":
+    "Сервер принял вход, но браузер не сохранил его в этом фрейме, потому что страница встроена в другой сайт, например в Telegram Web.",
+  "auth.signIn.openInTab": "Открыть FoxxyCode в отдельной вкладке",
+  "auth.signIn.telegramNotAdmin":
+    "Открыть FoxxyCode из Telegram могут только админы бота.",
+  "auth.signIn.telegramRetry":
+    "Вход через Telegram не прошёл. Закройте Mini App и откройте заново.",
+  "auth.signIn.telegramUnavailable":
+    "На этом сервере нет бота Telegram, поэтому Mini App не может открыть FoxxyCode.",
   "auth.signOut.action": "Выйти",
   "auth.signOut.tooltipUser": "Выйти ({user})",
 
@@ -1751,7 +1760,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.logger.label": "Логирование",
   "settings.section.logger.desc": "Уровень, приёмники, ротация",
   "settings.section.gateways.label": "Шлюзы",
-  "settings.section.gateways.desc": "Бот Telegram",
+  "settings.section.gateways.desc": "Боты Telegram и Пачки",
   "settings.group.agent.turn": "Модель и ходы",
   "settings.group.agent.retries": "Повторы",
   "settings.group.agent.timeouts": "Таймауты потока",

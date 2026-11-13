@@ -103,6 +103,158 @@ func (r *runner) telegramProbes() []probe {
 	}}
 }
 
+// pachcaRequiredScopes are the scopes the Pachca bot cannot work without;
+// pachcaRecommendedScopes the ones it works without, at a cost.
+var (
+	pachcaRequiredScopes = []string{
+		"messages:create", "messages:update", "messages:read",
+		"chats:read", "profile:read", "webhooks:events:read",
+	}
+	pachcaRecommendedScopes = []string{"webhooks:events:delete", "users:read"}
+)
+
+// pachcaProbes checks the Pachca bot token when that bot is enabled:
+// GET /oauth/token/info needs no scope, answers 401 for a revoked token and
+// lists the scopes a live one carries.
+func (r *runner) pachcaProbes() []probe {
+	pc := &r.req.Cfg.Gateways.Pachca
+	if !pc.Enabled {
+		return nil
+	}
+	return []probe{func(ctx context.Context) []Check {
+		const path = "gateways.pachca"
+		token := pc.EffectiveToken()
+		if token == "" {
+			return []Check{r.check(StatusError, path, path, "no token: gateways.pachca.token is empty and "+config.PachcaBotTokenEnvVar+" is not set",
+				"set gateways.pachca.token or export "+config.PachcaBotTokenEnvVar)}
+		}
+		hc, err := llm.HTTPClientForOptionalProxy(pc.Proxy)
+		if err != nil {
+			return []Check{r.check(StatusError, path, path+".proxy", "proxy: "+err.Error(), "fix gateways.pachca.proxy")}
+		}
+		if hc == nil {
+			hc = &http.Client{}
+		}
+		base := strings.TrimRight(strings.TrimSpace(os.Getenv(config.PachcaAPIBaseEnv)), "/")
+		if base == "" {
+			base = config.DefaultPachcaAPIBase
+		}
+		redact := func(s string) string { return strings.ReplaceAll(s, token, "<token>") }
+		status, body, err := r.get(ctx, hc, base+"/oauth/token/info", nil, token)
+		if err != nil {
+			fix := "check the network"
+			if strings.TrimSpace(pc.Proxy) != "" {
+				fix += " and gateways.pachca.proxy"
+			}
+			return []Check{r.check(StatusError, path, path, fmt.Sprintf("cannot reach %s: %s", base, redact(shortErr(err))), fix)}
+		}
+		switch status {
+		case http.StatusOK:
+			var info struct {
+				Data struct {
+					UserID int64    `json:"user_id"`
+					Scopes []string `json:"scopes"`
+				} `json:"data"`
+			}
+			if jerr := json.Unmarshal(body, &info); jerr != nil || info.Data.UserID == 0 {
+				return []Check{r.check(StatusWarning, path, path, "Pachca answered, but not with a token description", "check that "+base+" is the Pachca API")}
+			}
+			have := map[string]bool{}
+			for _, s := range info.Data.Scopes {
+				have[s] = true
+			}
+			var missing, recommended []string
+			for _, s := range pachcaRequiredScopes {
+				if !have[s] {
+					missing = append(missing, s)
+				}
+			}
+			for _, s := range pachcaRecommendedScopes {
+				if !have[s] {
+					recommended = append(recommended, s)
+				}
+			}
+			if len(missing) > 0 {
+				return []Check{r.check(StatusError, path, path+".token", "the token lacks scopes the bot needs: "+strings.Join(missing, ", "),
+					"grant them in the bot's settings in Pachca (Integrations, the bot, API tab) and copy the new token")}
+			}
+			if len(recommended) > 0 {
+				return []Check{r.check(StatusWarning, path, path+".token", "the token lacks recommended scopes: "+strings.Join(recommended, ", ")+" (without webhooks:events:delete the events history keeps growing, without users:read a quoted reply names no author)",
+					"grant them in the bot's settings in Pachca")}
+			}
+			return []Check{r.check(StatusOK, path, path, fmt.Sprintf("token accepted by Pachca, bot user %d", info.Data.UserID), "")}
+		case http.StatusUnauthorized:
+			return []Check{r.check(StatusError, path, path+".token", "token rejected by Pachca (HTTP 401)",
+				"check gateways.pachca.token: a revoked or mistyped token is answered like this; the bot's settings in Pachca show the current one")}
+		default:
+			return []Check{r.check(StatusError, path, path, fmt.Sprintf("Pachca answered HTTP %d", status), "try again later or check gateways.pachca.proxy")}
+		}
+	}}
+}
+
+// gatewayAdmins warns about an enabled bot with no admins: everybody it lets
+// in then only chats - nothing is approved, and /resume, /app, the Mini App
+// and the settings of a group are nobody's.
+func (r *runner) gatewayAdmins() {
+	gw := r.req.Cfg.Gateways
+	for _, b := range []struct {
+		path    string
+		enabled bool
+		admins  int
+	}{
+		{"gateways.telegram", gw.Telegram.Enabled, len(gw.Telegram.Admins)},
+		{"gateways.pachca", gw.Pachca.Enabled, len(gw.Pachca.Admins)},
+	} {
+		if !b.enabled || b.admins > 0 {
+			continue
+		}
+		r.rep.add(r.check(StatusWarning, b.path+".admins", b.path+".enable",
+			"the bot has no admins: everybody it lets in only chats - the agent gets no approval for a command, a write or a request, and the settings, /resume and the web UI are nobody's",
+			"list the messenger user ids of the people who may run the agent in full under "+b.path+".admins"))
+	}
+}
+
+// miniApp says when the bot will not advertise the web UI it is told to offer
+// as its Mini App: the web UI of this process asks for no sign-in.
+func (r *runner) miniApp() {
+	tg := &r.req.Cfg.Gateways.Telegram
+	if !tg.Enabled || strings.TrimSpace(tg.MiniApp.URL) == "" || !r.req.WebUIOpen {
+		return
+	}
+	const path = "gateways.telegram.mini_app"
+	r.rep.add(r.check(StatusWarning, path, path+".url",
+		"the bot will not advertise the web UI as its Mini App: the web UI asks for no sign-in, and its menu button is shown to everybody who opens the bot",
+		"run `foxxycode serve set-password` (or set "+webauth.LoginUserEnvVar+" / "+webauth.LoginPasswordEnvVar+", or a token), or set httpserver.allow_insecure: true to publish it open"))
+}
+
+// miniAppProbes asks the address the bot gives Telegram for the web UI. It is
+// the operator's public address, often behind a TLS proxy this machine cannot
+// always reach itself, so an answer that is not the web UI is a warning.
+func (r *runner) miniAppProbes() []probe {
+	tg := &r.req.Cfg.Gateways.Telegram
+	target := strings.TrimSpace(tg.MiniApp.URL)
+	if !tg.Enabled || target == "" {
+		return nil
+	}
+	return []probe{func(ctx context.Context) []Check {
+		const path = "gateways.telegram.mini_app.url"
+		status, body, err := r.get(ctx, &http.Client{}, target, map[string]string{"Accept": "text/html"}, "")
+		switch {
+		case err != nil:
+			return []Check{r.check(StatusWarning, path, path, fmt.Sprintf("cannot reach %s from this machine: %s", target, shortErr(err)),
+				"Telegram opens it from the person's phone: check the address, its TLS certificate and the proxy in front of foxxycode serve")}
+		case status != http.StatusOK:
+			return []Check{r.check(StatusWarning, path, path, fmt.Sprintf("%s answered HTTP %d", target, status),
+				"the address should serve the web UI of foxxycode serve")}
+		case !strings.Contains(string(body), `id="root"`):
+			return []Check{r.check(StatusWarning, path, path, fmt.Sprintf("%s answered, but not with the web UI", target),
+				"the address should serve the web UI of foxxycode serve (built with the ui tag)")}
+		default:
+			return []Check{r.check(StatusOK, path, path, "the web UI answers at "+target, "")}
+		}
+	}}
+}
+
 // mcpRemoteProbes asks every remote MCP server of <home>/mcp.json for any
 // HTTP answer. Project-local .foxxycode/mcp.json declarations are not contacted:
 // they sit behind the workspace trust gate, and a dry run must not be the

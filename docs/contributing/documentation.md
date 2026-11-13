@@ -40,10 +40,10 @@ Every page starts with `# <title>` (the title from `nav.yaml`), then one lead pa
 - **A new capability** gets a page under `features/`, `surfaces/` or `operate/` (or a section of the page that owns the area), an entry in `nav.yaml`, a row in the reference that lists things of its kind (`tools.md` for a tool, `slash-commands.md` for a command, `environment-variables.md` for a variable, `keyboard.md` for a key, the generated `config.md` for a key through the schema description), and a line in the README "What it does" list when it is something a newcomer chooses FoxxyCode for.
 - **A changed behaviour** updates the page that describes it. Find it with `git grep -n '<key or command>' docs/`; the old text keeps teaching itself to the next reader, human or agent, until it is gone.
 - **A web UI or console feature** is shown, not only described: a screenshot embedded next to the explaining paragraph, following the capture recipes below. A change that alters what a screenshot shows re-captures it.
-- **A removed feature** takes its page, its `nav.yaml` entry and its assets with it (a stub stays at the page's address).
-- **A renamed key, command or flag** is swept through the whole tree, docs included, as the workflow rules describe (`.cursor/rules/workflow.mdc`, step 9).
+- **A removed feature** takes its page, its `nav.yaml` entry and its assets with it; no redirect stub remains.
+- **A renamed key, command or flag** is swept through the whole tree, docs included, as step 9 of the paired workflow rule ([Cursor](../../.cursor/rules/workflow.mdc), [Claude Code](../../.claude/rules/workflow.md)) describes.
 
-The workflow rules (`.cursor/rules/workflow.mdc`, mirrored in `.claude/rules/workflow.md`, delivered to Codex, OpenCode and ZCode by their hooks) carry the same contract as step 10, so every coding agent working on the repository reads it before it changes behaviour.
+The paired workflow rule carries the same contract as step 10. Cursor and Claude Code read their native representations; the Codex, OpenCode, ZCode and Kimi Code project adapters attach the Cursor representation and are verified by `make test-agent-rules`.
 
 ## Screenshots
 

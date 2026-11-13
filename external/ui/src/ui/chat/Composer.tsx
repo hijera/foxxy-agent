@@ -2363,6 +2363,9 @@ export function Composer(props: {
   }
   // Escape closes the selector menu that is open, with or without its filter.
   useEscapeCloses(menuOpen !== null, closeMenu);
+  // Escape closes the slash, @, range and argument pickers wherever the focus
+  // is: a tap on the sheet's title, or Telegram Web's Back, leaves it on body.
+  useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
     type: "mode" | "llm" | "reasoning" | "permission",

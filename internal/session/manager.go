@@ -1138,6 +1138,36 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	return m.HandleSessionPromptWithSender(ctx, params, m.currentSender(), nil)
 }
 
+// TurnRestriction is what a surface takes away from one turn.
+type TurnRestriction struct {
+	// AllowedTools, when not nil, are the only tools the turn may call; any
+	// other call - an MCP tool included - is refused with Note.
+	AllowedTools []string
+	// AskAlways makes every call that needs approval ask the surface, as in
+	// the ask mode, even when the session runs under bypass or accept_edits,
+	// and leaves the session's "always allow" grants aside.
+	AskAlways bool
+	// ConfineToWorkspace keeps the paths the turn reads - by a tool or by an
+	// "@" mention - inside the session's working directory and out of the
+	// agent's home, and resolves no "@" web page.
+	ConfineToWorkspace bool
+	// Note is what a refused tool call tells the model.
+	Note string
+}
+
+// Allows reports whether r lets the turn call the tool named name.
+func (r *TurnRestriction) Allows(name string) bool {
+	if r == nil || r.AllowedTools == nil {
+		return true
+	}
+	for _, a := range r.AllowedTools {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
 // PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
@@ -1158,6 +1188,12 @@ type PromptRunOpts struct {
 	// another surface on the same session carries a different prefix - which
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
+	// Restriction narrows what this turn may do: a surface that knows who
+	// wrote the message - a messenger bot and a user who is not its admin -
+	// says which tools are refused and that everything needing approval is
+	// asked about, whatever the session's permission mode. Turn-scoped, like
+	// SurfaceSystemPrompt, and never persisted.
+	Restriction *TurnRestriction
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
 	// background tasks that finished with notification enabled started this
@@ -1527,6 +1563,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
 	}
+	if opts != nil && opts.Restriction != nil {
+		state.SetTurnRestriction(opts.Restriction)
+		defer state.SetTurnRestriction(nil)
+	}
 	// A turn no person started says so, the same way: held for this turn
 	// only, taken by the agent for the first message, and announced to the
 	// observers once the turn holds the session.
@@ -1577,7 +1617,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// plan mention below stays material to read (HydrateSessionPlanMentions
 	// inlines the document) instead of turning into a run request.
 	askMode := state.GetMode() == string(ModeAsk)
-	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn {
+
+	// A restricted turn (a messenger user who is not the bot's admin) does not
+	// run a plan: running one switches the session's mode, which is the
+	// admins' to change. Its text goes to the model as an ordinary prompt.
+	restricted := opts != nil && opts.Restriction != nil
+	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn && !restricted {
 		if askMode {
 			return nil, fmt.Errorf("plan %q cannot be run in ask mode: switch to agent mode first", slug)
 		}
@@ -1603,7 +1648,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted {
 		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}

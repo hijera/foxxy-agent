@@ -503,8 +503,147 @@
     },
     "gateways": {
       "additionalProperties": false,
-      "description": "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
+      "description": "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).",
       "properties": {
+        "pachca": {
+          "additionalProperties": false,
+          "description": "Pachca integration bot settings.",
+          "properties": {
+            "admins": {
+              "default": [],
+              "description": "Pachca user IDs with elevated rights; admins always pass access checks.",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Admins",
+              "type": "array"
+            },
+            "chats": {
+              "default": [],
+              "description": "Override isolation and access for specific chats.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "description": "Per-chat access override: all, admins, or group:\u003cname\u003e.",
+                    "title": "Access",
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "description": "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.",
+                    "title": "Chat ID",
+                    "type": "integer"
+                  },
+                  "isolation": {
+                    "description": "Per-chat session isolation override.",
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ],
+                    "title": "Isolation",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chat_id"
+                ],
+                "type": "object",
+                "x-foxxycode-property-order": [
+                  "chat_id",
+                  "isolation",
+                  "access"
+                ]
+              },
+              "title": "Per-chat overrides",
+              "type": "array"
+            },
+            "default_access": {
+              "default": "all",
+              "description": "Fallback access level for chats without an override: all, admins, or group:\u003cname\u003e.",
+              "title": "Default access",
+              "type": "string"
+            },
+            "default_isolation": {
+              "default": "individual",
+              "description": "Fallback session isolation for group chats.",
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ],
+              "title": "Default isolation",
+              "type": "string"
+            },
+            "enable": {
+              "description": "Run the Pachca bot (requires the gateway or gateway.pachca build tag).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "poll_interval_seconds": {
+              "default": 2,
+              "description": "How often the bot reads its events history, 1 to 60 seconds (default 2).",
+              "title": "Poll interval, seconds",
+              "type": "integer"
+            },
+            "proxy": {
+              "description": "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
+              "title": "Proxy URL",
+              "type": "string"
+            },
+            "token": {
+              "default": "${PACHCA_BOT_TOKEN}",
+              "description": "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+              "title": "Bot token",
+              "type": "string"
+            },
+            "user_groups": {
+              "default": [],
+              "description": "Named sets of user IDs referenced by access as group:\u003cname\u003e.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Name referenced by access as group:\u003cname\u003e.",
+                    "title": "Group name",
+                    "type": "string"
+                  },
+                  "user_ids": {
+                    "description": "Pachca user IDs that belong to this group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "User IDs",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object",
+                "x-foxxycode-property-order": [
+                  "name",
+                  "user_ids"
+                ]
+              },
+              "title": "User groups",
+              "type": "array"
+            }
+          },
+          "title": "Pachca",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enable",
+            "token",
+            "proxy",
+            "poll_interval_seconds",
+            "admins",
+            "default_access",
+            "default_isolation",
+            "user_groups",
+            "chats"
+          ]
+        },
         "telegram": {
           "additionalProperties": false,
           "description": "Telegram bot adapter settings.",
@@ -580,6 +719,28 @@
               "title": "Enabled",
               "type": "boolean"
             },
+            "mini_app": {
+              "additionalProperties": false,
+              "description": "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.",
+              "properties": {
+                "menu_button": {
+                  "description": "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.",
+                  "title": "Menu button",
+                  "type": "boolean"
+                },
+                "url": {
+                  "description": "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
+                  "title": "Web UI address",
+                  "type": "string"
+                }
+              },
+              "title": "Mini App",
+              "type": "object",
+              "x-foxxycode-property-order": [
+                "url",
+                "menu_button"
+              ]
+            },
             "proxy": {
               "description": "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.",
               "title": "Proxy URL",
@@ -642,14 +803,16 @@
             "default_access",
             "default_isolation",
             "user_groups",
-            "chats"
+            "chats",
+            "mini_app"
           ]
         }
       },
       "title": "Messenger gateways",
       "type": "object",
       "x-foxxycode-property-order": [
-        "telegram"
+        "telegram",
+        "pachca"
       ]
     },
     "hooks": {
@@ -929,6 +1092,12 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "allow_reasoning_off": {
+            "default": false,
+            "description": "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.",
+            "title": "Allow disabling reasoning",
+            "type": "boolean"
+          },
           "max_context_tokens": {
             "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
             "title": "Context window (tokens)",
@@ -989,7 +1158,8 @@
           "multimodal",
           "stream",
           "reasoning_levels",
-          "reasoning_default"
+          "reasoning_default",
+          "allow_reasoning_off"
         ]
       },
       "title": "Logical models",

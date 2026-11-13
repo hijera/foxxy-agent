@@ -88,7 +88,7 @@ Cline-style top-level project rules. Each root is accepted as **either** a singl
 CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Under the table, `Project rules folder:` names the folder the project rules came from, `Not read:` names the folders further down the chain that hold rules too - usually another agent's copy of the same rules - and `Only in a folder not read:` lists the files of those folders whose name the folder read has no file for, the rules a session goes without rather than mirrors of rules it has. `Could not read:` names a folder of the chain that exists and could not be read; the chain passed over it. Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ```text
-11 rule(s) under .
+12 rule(s) under .
 Project rules folder: .cursor/rules
 Not read: .claude/rules (one project folder is read: the first of .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file)
 ```
@@ -220,7 +220,9 @@ A leading `~` expands, and so do the two placeholders the config understands: `$
 
 ## Generating rules
 
-Use **`/rpa-gen-rules`**, one of the skills of the [standard delivery](skills.md#the-standard-delivery), so it is there on a fresh install. It reads the specs, the docs and the code first and derives the rules from what it finds, rather than asking you to describe the project: a layered-cake architecture rule (implement the inner layers that depend on nothing first), BDD-style delivery, and a Rules Sync step that mirrors a change in one agent's tree into every other one. It writes Cursor `.mdc` files under `.cursor/rules/`, the Claude Code pair (`CLAUDE.md` and `.claude/rules/`), and the Codex hook bridge under `.codex/` that attaches the Cursor rules by glob the way Cursor and Claude Code do natively.
+Use **`/rpa-gen-rules`**, one of the skills of the [standard delivery](skills.md#the-standard-delivery), so it is there on a fresh install. It reads the specs, docs and code first and derives the rules from what it finds, rather than asking you to describe the project: layered architecture from lower dependencies upward, BDD/TDD delivery, and Rules Sync for deliberate mirrors.
+
+Root `AGENTS.md` carries the common baseline. Cursor `.mdc` and Claude Code `.md` rules are paired native representations with equivalent bodies and activation intent. When Codex support is requested, the skill installs a fail-open project hook under `.codex/` that reads `.cursor/rules/*.mdc` directly; it creates neither a manual Codex index nor a third copy of rule bodies. Critical constraints stay in root policy or executable enforcement, and other host integrations are preserved only when the repository already documents and tests them.
 
 FoxxyCode reads one project folder, the first of the chain that holds rules ([Discovery](#discovery)): a project the skill set up for Cursor and Claude Code is read from `.cursor/rules/`, and its Claude Code mirror is left alone rather than loaded twice. Rules written for FoxxyCode itself go to `.foxxycode/rules/`, or to `.agents/rules/` when every agent should read them.
 
@@ -254,7 +256,8 @@ rules:
 
 - [Cursor Rules](https://cursor.com/docs/rules)
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
-- [Codex Rules](https://developers.openai.com/codex/rules)
+- [Codex hooks](https://developers.openai.com/codex/hooks)
+- [Codex `AGENTS.md`](https://developers.openai.com/codex/guides/agents-md)
 - Implementation: `internal/rules/*` (the folder chain in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`, the document layers and the dedupe in `project_docs.go` and `dockey.go`, the nested chain in `agents.go`), the entries of `instructions.files` in `internal/session/instructions_load.go`, the per-session rendering of the standing parts in `internal/session/rules_load.go` and `internal/agent/rules_prompt.go`, their placement in a template in `internal/agent/system_prompt.go`; tool-path activation and the rules a tool result carries in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
 - Specs: `features/rules_one_folder.feature`, `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`, and the prompt-cache group `features/prompt_cache_rules.feature` and `features/prompt_cache_prefix.feature` (`make test-cache`); the context a session over this repository's own rules costs is measured by `BenchmarkContextOfThisRepositoryRules` (`make test-perf BENCH=Context`)
 - End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `FOXXYCODE_HOME`, a workspace with nothing in it)

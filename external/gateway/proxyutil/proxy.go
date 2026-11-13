@@ -1,4 +1,4 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 // Package proxyutil builds HTTP clients with optional proxy support for gateway adapters.
 // Supported schemes: http, https, socks5, socks5h.

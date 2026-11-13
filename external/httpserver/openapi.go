@@ -1836,6 +1836,7 @@ func openAPISpec() map[string]interface{} {
 											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /foxxycode/auth/telegram), the bot's admins only."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1892,10 +1893,53 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/auth/telegram": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
+					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
+						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
+						"**400** without an enabled Telegram bot with a token or with a body that is not valid JSON, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+					"operationId": "authTelegram",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"init_data": map[string]string{"type": "string"}},
+									"required":   []string{"init_data"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the Mini App session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string", "description": "`telegram:<user id>`"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie, so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -4389,7 +4433,7 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. `off` joins the choices only when that logical model sets `allow_reasoning_off: true`. Omitted for non-reasoning models.",
 									},
 									"reasoning_default": map[string]string{
 										"type":        "string",

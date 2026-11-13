@@ -255,6 +255,9 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// turnRestriction is what the surface running the current turn took away
+	// from it; turn-scoped and never persisted.
+	turnRestriction *TurnRestriction
 	// turnWake is the background wake the current turn was started for, until
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
@@ -1600,6 +1603,21 @@ func (s *State) SetSurfaceSystemPrompt(block string) {
 	s.mu.Lock()
 	s.surfaceSystemPrompt = strings.TrimSpace(block)
 	s.mu.Unlock()
+}
+
+// SetTurnRestriction records what the surface running the current turn takes
+// away from it; nil clears it.
+func (s *State) SetTurnRestriction(r *TurnRestriction) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnRestriction = r
+}
+
+// GetTurnRestriction returns the current turn's restriction, or nil.
+func (s *State) GetTurnRestriction() *TurnRestriction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnRestriction
 }
 
 // GetSurfaceSystemPrompt returns that block, or "" when the turn came from a

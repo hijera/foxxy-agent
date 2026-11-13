@@ -214,6 +214,46 @@ func TestTelegramTokenProbe(t *testing.T) {
 	}
 }
 
+func TestPachcaTokenProbe(t *testing.T) {
+	status := http.StatusOK
+	scopes := `["messages:create","messages:update","messages:read","chats:read","profile:read","users:read","webhooks:events:read","webhooks:events:delete"]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token/info" || r.Header.Get("Authorization") != "Bearer pc-token" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = fmt.Fprintf(w, `{"data":{"id":1,"user_id":77,"scopes":%s}}`, scopes)
+		} else {
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token","error_description":"revoked"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv(config.PachcaAPIBaseEnv, srv.URL)
+	body := "gateways:\n  pachca:\n    enable: true\n    token: \"pc-token\"\n"
+
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusOK || !strings.Contains(c.Message, "77") {
+		t.Errorf("accepted token %+v", c)
+	}
+	scopes = `["messages:create","messages:update","messages:read","chats:read","profile:read","users:read","webhooks:events:read"]`
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusWarning || !strings.Contains(c.Message, "webhooks:events:delete") {
+		t.Errorf("token without the delete scope %+v", c)
+	}
+	scopes = `["messages:create"]`
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "profile:read") {
+		t.Errorf("token without required scopes %+v", c)
+	}
+	status = http.StatusUnauthorized
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "rejected") || c.Line != 5 {
+		t.Errorf("rejected token %+v", c)
+	}
+	t.Setenv(config.PachcaBotTokenEnvVar, "")
+	if c := find(t, run(t, "gateways:\n  pachca:\n    enable: true\n", nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "no token") {
+		t.Errorf("missing token %+v", c)
+	}
+}
+
 // runWithMCP prepares body, writes mcpJSON as <home>/mcp.json - where the MCP
 // servers are declared - and runs the probes.
 func runWithMCP(t *testing.T, body, mcpJSON string) *Report {
@@ -750,5 +790,70 @@ func TestCodexRowOffTheCLILoginIsNamed(t *testing.T) {
 	}
 	if p := find(t, rep, "providers[codex]"); p.Status != StatusOK {
 		t.Errorf("codex check %+v, want the CLI login to serve it", p)
+	}
+}
+
+// The bot gives Telegram the web UI's address: the dry run says when the bot
+// will hold it back (the web UI asks for no sign-in) and whether the address
+// answers with the web UI at all.
+func TestMiniAppChecks(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprint(w, `<!doctype html><div id="root"></div>`)
+	}))
+	t.Cleanup(web.Close)
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true,"result":{"username":"dry_bot"}}`)
+	}))
+	t.Cleanup(tg.Close)
+	t.Setenv(config.TelegramAPIBaseEnv, tg.URL)
+	body := func(url string) string {
+		return "gateways:\n  telegram:\n    enable: true\n    token: \"123:abc\"\n    mini_app:\n      url: \"" + url + "\"\n"
+	}
+
+	rep := run(t, body(web.URL+"/"), nil)
+	if c := find(t, rep, "gateways.telegram.mini_app.url"); c.Status != StatusOK || !strings.Contains(c.Message, "answers") {
+		t.Errorf("the web UI answers: %+v", c)
+	}
+	for _, c := range rep.Checks {
+		if c.Path == "gateways.telegram.mini_app" {
+			t.Errorf("a gated web UI got %+v", c)
+		}
+	}
+
+	rep = run(t, body(web.URL+"/"), func(r *Request) { r.WebUIOpen = true })
+	if c := find(t, rep, "gateways.telegram.mini_app"); c.Status != StatusWarning || !strings.Contains(c.Message, "will not advertise") || c.Line == 0 {
+		t.Errorf("an open web UI: %+v", c)
+	}
+
+	if c := find(t, run(t, body(web.URL+"/nothing"), nil), "gateways.telegram.mini_app.url"); c.Status != StatusWarning || !strings.Contains(c.Message, "HTTP 404") {
+		t.Errorf("a wrong address: %+v", c)
+	}
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL + "/"
+	dead.Close()
+	if c := find(t, run(t, body(deadURL), nil), "gateways.telegram.mini_app.url"); c.Status != StatusWarning || !strings.Contains(c.Message, "cannot reach") {
+		t.Errorf("an unreachable address: %+v", c)
+	}
+}
+
+func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
+	t.Setenv(config.PachcaBotTokenEnvVar, "")
+	t.Setenv(config.TelegramBotTokenEnvVar, "")
+	if c := find(t, run(t, "gateways:\n  telegram:\n    enable: true\n", nil), "gateways.telegram.admins"); c.Status != StatusWarning {
+		t.Errorf("a Telegram bot without admins: %+v", c)
+	}
+	body := "gateways:\n  pachca:\n    enable: true\n"
+	if c := find(t, run(t, body, nil), "gateways.pachca.admins"); c.Status != StatusWarning || !strings.Contains(c.Message, "no admins") {
+		t.Errorf("no admins: %+v", c)
+	}
+	body = "gateways:\n  pachca:\n    enable: true\n    admins: [7]\n"
+	for _, c := range run(t, body, nil).Checks {
+		if c.Path == "gateways.pachca.admins" {
+			t.Errorf("a bot with admins was warned: %+v", c)
+		}
 	}
 }

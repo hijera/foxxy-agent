@@ -609,6 +609,13 @@ See [Architecture docs](docs/contributing/architecture.md) for full details.
 - Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
 - Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
 
+## Upstream 1.2.55–1.2.60 capabilities
+
+- Telegram Mini App: the web UI opens from the bot menu or `/app`, follows Telegram navigation and signs in bot admins from the launch data.
+- Pachca integration bot with direct chats, groups and threads, quoted replies, admin-only settings and offline test coverage.
+- Group members who are not bot admins can chat but cannot change the model, resume sessions or run privileged tools.
+- `models[].allow_reasoning_off` makes Off an explicit per-model capability instead of inferring it from the model name.
+
 ## Documentation
 
 - [Built-in documentation](docs/features/built-in-docs.md) - pages in the binary, searchable and readable through the web UI, console, CLI and agent tools
