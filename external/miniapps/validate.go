@@ -360,6 +360,9 @@ func validate(app MiniApp, capabilities CapabilitySet) ValidationReport {
 			add(path+".id", "is duplicated")
 		}
 		outputIDs[output.ID] = true
+		if output.Type == "file" && output.Renderer != "" && output.Renderer != "auto" && output.Renderer != "audio" && output.Renderer != "image" && output.Renderer != "video" && output.Renderer != "download" {
+			add(path+".renderer", "file renderer must be auto, audio, image, video or download")
+		}
 		if strings.TrimSpace(output.Type) == "" {
 			add(path+".type", "is required")
 		}
@@ -439,8 +442,8 @@ func validateInputValidation(spec Validation, path string, add func(string, stri
 	if spec.MaxTotalBytes != nil && *spec.MaxTotalBytes < 0 {
 		add(path+".max_total_bytes", "must not be negative")
 	}
-	if len(spec.Extensions) > 0 || len(spec.MediaTypes) > 0 || spec.MaxFiles != nil || spec.MaxTotalBytes != nil || spec.MustExist || spec.FilesystemKind != "" {
-		add(path, "file constraints are not supported in schema v1")
+	if spec.MustExist || spec.FilesystemKind != "" {
+		add(path, "server filesystem constraints are not supported; use uploaded files")
 	}
 	if spec.Pattern != "" {
 		if len(spec.Pattern) > 4096 {

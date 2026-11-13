@@ -131,6 +131,17 @@ func TestDistillEmbedsTheMatchedProfileIntoTheDocument(t *testing.T) {
 			}
 		}
 	}
+	for _, field := range app.Inputs {
+		if strings.Contains(field.ID, "input_path") && field.Type != "file" {
+			t.Fatalf("source is not an upload: %+v", field)
+		}
+		if strings.Contains(field.ID, "output_path") && (field.Type != "string" || field.Default != "clip.mp3") {
+			t.Fatalf("output filename: %+v", field)
+		}
+	}
+	if len(app.Outputs) < 2 || app.Outputs[1].Type != "file" || app.Outputs[1].Renderer != "audio" {
+		t.Fatalf("outputs=%+v", app.Outputs)
+	}
 	if len(surfaced) != 3 {
 		t.Fatalf("inputs = %+v, want all three params surfaced (got %v)", app.Inputs, surfaced)
 	}

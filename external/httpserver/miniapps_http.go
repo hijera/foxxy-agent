@@ -91,6 +91,9 @@ func (s *Server) registerMiniAppsRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/miniapp-distillations/{job_id}/scenario", s.miniAppsDistillationScenarioPost)
 	s.mux.HandleFunc("POST /foxxycode/miniapp-distillations/{job_id}/cancel", s.miniAppsDistillationCancelPost)
 
+	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/inputs/{input_id}/uploads", s.miniAppsUploadPost)
+	s.mux.HandleFunc("DELETE /foxxycode/miniapps/{id}/uploads/{upload_id}", s.miniAppsUploadDelete)
+	s.mux.HandleFunc("GET /foxxycode/miniapp-runs/{run_id}/files/{file_id}", s.miniAppsRunFileGet)
 	s.mux.HandleFunc("GET /foxxycode/miniapps", s.miniAppsCatalogGet)
 	s.mux.HandleFunc("POST /foxxycode/miniapps", s.miniAppsCatalogPost)
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}", s.miniAppsGet)
@@ -1185,6 +1188,9 @@ func safeMiniAppsRelativePath(path string) bool {
 
 func miniAppsPublicRun(run miniapps.Run) miniapps.Run {
 	run.LogPath, run.EventsPath = "", ""
+	for i := range run.Files {
+		run.Files[i].Path = ""
+	}
 	return run
 }
 

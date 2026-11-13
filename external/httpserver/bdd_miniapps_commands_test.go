@@ -438,6 +438,7 @@ func initializeMiniAppsCommandsScenario(sc *godog.ScenarioContext) {
 }
 
 func TestMiniAppsCommandsFeature(t *testing.T) {
+	t.Setenv("FOXXYCODE_FAKE_CMD_CREATE_LAST_FILE", "1")
 	suite := godog.TestSuite{Name: "miniapp-commands", ScenarioInitializer: initializeMiniAppsCommandsScenario, Options: &godog.Options{
 		Format: "pretty", Paths: []string{"../../features/miniapp_commands.feature"}, TestingT: t, Strict: true,
 	}}

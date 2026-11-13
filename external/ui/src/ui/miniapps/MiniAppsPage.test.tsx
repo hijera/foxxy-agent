@@ -11,6 +11,7 @@ import { MiniAppsPage } from "./MiniAppsPage";
 
 afterEach(() => {
   cleanup();
+  window.sessionStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -201,10 +202,7 @@ test("mini-agent errors are announced as errors", async () => {
         apps: [{ id: "hello", name: "Greeting", state: "draft" }],
       });
     if (path.includes("/assistant"))
-      return json(
-        { error: { message: "Assistant response is invalid" } },
-        422,
-      );
+      return json({ error: { message: "Assistant response is invalid" } }, 422);
     if (path.includes("/draft"))
       return json({
         id: "hello",
@@ -317,14 +315,14 @@ test("a successful test stays release-ready after closing the runner", async () 
     await screen.findByRole("heading", { name: "Greeting" }),
   ).toBeInTheDocument();
   await validateAndSanitizeCurrentDraft();
-  fireEvent.click(screen.getByRole("button", { name: "Test generated workflow" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Test generated workflow" }),
+  );
   fireEvent.click(await screen.findByTestId("miniapps-run-start"));
   expect(await screen.findByText("Succeeded")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-  expect(
-    screen.getByRole("button", { name: "Release version" }),
-  ).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Release version" })).toBeEnabled();
 });
 
 test("a released run does not verify the edited draft", async () => {
@@ -348,4 +346,79 @@ test("a released run does not verify the edited draft", async () => {
   expect(
     screen.getByRole("button", { name: "Release version" }),
   ).toBeDisabled();
+});
+
+test("history opens and reruns the exact released version", async () => {
+  const document = (version: string) => ({
+    id: "versioned",
+    version,
+    state: "released",
+    revision: `r-${version}`,
+    metadata: { name: `Version ${version}` },
+    inputs: [],
+  });
+  const fetchMock = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === "/foxxycode/miniapps")
+        return json({
+          items: [
+            {
+              id: "versioned",
+              name: "Versioned",
+              state: "released",
+              version: "2.0.0",
+            },
+          ],
+        });
+      if (path.endsWith("/draft")) return json(document("2.0.0"));
+      if (path.includes("/versions/1.0.0")) return json(document("1.0.0"));
+      if (path.includes("/versions/2.0.0")) return json(document("2.0.0"));
+      if (path.endsWith("/runs"))
+        return json({
+          items: [
+            {
+              id: "run-one",
+              app_id: "versioned",
+              version: "1.0.0",
+              status: "succeeded",
+            },
+          ],
+        });
+      if (path.includes("/miniapp-runs/"))
+        return json({
+          id: "run-one",
+          app_id: "versioned",
+          version: "1.0.0",
+          status: "succeeded",
+        });
+      return json({});
+    });
+  render(
+    <MiniAppsPage
+      selectedAppId="versioned"
+      onNavigate={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  fireEvent.click(await screen.findByText("Run released version"));
+  await screen.findByTestId("miniapps-run-start");
+  expect(
+    screen.getByRole("heading", { name: "Version 2.0.0" }),
+  ).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: /Succeeded Version 1.0.0/ }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Version 1.0.0" }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByText("Run again"));
+  fireEvent.click(screen.getByTestId("miniapps-run-start"));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/versions/1.0.0/runs"),
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
 });

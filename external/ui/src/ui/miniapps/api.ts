@@ -11,6 +11,7 @@ import type {
   MiniAppPatch,
   MiniAppRun,
   MiniAppRunEvent,
+  MiniAppUpload,
 } from "./types";
 
 async function errorMessage(res: Response): Promise<string> {
@@ -473,3 +474,47 @@ export function subscribeMiniAppEvents(
 }
 
 export type MiniAppPatchResult = MiniAppApiResult<MiniAppPatch>;
+
+export async function uploadMiniAppFile(
+  app: MiniAppDocument,
+  inputId: string,
+  file: File,
+): Promise<MiniAppApiResult<MiniAppUpload>> {
+  const data = new FormData();
+  data.append("file", file);
+  const query = new URLSearchParams({ revision: app.revision || "" });
+  if (app.version) query.set("version", app.version);
+  return request(
+    `${appPath(app.id)}/inputs/${encodeURIComponent(inputId)}/uploads?${query}`,
+    { method: "POST", body: data },
+  );
+}
+
+export async function deleteMiniAppUpload(
+  appId: string,
+  uploadId: string,
+): Promise<MiniAppApiResult<unknown>> {
+  return request(`${appPath(appId)}/uploads/${encodeURIComponent(uploadId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchMiniAppFile(
+  runId: string,
+  fileId: string,
+): Promise<MiniAppApiResult<Blob>> {
+  try {
+    const response = await fetch(
+      `/foxxycode/miniapp-runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(fileId)}`,
+    );
+    if (!response.ok)
+      return {
+        ok: false,
+        status: response.status,
+        message: await errorMessage(response),
+      };
+    return { ok: true, status: response.status, data: await response.blob() };
+  } catch {
+    return { ok: false, status: 0, message: "network" };
+  }
+}

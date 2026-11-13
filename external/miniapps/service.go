@@ -55,6 +55,8 @@ type AsyncJob struct {
 	AppID        string                   `json:"app_id,omitempty"`
 	Version      string                   `json:"version,omitempty"`
 	RunID        string                   `json:"run_id,omitempty"`
+	Files        []RunFile                `json:"files,omitempty"`
+	Outputs      map[string]any           `json:"outputs,omitempty"`
 	Revision     string                   `json:"revision,omitempty"`
 	Status       JobStatus                `json:"status"`
 	Phase        string                   `json:"phase,omitempty"`
@@ -333,7 +335,16 @@ func (s *Service) StartTestRun(appID string, inputs map[string]any, decisions *O
 	if err != nil {
 		return AsyncJob{}, err
 	}
-	inputs = ReplayInputs(app, evidence, inputs)
+	provided := cloneMap(inputs)
+	if provided == nil {
+		provided = map[string]any{}
+	}
+	for key, value := range evidence.FixtureInputs {
+		if existing, ok := provided[key]; !ok || existing == nil || existing == "" {
+			provided[key] = value
+		}
+	}
+	inputs = ReplayInputs(app, evidence, provided)
 	job, ctx := s.newJob(JobTestRun, "", app.ID, "")
 	job.Revision = app.Revision
 	s.updateJob(job.ID, func(item *AsyncJob) { item.Revision = app.Revision; item.Phase = "queued" })
@@ -347,13 +358,25 @@ func (s *Service) StartTestRun(appID string, inputs map[string]any, decisions *O
 func (s *Service) runTestJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, evidence SourceEvidence, resumeRunID string) {
 	s.updateJob(id, func(job *AsyncJob) { job.Status, job.Phase, job.Progress = JobRunning, "running_draft", 10 })
 	var run Run
+	defer func() {
+		if ctx.Err() != nil {
+			s.runner.Discard(run.ID)
+		}
+	}()
 	var err error
 	if resumeRunID != "" {
 		run, err = s.runner.Resume(ctx, resumeRunID, decisions)
 	} else {
 		run, err = s.runner.RunPortableWithFixture(ctx, app, inputs, decisions, evidence.FixtureFiles)
 	}
-	s.updateJob(id, func(job *AsyncJob) { job.RunID, job.Progress = run.ID, 70 })
+	s.updateJob(id, func(job *AsyncJob) {
+		job.RunID, job.Progress = run.ID, 70
+		job.Files = append([]RunFile(nil), run.Files...)
+		for i := range job.Files {
+			job.Files[i].Path = ""
+		}
+		job.Outputs = run.Outputs
+	})
 	if err != nil && strings.TrimSpace(run.Error) != "" {
 		err = errors.New(run.Error)
 	}
@@ -380,6 +403,10 @@ func (s *Service) runTestJob(ctx context.Context, id string, app MiniApp, inputs
 			}
 			s.failJob(id, err)
 		}
+		return
+	}
+	if err := s.store.RecordFileInputs(app, inputs); err != nil {
+		s.failJob(id, err)
 		return
 	}
 	if err := s.store.RecordPassingTest(app.ID, run); err != nil {
@@ -414,13 +441,25 @@ func (s *Service) StartReleaseRun(appID, version string, inputs map[string]any, 
 func (s *Service) runReleaseJob(ctx context.Context, id string, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, resumeRunID string) {
 	s.updateJob(id, func(job *AsyncJob) { job.Status, job.Phase, job.Progress = JobRunning, "running_release", 10 })
 	var run Run
+	defer func() {
+		if ctx.Err() != nil {
+			s.runner.Discard(run.ID)
+		}
+	}()
 	var err error
 	if resumeRunID != "" {
 		run, err = s.runner.Resume(ctx, resumeRunID, decisions)
 	} else {
 		run, err = s.runner.RunPortable(ctx, app, inputs, decisions)
 	}
-	s.updateJob(id, func(job *AsyncJob) { job.RunID, job.Progress = run.ID, 80 })
+	s.updateJob(id, func(job *AsyncJob) {
+		job.RunID, job.Progress = run.ID, 80
+		job.Files = append([]RunFile(nil), run.Files...)
+		for i := range job.Files {
+			job.Files[i].Path = ""
+		}
+		job.Outputs = run.Outputs
+	})
 	if err != nil && strings.TrimSpace(run.Error) != "" {
 		err = errors.New(run.Error)
 	}
@@ -756,6 +795,9 @@ func (s *Service) updateJob(id string, update func(*AsyncJob)) {
 		return
 	}
 	update(&job)
+	if job.Status != JobWaitingForConfirm {
+		job.Confirmation = nil
+	}
 	job.UpdatedAt = time.Now().UTC()
 	// Publish the new state before releasing the lock. Persisting while this
 	// critical section is held preserves update order on disk as well as in

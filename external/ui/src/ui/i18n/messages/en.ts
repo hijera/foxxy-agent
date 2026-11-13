@@ -2275,4 +2275,14 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.description":
     "Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (foxxycode plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.foxxycode/marketplaces.json, the project's in its .foxxycode/marketplaces.json, which travels with the checkout: under \"ask\" a project entry is synced only once you approve it with the shield. Everything installs into ~/.foxxycode/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.",
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
+  "miniapps.typeFile": "File",
+  "miniapps.typeFiles": "Files",
+  "miniapps.typeInteger": "Integer",
+  "miniapps.typeText": "Multiline text",
+  "miniapps.files.tooMany": "Choose up to {count} files.",
+  "miniapps.files.uploading": "Uploading…",
+  "miniapps.files.drop": "Choose a file or drop it here.",
+  "miniapps.files.remove": "Remove {name}",
+  "miniapps.files.loading": "Preparing download…",
+  "miniapps.files.download": "Download {name}",
 };

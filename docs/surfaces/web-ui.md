@@ -1667,8 +1667,12 @@ revision checks. Validation, same-data verification, sanitization, repair
 acceptance, and release are separate explicit actions; a dirty or stale editor
 cannot release an older stored revision.
 
-The runner generates controls for text, numeric, boolean, enum, date, and
-secret inputs. It polls the asynchronous job as the authoritative state and
+The runner generates controls for text, numeric, boolean, enum, date, secret,
+and uploaded file inputs. Forms follow declared groups and field order. Audio,
+video and image outputs preview inline and generated files download from the
+persisted run. Reload restores the selected run, and history reopens its results.
+The [MP4-to-MP3 example](../features/mini-apps.md#example-mp4-to-mp3) demonstrates
+the complete upload, command execution, player and download flow. It polls the asynchronous job as the authoritative state and
 uses sequenced SSE for prompt progress. Confirmation cards show the exact
 reviewed action; cancellation and rerun remain available. Released runs load
 the immutable version from **`/versions/{version}`**, including after a page

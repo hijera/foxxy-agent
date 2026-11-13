@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import {
   getAuthoringSource,
   getMiniApp,
   getMiniAppDraft,
   getMiniAppRelease,
+  getRun,
   listMiniApps,
   listRuns,
 } from "./api";
@@ -12,6 +13,7 @@ import { DistillationWorkspace } from "./DistillationWorkspace";
 import { MiniAppEditor } from "./MiniAppEditor";
 import { MiniAppsCatalog } from "./MiniAppsCatalog";
 import { MiniAppRunner } from "./MiniAppRunner";
+import { savedMiniAppRun } from "./runMemory";
 import { RunHistory } from "./RunHistory";
 import type { MiniAppCatalogEntry, MiniAppDocument, MiniAppRun } from "./types";
 
@@ -23,6 +25,8 @@ export function MiniAppsPage(props: {
   onClose: () => void;
 }) {
   const { t } = useT();
+  const selectionRef = useRef(props.selectedAppId);
+  selectionRef.current = props.selectedAppId;
   const [apps, setApps] = useState<MiniAppCatalogEntry[]>([]);
   const [selected, setSelected] = useState<MiniAppDocument | null>(null);
   const [sourceEvidence, setSourceEvidence] = useState<Record<
@@ -35,7 +39,9 @@ export function MiniAppsPage(props: {
   const [running, setRunning] = useState<{
     app: MiniAppDocument;
     released: boolean;
+    initialRun?: MiniAppRun | undefined;
   } | null>(null);
+  const [runSelection, setRunSelection] = useState(0);
   const [runs, setRuns] = useState<MiniAppRun[]>([]);
   const [verifiedRevision, setVerifiedRevision] = useState<string | null>(null);
   const [validatedRevision, setValidatedRevision] = useState<string | null>(
@@ -69,6 +75,7 @@ export function MiniAppsPage(props: {
       setSanitizedRevision(null);
       return;
     }
+    setRunning(null);
     let cancelled = false;
     void (async () => {
       const result = await getMiniAppDraft(id);
@@ -87,6 +94,22 @@ export function MiniAppsPage(props: {
           if (!cancelled) {
             if (source.ok) setSourceEvidence(source.data);
             if (history.ok) setRuns(history.data);
+            const saved = savedMiniAppRun(id);
+            if (saved) {
+              const restored = await getRun(saved);
+              if (!cancelled && restored.ok && restored.data.app_id === id) {
+                const version = restored.data.version;
+                const release = version
+                  ? await getMiniAppRelease(id, version)
+                  : null;
+                if (!cancelled)
+                  setRunning({
+                    app: release?.ok ? release.data : fallback.data,
+                    released: !!version,
+                    initialRun: restored.data,
+                  });
+              }
+            }
           }
         } else setError(fallback.message);
       }
@@ -120,6 +143,25 @@ export function MiniAppsPage(props: {
     else setError(result.message);
   };
 
+  const openHistoryRun = async (run: MiniAppRun) => {
+    if (!selected) return;
+    const id = selected.id;
+    const release = run.version
+      ? await getMiniAppRelease(id, run.version)
+      : null;
+    if ((selectionRef.current || "").trim() !== id) return;
+    if (release && !release.ok) {
+      setError(release.message);
+      return;
+    }
+    setRunSelection((current) => current + 1);
+    setRunning({
+      app: release?.ok ? release.data : selected,
+      released: !!run.version,
+      initialRun: run,
+    });
+  };
+
   if (distilling && props.sessionId)
     return (
       <main className="miniapps-page">
@@ -134,8 +176,10 @@ export function MiniAppsPage(props: {
     return (
       <main className="miniapps-page">
         <MiniAppRunner
+          key={`${running.initialRun?.id || "new-run"}:${runSelection}`}
           app={running.app}
           released={running.released}
+          initialRun={running.initialRun}
           onClose={() => setRunning(null)}
           onCompleted={(run) => {
             if (!running.released && run.status === "succeeded") {
@@ -146,7 +190,12 @@ export function MiniAppsPage(props: {
             });
           }}
         />
-        <RunHistory runs={runs} />
+        <RunHistory
+          runs={runs}
+          onSelect={(run) => {
+            void openHistoryRun(run);
+          }}
+        />
       </main>
     );
 
@@ -166,6 +215,14 @@ export function MiniAppsPage(props: {
           {t("miniapps.close")}
         </button>
       </div>
+      {selected && runs.length > 0 ? (
+        <RunHistory
+          runs={runs}
+          onSelect={(run) => {
+            void openHistoryRun(run);
+          }}
+        />
+      ) : null}
       <div className="miniapps-layout">
         <MiniAppsCatalog
           apps={apps}

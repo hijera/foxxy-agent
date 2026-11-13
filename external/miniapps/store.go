@@ -144,6 +144,10 @@ func (s *Store) writeDraftLocked(app MiniApp, source *SourceEvidence, creating b
 			}
 		}
 	}
+	// A changed draft cannot reuse file fixtures selected for an older revision.
+	if !creating {
+		_ = os.RemoveAll(filepath.Join(dir, "draft", "authoring", "uploads"))
+	}
 	// Passing tests and sanitization reports are revision-bound. Any draft
 	// mutation invalidates both artifacts before the catalog is updated.
 	_ = os.Remove(filepath.Join(dir, "draft", "passing-test.json"))

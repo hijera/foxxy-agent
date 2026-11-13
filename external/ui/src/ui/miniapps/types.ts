@@ -12,8 +12,17 @@ export type MiniAppInput = {
     pattern?: string;
     minimum?: number;
     maximum?: number;
+    extensions?: string[];
+    media_types?: string[];
+    max_files?: number;
+    max_total_bytes?: number;
   };
-  ui?: { control?: string; placeholder?: string };
+  ui?: {
+    control?: string;
+    placeholder?: string;
+    order?: number;
+    group?: string;
+  };
 };
 
 export type MiniAppStep = {
@@ -60,8 +69,19 @@ export type MiniAppDocument = {
     acceptance_criterion?: string;
     checks?: unknown[];
   };
-  outputs?: unknown[];
-  display?: { title?: string; description?: string; layout?: string };
+  outputs?: {
+    id: string;
+    type: string;
+    value?: unknown;
+    renderer?: string;
+    title?: string;
+  }[];
+  display?: {
+    title?: string;
+    description?: string;
+    layout?: string;
+    submit_label?: string;
+  };
   runtime?: Record<string, unknown>;
   [key: string]: unknown;
 };
@@ -100,7 +120,24 @@ export type MiniAppDistillation = {
   [key: string]: unknown;
 };
 
+export type MiniAppFile = {
+  id: string;
+  output_id: string;
+  name: string;
+  title?: string;
+  renderer?: string;
+  media_type: string;
+  size_bytes: number;
+};
+export type MiniAppUpload = {
+  id: string;
+  name: string;
+  size_bytes: number;
+  media_type: string;
+};
+
 export type MiniAppRun = {
+  files?: MiniAppFile[];
   id?: string;
   run_id?: string;
   app_id?: string;

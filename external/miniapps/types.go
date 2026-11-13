@@ -116,6 +116,7 @@ type InputUI struct {
 	Control     string `json:"control"`
 	Order       int    `json:"order,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
+	Group       string `json:"group,omitempty"`
 }
 
 type RetryPolicy struct {
@@ -198,6 +199,7 @@ type DisplaySpec struct {
 	Title       string   `json:"title,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Layout      string   `json:"layout,omitempty"`
+	SubmitLabel string   `json:"submit_label,omitempty"`
 	Sections    []string `json:"sections,omitempty"`
 }
 
@@ -220,6 +222,7 @@ type SourceEvidence struct {
 	AcceptedResult     any                      `json:"accepted_result,omitempty"`
 	SourceFixture      map[string]any           `json:"source_fixture,omitempty"`
 	FixtureFiles       map[string][]byte        `json:"fixture_files,omitempty"`
+	FixtureInputs      map[string]any           `json:"fixture_inputs,omitempty"`
 	Metrics            map[string]any           `json:"metrics,omitempty"`
 	CreatedAt          time.Time                `json:"created_at"`
 }
@@ -278,6 +281,7 @@ type Run struct {
 	Inputs     map[string]any        `json:"inputs,omitempty"`
 	Outputs    map[string]any        `json:"outputs,omitempty"`
 	Steps      map[string]StepResult `json:"steps,omitempty"`
+	Files      []RunFile             `json:"files,omitempty"`
 	Artifacts  []RunArtifact         `json:"artifacts,omitempty"`
 	Error      string                `json:"error,omitempty"`
 	StartedAt  time.Time             `json:"started_at"`

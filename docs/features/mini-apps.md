@@ -70,19 +70,79 @@ requires explicit approval and streams job output. Batch files are refused, the
 binary must resolve outside the run workspace, and file arguments stay confined
 to it.
 
-## File conversion limitations
+## Generated interface and files
 
-Command profiles can run converters such as `ffmpeg`, but the current browser
-runner does not upload files or copy a path entered in the form into the run
-workspace. Each run starts in its own isolated directory; command file parameters
-must stay inside it. An absolute path to a video elsewhere on the server is
-rejected, and a relative filename alone does not supply its contents.
+The agent describes the interface in the portable document; FoxxyCode renders it
+with its own components and theme. `display.title`, `display.description` and
+`display.submit_label` control the heading, introduction and launch button.
+`display.layout: stacked` uses one column; `form-result` uses the normal form.
+Inputs use `ui.order`, optional `ui.group`, descriptions and typed controls:
+text, multiline text, numbers, booleans, enums, dates, secrets and file uploads.
+The editor assistant can update these declarations without generating executable
+HTML or JavaScript. The input editor also exposes File and Files types.
 
-Consequently, an ordinary **choose an MP4 → download an MP3** workflow is not yet
-supported end to end. The command engine can convert a video materialized as a
-verification fixture or produced by an earlier step, but the runner still needs
-file ingestion and an artifact download surface for an operator-facing converter.
-Do not widen command-path permissions to work around the missing file transfer.
+File inputs provide both a chooser and drag-and-drop. Uploads are bound to the
+app, input, exact draft revision or release version. The host checks file
+extensions, sniffed media types, file counts and byte limits; it copies the bytes
+into that run's workspace before tools execute. Entering an arbitrary server
+path is unnecessary. Each file is limited to 256 MiB, a multi-file input to 16
+files, and staged uploads to 512 MiB per app. Lower limits can be declared with
+`validation.extensions`, `media_types`, `max_files` and `max_total_bytes`.
+Unselected staged uploads expire after 24 hours and are removed lazily on the
+next upload. Explicit removal deletes staging data.
+
+A successful draft test retains the selected uploads as private verification
+fixtures. The next test can reuse those exact bytes even after staging cleanup
+or a server restart. Saving a draft invalidates its revision-bound checks and
+file fixtures; choose source files again for the edited draft. These fixtures
+never travel inside a portable release.
+
+Declare a generated file with `outputs[].type: file` and a workspace-relative
+`value` (a filename input reference is also supported). A successful run records
+a stable file id, name, size, sniffed media type and SHA-256. Renderers `audio`,
+`video`, `image` and `download` produce previews or downloads; sniffed content,
+rather than the filename, decides which media can be previewed. Ordinary
+outputs support text, JSON and tables. Files remain accessible from persisted
+run history after a reload. Choosing an old run reopens its results, and an
+active run can be cancelled. A command-trust confirmation continues the same
+run instead of adding a second history row.
+
+## Example: MP4 to MP3
+
+The [audio-extractor document](../../examples/miniapps/audio-extractor.json)
+contains a complete form and a narrow ffmpeg command profile. Create it through
+`POST /foxxycode/miniapps`, then open `#/miniapps/audio-extractor`:
+
+```bash
+curl -H 'Content-Type: application/json' \
+  --data-binary @examples/miniapps/audio-extractor.json \
+  http://127.0.0.1:12345/foxxycode/miniapps
+```
+
+Add the usual bearer authorization header when the host requires it. In the
+browser, choose an MP4, select MP3 quality, set the output filename and choose
+**Extract MP3**. Install ffmpeg through the declared package-manager coordinates
+if it is missing, and review its machine-local command trust when prompted.
+The successful result includes an audio player and **Download audio.mp3**.
+A video without an audio track reports a failed conversion instead of a file
+that cannot be played. After verification, release an immutable version and run
+it with a different upload.
+
+![Generated video upload form](../assets/mini-apps/audio-extractor-form-dark-1280.png)
+
+*The generated form accepts an MP4 upload, typed quality options and a result filename.*
+
+![Extracted MP3 result](../assets/mini-apps/audio-extractor-result-dark-1280.png)
+
+*The real ffmpeg result plays in the browser and downloads from the persisted run.*
+
+When distilling a command-backed session, profile parameter types become form
+controls. Conventional `output_path`, `output_file`, `destination_path`,
+`destination_file`, `target_path` and `target_file` parameters become filename
+fields and declared file results; other file parameters become uploads. Review
+those inferred roles before testing. Existing source-result comparison still
+applies: supplying a file does not silently approve a mismatch against recorded
+source evidence.
 
 ## Source evidence
 

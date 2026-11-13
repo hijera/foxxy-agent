@@ -346,9 +346,36 @@ Execution routes:
   message/details. **`GET /foxxycode/miniapps/{id}/runs`** returns sanitized run
   history without server filesystem paths.
 
-All ids are portable identifiers, request bodies are bounded strict JSON, and
-operator-visible errors/events are redacted. Source evidence is never copied
-into the portable release document. The first runtime supports registered
+File transfer routes:
+
+- **`POST /foxxycode/miniapps/{id}/inputs/{input_id}/uploads?revision=...`**
+  streams one **`multipart/form-data`** file part named `file`. Add
+  **`version=1.0.0`** for a released document. **`201`** returns an opaque
+  `id`, name, sniffed `media_type`, `size_bytes` and SHA-256; **`409`** rejects a
+  missing/stale revision, **`413`** an oversized file, **`422`** an invalid input,
+  filename, extension or media type. Limits: 256 MiB/file, 16 files/input,
+  512 MiB staged/app. Staging expires after 24 hours, with lazy cleanup.
+- Supply **`{"upload_id":"upload-..."}`** as a `file` input, or an array of
+  such objects as a `files` input. Uploads are bound to the app, input and exact
+  revision/version; tools receive confined workspace paths after streaming copy
+  and integrity checks. A passing draft test pins the selected source uploads
+  as private fixtures for future verification, independently of staging expiry.
+- **`DELETE /foxxycode/miniapps/{id}/uploads/{upload_id}`** removes staging data
+  (**`204`**); it does not remove an already pinned verification fixture or a
+  completed run's own copy.
+- **`GET /foxxycode/miniapp-runs/{run_id}/files/{file_id}`** downloads a declared
+  file result from a successful persisted run. Run/job responses expose `files`
+  with stable ids, names, sizes, media types, hashes and renderer hints, plus
+  sanitized `outputs`. Use the persisted `run_id`, not the job id, for downloads.
+  **`200`** returns the bytes, **`206`** supports ranges, **`404`** rejects unknown,
+  changed, missing or linked files. Opens stay confined to the run workspace;
+  content sniffing, `nosniff`, private/no-store and safe Content-Disposition apply.
+  **`?inline=1`** permits sniffed audio/video/raster images only. Previews can fetch
+  an authenticated blob, so remote environments and bearer tokens work too.
+
+All ids are portable identifiers; JSON request bodies are bounded and strict,
+while file uploads use the bounded multipart route above. Operator-visible
+errors/events are redacted. Source evidence is never copied into the portable release document. The first runtime supports registered
 `tool`, configured `llm`, bounded ReAct `agent`, `confirm`, restricted `branch`,
 and exact-version `miniapp` steps; arbitrary script/command runtimes and MCP
 bundles are not part of this contract.

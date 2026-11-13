@@ -252,6 +252,7 @@ func synthesizeMiniApp(input DistillInput, trace NormalizedTrace, scenario Trace
 		ID: "result", Type: "json", Value: Ref{Ref: "steps." + lastStep + ".outputs.result"},
 		Renderer: "json", Title: "Result",
 	}}
+	enrichCommandForms(&app, inputByID)
 	return app, nil
 }
 

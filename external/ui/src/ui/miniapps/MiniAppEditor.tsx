@@ -82,6 +82,10 @@ function InputEditor(props: {
               }
             >
               <option value="string">{t("miniapps.typeString")}</option>
+              <option value="file">{t("miniapps.typeFile")}</option>
+              <option value="files">{t("miniapps.typeFiles")}</option>
+              <option value="integer">{t("miniapps.typeInteger")}</option>
+              <option value="text">{t("miniapps.typeText")}</option>
               <option value="secret">{t("miniapps.typeSecret")}</option>
               <option value="enum">{t("miniapps.typeSelect")}</option>
               <option value="boolean">{t("miniapps.typeBoolean")}</option>
@@ -537,6 +541,7 @@ export function MiniAppEditor(props: {
             <button
               type="button"
               className="miniapps-primary"
+              data-testid="miniapps-release-run"
               onClick={props.onRunReleased}
             >
               {t("miniapps.runReleased")}
@@ -545,6 +550,7 @@ export function MiniAppEditor(props: {
             <button
               type="button"
               className="miniapps-primary"
+              data-testid="miniapps-release-run"
               onClick={() => props.onRun(draft, true)}
             >
               {t("miniapps.runReleased")}

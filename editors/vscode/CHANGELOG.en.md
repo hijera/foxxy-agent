@@ -8,7 +8,14 @@
 
 # FoxxyCode for VS Code changes
 
+
 ## Unreleased — 2026-11-13
+
+**The browser shuts down gracefully.**
+Chrome finishes writing its profile before its processes are released. Repeated closes share one shutdown, preventing temporary-profile cleanup from racing background writes.
+
+**Mini Apps process uploaded files and display their results.**
+In web/desktop, choose or drop a file, run a workflow and download the generated result. Audio, video and images preview inside the app; results survive reload and reopen from history. The agent declares fields, groups, ordering and the launch label, while command profiles preserve parameter types. An MP4-to-MP3 example is included. Command trust continues the same run, and verification inputs stay private to the host.
 
 **Turn a completed task into a Mini App.**
 The web and desktop workspace distills successful tool-backed sessions into reviewed,

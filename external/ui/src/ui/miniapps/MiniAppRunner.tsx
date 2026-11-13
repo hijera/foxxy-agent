@@ -10,6 +10,9 @@ import {
   getRun,
   subscribeMiniAppEvents,
 } from "./api";
+import { MiniAppForm } from "./MiniAppForm";
+import { MiniAppResults } from "./MiniAppResults";
+import { rememberMiniAppRun, forgetMiniAppRun } from "./runMemory";
 import type {
   MiniAppDocument,
   MiniAppInput,
@@ -22,12 +25,6 @@ function initialValue(input: MiniAppInput): unknown {
   if (input.default !== undefined) return input.default;
   if (input.type === "boolean") return false;
   return "";
-}
-
-function formatValue(input: MiniAppInput, value: unknown): string {
-  if (input.type === "boolean") return value === true ? "true" : "false";
-  if (value === null || value === undefined) return "";
-  return String(value);
 }
 
 function commandProfileDetails(details: unknown): {
@@ -50,15 +47,17 @@ export function MiniAppRunner(props: {
   released: boolean;
   onClose: () => void;
   onCompleted?: (run: MiniAppRun) => void;
+  initialRun?: MiniAppRun | undefined;
 }) {
   const { t } = useT();
   const inputs = props.app.inputs ?? [];
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries(inputs.map((input) => [input.id, initialValue(input)])),
   );
-  const [run, setRun] = useState<MiniAppRun | null>(null);
+  const [run, setRun] = useState<MiniAppRun | null>(props.initialRun ?? null);
   const [events, setEvents] = useState<MiniAppRunEvent[]>([]);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<MiniAppPatch[]>([]);
   const proposalRequestedRef = useRef(false);
@@ -73,7 +72,7 @@ export function MiniAppRunner(props: {
     const tick = async () => {
       const result = await getRun(runId);
       if (!cancelled && result.ok) {
-        setRun((current) => ({ ...(current ?? {}), ...result.data }));
+        setRun(result.data);
         if (Array.isArray(result.data.proposals))
           setProposals(result.data.proposals);
         if (result.data.report && !proposalRequestedRef.current) {
@@ -89,7 +88,9 @@ export function MiniAppRunner(props: {
           }
         }
         if (
-          result.data.status === "succeeded" &&
+          ["succeeded", "failed", "cancelled", "interrupted"].includes(
+            result.data.status || "",
+          ) &&
           !completedNotifiedRef.current
         ) {
           completedNotifiedRef.current = true;
@@ -136,8 +137,7 @@ export function MiniAppRunner(props: {
   }, [runId]);
 
   const status = (run?.status || "").toLowerCase();
-  const waitingConfirmation =
-    status === "waiting_for_confirmation" || !!run?.confirmation;
+  const waitingConfirmation = status === "waiting_for_confirmation";
   const active =
     !!runId &&
     !["succeeded", "failed", "cancelled", "interrupted"].includes(status);
@@ -152,13 +152,26 @@ export function MiniAppRunner(props: {
     );
   }, [events, run?.progress]);
 
-  const updateValue = (input: MiniAppInput, raw: string | boolean) => {
-    let value: unknown = raw;
-    if (input.type === "number" || input.type === "integer")
-      value = raw === "" ? "" : Number(raw);
-    if (input.type === "boolean") value = raw === true || raw === "true";
-    setValues((current) => ({ ...current, [input.id]: value }));
-  };
+  const visibleEvents = events.reduce<string[]>((labels, event) => {
+    const known = [
+      "queued",
+      "running",
+      "waiting_for_input",
+      "waiting_for_confirmation",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "interrupted",
+    ];
+    if (!event.status || !known.includes(event.status)) return labels;
+    const title = props.app.workflow?.find(
+      (step) => step.id === event.step_id,
+    )?.title;
+    const label =
+      (title ? `${title}: ` : "") + t(`miniapps.status.${event.status}`);
+    if (labels[labels.length - 1] !== label) labels.push(label);
+    return labels;
+  }, []);
 
   const start = async () => {
     setBusy(true);
@@ -170,9 +183,13 @@ export function MiniAppRunner(props: {
         : await createTestRun(props.app.id, values);
     if (result.ok) {
       setRun(result.data);
+      rememberMiniAppRun(
+        props.app.id,
+        result.data.id || result.data.run_id || "",
+      );
       setProposals(result.data.proposals ?? []);
       proposalRequestedRef.current = false;
-      completedNotifiedRef.current = result.data.status === "succeeded";
+      completedNotifiedRef.current = false;
     } else setError(result.message);
     setBusy(false);
   };
@@ -180,8 +197,7 @@ export function MiniAppRunner(props: {
     if (!runId) return;
     setBusy(true);
     const result = await cancelRun(runId);
-    if (result.ok)
-      setRun((current) => ({ ...(current ?? {}), ...result.data }));
+    if (result.ok) setRun(result.data);
     else setError(result.message);
     setBusy(false);
   };
@@ -190,8 +206,7 @@ export function MiniAppRunner(props: {
     setBusy(true);
     const confirmationId = run?.confirmation?.id;
     const result = await confirmRun(runId, approved, confirmationId);
-    if (result.ok)
-      setRun((current) => ({ ...(current ?? {}), ...result.data }));
+    if (result.ok) setRun(result.data);
     else setError(result.message);
     setBusy(false);
   };
@@ -209,13 +224,19 @@ export function MiniAppRunner(props: {
               : t("miniapps.verificationRun")}
           </p>
           <h2 id="miniapps-runner-heading">
-            {props.app.metadata?.name || props.app.id}
+            {props.app.display?.title ||
+              props.app.metadata?.name ||
+              props.app.id}
           </h2>
         </div>
         <button
           type="button"
           className="miniapps-quiet"
-          onClick={props.onClose}
+          data-testid="miniapps-run-close"
+          onClick={() => {
+            forgetMiniAppRun(props.app.id);
+            props.onClose();
+          }}
         >
           {t("miniapps.close")}
         </button>
@@ -231,81 +252,45 @@ export function MiniAppRunner(props: {
       {!runId ? (
         <>
           <p className="miniapps-lead">
-            {props.released
-              ? t("miniapps.runDescription")
-              : t("miniapps.testDescription")}
+            {props.app.display?.description ||
+              (props.released
+                ? t("miniapps.runDescription")
+                : t("miniapps.testDescription"))}
           </p>
-          <div className="miniapps-run-form">
-            {inputs.length === 0 ? (
-              <p className="miniapps-muted">{t("miniapps.noInputs")}</p>
-            ) : null}
-            {inputs.map((input) => {
-              const value = values[input.id];
-              const control =
-                input.type === "secret"
-                  ? "password"
-                  : input.type === "date"
-                    ? "date"
-                    : input.type === "number"
-                      ? "number"
-                      : "text";
-              const label = input.title || input.id;
-              return (
-                <label key={input.id}>
-                  <span>
-                    {label}
-                    {input.required ? <em aria-hidden="true"> *</em> : null}
-                  </span>
-                  {input.type === "boolean" ? (
-                    <span className="miniapps-checkbox">
-                      <input
-                        aria-label={label}
-                        type="checkbox"
-                        checked={value === true}
-                        onChange={(e) => updateValue(input, e.target.checked)}
-                      />
-                      <span>{t("miniapps.enabled")}</span>
-                    </span>
-                  ) : (input.type === "enum" || input.type === "select") &&
-                    input.validation?.enum ? (
-                    <select
-                      aria-label={label}
-                      value={formatValue(input, value)}
-                      onChange={(e) => updateValue(input, e.target.value)}
-                    >
-                      <option value="">{t("miniapps.chooseValue")}</option>
-                      {input.validation.enum.map((option) => (
-                        <option key={String(option)} value={String(option)}>
-                          {String(option)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      aria-label={label}
-                      type={control}
-                      value={formatValue(input, value)}
-                      placeholder={input.ui?.placeholder}
-                      onChange={(e) => updateValue(input, e.target.value)}
-                    />
-                  )}
-                </label>
-              );
-            })}
-          </div>
+          <MiniAppForm
+            app={props.app}
+            values={values}
+            onBusy={setUploading}
+            onChange={(id, value) =>
+              setValues((current) => ({ ...current, [id]: value }))
+            }
+          />
           <div className="miniapps-action-row">
             <button
               type="button"
               className="miniapps-primary"
               data-testid="miniapps-run-start"
-              disabled={busy}
+              disabled={
+                busy ||
+                uploading ||
+                inputs.some(
+                  (input) =>
+                    input.required &&
+                    (values[input.id] === undefined ||
+                      values[input.id] === null ||
+                      values[input.id] === "" ||
+                      (Array.isArray(values[input.id]) &&
+                        (values[input.id] as unknown[]).length === 0)),
+                )
+              }
               onClick={() => void start()}
             >
               {busy
                 ? t("miniapps.starting")
-                : props.released
-                  ? t("miniapps.runReleased")
-                  : t("miniapps.testRun")}
+                : props.app.display?.submit_label ||
+                  (props.released
+                    ? t("miniapps.runReleased")
+                    : t("miniapps.testRun"))}
             </button>
           </div>
         </>
@@ -321,9 +306,7 @@ export function MiniAppRunner(props: {
                 ? t(`miniapps.status.${status}`)
                 : t("miniapps.status.pending")}
             </strong>
-            <span className="miniapps-muted">
-              {run?.message || run?.phase || ""}
-            </span>
+            <span className="miniapps-muted">{run?.message || ""}</span>
           </div>
           <div
             className="miniapps-progress"
@@ -386,14 +369,7 @@ export function MiniAppRunner(props: {
           {run?.error ? (
             <pre className="miniapps-report">{run.error}</pre>
           ) : null}
-          {run?.result !== undefined || run?.outputs !== undefined ? (
-            <div className="miniapps-result">
-              <h3>{t("miniapps.result")}</h3>
-              <pre className="miniapps-report">
-                {JSON.stringify(run.result ?? run.outputs, null, 2)}
-              </pre>
-            </div>
-          ) : null}
+          {run ? <MiniAppResults app={props.app} run={run} /> : null}
           {proposals.length > 0 ? (
             <section
               className="miniapps-patch-list"
@@ -437,15 +413,10 @@ export function MiniAppRunner(props: {
               ))}
             </section>
           ) : null}
-          {events.length > 0 ? (
+          {visibleEvents.length > 0 ? (
             <ol className="miniapps-events" aria-label={t("miniapps.events")}>
-              {events.map((event, index) => (
-                <li key={event.id || String(index)}>
-                  <span>
-                    {event.message || event.type || t("miniapps.stepUpdate")}
-                  </span>
-                  {event.step_id ? <code>{event.step_id}</code> : null}
-                </li>
+              {visibleEvents.map((label, index) => (
+                <li key={index}>{label}</li>
               ))}
             </ol>
           ) : null}
@@ -463,8 +434,11 @@ export function MiniAppRunner(props: {
             <button
               type="button"
               className="miniapps-secondary"
+              data-testid="miniapps-run-again"
+              disabled={active || busy}
               onClick={() => {
                 setRun(null);
+                forgetMiniAppRun(props.app.id);
                 setEvents([]);
               }}
             >

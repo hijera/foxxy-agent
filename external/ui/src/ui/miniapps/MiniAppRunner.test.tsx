@@ -84,3 +84,60 @@ test("integer inputs are submitted as JSON numbers", async () => {
   await waitFor(() => expect(submitted).toBeDefined());
   expect(submitted).toEqual({ inputs: { count: 7 } });
 });
+
+test("a declared file input provides an upload control and declarative submit label", () => {
+  const fileApp: MiniAppDocument = {
+    ...app,
+    display: { title: "Audio extractor", submit_label: "Extract MP3" },
+    inputs: [
+      {
+        id: "source",
+        title: "Video",
+        type: "file",
+        required: true,
+        ui: { control: "file" },
+      },
+    ],
+  };
+  render(<MiniAppRunner app={fileApp} released={false} onClose={() => {}} />);
+  expect(screen.getByLabelText("Video")).toHaveAttribute("type", "file");
+  expect(screen.getByTestId("miniapps-run-start")).toHaveTextContent(
+    "Extract MP3",
+  );
+});
+
+test("a terminal snapshot clears the old confirmation and refreshes history", async () => {
+  const completed = vi.fn();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    String(input).includes("/events")
+      ? new Response("", { status: 500 })
+      : new Response(
+          JSON.stringify({
+            id: "finished-job",
+            app_id: app.id,
+            status: "failed",
+            error: "No audio track",
+          }),
+        ),
+  );
+  render(
+    <MiniAppRunner
+      app={app}
+      released={false}
+      initialRun={{
+        id: "finished-job",
+        status: "waiting_for_confirmation",
+        confirmation: { id: "trust", message: "Trust encoder?" },
+      }}
+      onCompleted={completed}
+      onClose={() => {}}
+    />,
+  );
+  expect(await screen.findByText("No audio track")).toBeInTheDocument();
+  expect(screen.queryByText("Trust encoder?")).toBeNull();
+  await waitFor(() =>
+    expect(completed).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    ),
+  );
+});

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -151,9 +152,8 @@ func (r *Runner) WithWorkspaceRoot(root string) *Runner {
 	return r
 }
 
-// Paused reports whether runID has an in-memory continuation. Static preflight
-// pauses intentionally have no continuation: no step ran, so their existing
-// restart path is already side-effect free.
+// Paused reports whether a run has an in-memory continuation. Preflight
+// confirmations retain the same run id without starting any workflow steps.
 func (r *Runner) Paused(runID string) bool {
 	if r == nil || strings.TrimSpace(runID) == "" {
 		return false
@@ -174,6 +174,13 @@ func (r *Runner) Discard(runID string) {
 	delete(r.paused, runID)
 	r.pausedMu.Unlock()
 	if exec != nil {
+		if exec.run.Status == RunWaitingForConfirmation {
+			exec.run.Status = RunCancelled
+			exec.run.FinishedAt = time.Now().UTC()
+			if r.store != nil {
+				_ = r.store.SaveRun(*exec.run)
+			}
+		}
 		_ = os.RemoveAll(exec.workspace)
 		for _, nestedRunID := range exec.nestedRuns {
 			r.Discard(nestedRunID)
@@ -259,6 +266,11 @@ func (r *Runner) Resume(ctx context.Context, runID string, decisions *OperatorDe
 	if decisions == nil {
 		decisions = &OperatorDecisions{}
 	}
+	if exec.workspace == "" {
+		run, err := r.runWithID(ctx, exec.app, exec.inputs, decisions, exec.run.Test, exec.fixture, exec.run.ID)
+		run.StartedAt = exec.run.StartedAt
+		return r.persistResult(run, err)
+	}
 	exec.ctx, exec.decisions = ctx, decisions
 	exec.run.Status, exec.run.Error, exec.run.FinishedAt = RunRunning, "", time.Time{}
 	defer func() {
@@ -298,6 +310,8 @@ func (r *Runner) persistResult(run Run, err error) (Run, error) {
 }
 
 type runExecution struct {
+	inputs     map[string]any
+	fixture    map[string][]byte
 	runner     *Runner
 	ctx        context.Context
 	app        MiniApp
@@ -313,8 +327,15 @@ type runExecution struct {
 }
 
 func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, test bool, fixture map[string][]byte) (Run, error) {
+	return r.runWithID(ctx, app, inputs, decisions, test, fixture, "")
+}
+
+func (r *Runner) runWithID(ctx context.Context, app MiniApp, inputs map[string]any, decisions *OperatorDecisions, test bool, fixture map[string][]byte, id string) (Run, error) {
+	if id == "" {
+		id = newID("run")
+	}
 	run := Run{
-		ID: newID("run"), AppID: app.ID, Version: app.Version, Revision: app.Revision,
+		ID: id, AppID: app.ID, Version: app.Version, Revision: app.Revision,
 		Test: test, Status: RunRunning, Inputs: map[string]any{}, Steps: map[string]StepResult{},
 		StartedAt: time.Now().UTC(),
 	}
@@ -323,6 +344,9 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 	}
 	if decisions == nil {
 		decisions = &OperatorDecisions{}
+	}
+	if err := ctx.Err(); err != nil {
+		return finishMiniAppRun(run, err, nil)
 	}
 	if report := Validate(app); !report.Valid {
 		return finishMiniAppRun(run, fmt.Errorf("%w: %s", ErrInvalid, report.Issues[0].Message), nil)
@@ -350,6 +374,10 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 			}
 		}
 	}
+	uploads, uploadErr := r.prepareUploadedInputs(app, values)
+	if uploadErr != nil {
+		return finishMiniAppRun(run, uploadErr, secretVals)
+	}
 	inputRefs := map[string]any{"inputs": values}
 	if err := validateInputs(app.Inputs, values, inputRefs); err != nil {
 		return finishMiniAppRun(run, err, secretVals)
@@ -362,6 +390,8 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 	} else if missing {
 		now := time.Now().UTC()
 		run.Steps[stepID] = StepResult{ID: stepID, Status: RunWaitingForConfirmation, StartedAt: now, FinishedAt: now}
+		run.Status = RunWaitingForConfirmation
+		r.rememberPaused(&runExecution{runner: r, app: app, run: &run, inputs: cloneMap(inputs), fixture: fixture})
 		return finishMiniAppRun(run, errWaitingForConfirmation, secretVals)
 	}
 
@@ -375,6 +405,9 @@ func (r *Runner) run(ctx context.Context, app MiniApp, inputs map[string]any, de
 		}
 	}()
 	if err := materializeMiniAppFixture(workspace, fixture); err != nil {
+		return finishMiniAppRun(run, err, secretVals)
+	}
+	if err := r.copyUploads(ctx, workspace, uploads); err != nil {
 		return finishMiniAppRun(run, err, secretVals)
 	}
 	runDir := filepath.Dir(workspace)
@@ -423,6 +456,11 @@ func (e *runExecution) complete() (Run, error) {
 		}
 		outputs[output.ID] = value
 	}
+	files, err := e.resultFiles(outputs)
+	if err != nil {
+		return e.finish(err)
+	}
+	e.run.Files = files
 	e.run.Outputs = redactValueMap(outputs, e.secretVals)
 	artifacts, err := collectRunArtifacts(e.workspace)
 	if err != nil {
@@ -538,8 +576,8 @@ func (r *Runner) firstMissingConfirmation(steps []Step, commands []cmdprofile.Pr
 }
 
 const (
-	maxRunArtifactBytes = int64(10 << 20)
-	maxRunArtifactsSize = int64(100 << 20)
+	maxRunArtifactBytes = MaxUploadBytes
+	maxRunArtifactsSize = maxUploadStorageBytes
 )
 
 func collectRunArtifacts(workspace string) ([]RunArtifact, error) {
@@ -565,17 +603,25 @@ func collectRunArtifacts(workspace string) ([]RunArtifact, error) {
 		if !info.Mode().IsRegular() || info.Size() > maxRunArtifactBytes || total+info.Size() > maxRunArtifactsSize {
 			return nil
 		}
-		raw, err := os.ReadFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return err
+		}
+		hash := sha256.New()
+		size, err := io.Copy(hash, io.LimitReader(file, maxRunArtifactBytes+1))
+		_ = file.Close()
+		if err != nil {
+			return err
+		}
+		if size != info.Size() {
+			return errors.New("artifact changed while collecting it")
 		}
 		relative, err := filepath.Rel(workspace, path)
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(raw)
 		artifacts = append(artifacts, RunArtifact{
-			Path: filepath.ToSlash(relative), SHA256: fmt.Sprintf("%x", sum[:]), SizeBytes: info.Size(),
+			Path: filepath.ToSlash(relative), SHA256: fmt.Sprintf("%x", hash.Sum(nil)), SizeBytes: info.Size(),
 		})
 		total += info.Size()
 		return nil

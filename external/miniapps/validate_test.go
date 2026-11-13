@@ -134,7 +134,7 @@ func TestValidateRejectsUnimplementedFileConstraints(t *testing.T) {
 	app := coreValidApp()
 	app.Inputs[0].Validation.MustExist = true
 	report := Validate(app)
-	if report.Valid || !hasIssueText(report, "file constraints are not supported") {
+	if report.Valid || !hasIssueText(report, "server filesystem constraints are not supported") {
 		t.Fatalf("unimplemented file validation accepted: %+v", report.Issues)
 	}
 }

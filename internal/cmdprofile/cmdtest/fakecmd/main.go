@@ -32,6 +32,12 @@ func main() {
 	if ms, err := strconv.Atoi(os.Getenv("FOXXYCODE_FAKE_CMD_SLEEP_MS")); err == nil && ms > 0 {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
+	if os.Getenv("FOXXYCODE_FAKE_CMD_CREATE_LAST_FILE") == "1" && len(os.Args) > 1 {
+		if err := os.WriteFile(os.Args[len(os.Args)-1], []byte("encoded fixture"), 0o600); err != nil {
+			fmt.Fprint(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	if out := os.Getenv("FOXXYCODE_FAKE_CMD_STDOUT"); out != "" {
 		fmt.Print(out)
 	}

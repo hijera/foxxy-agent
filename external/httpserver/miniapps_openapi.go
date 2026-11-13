@@ -107,6 +107,21 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 	paths["/foxxycode/miniapp-runs/{run_id}/confirmation"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Answer a Mini App confirmation", "operationId": "confirmMiniAppRun", "parameters": []interface{}{miniAppsPathParameter("run_id", "Run id")}, "requestBody": request("MiniAppConfirmationRequest"), "responses": map[string]interface{}{"202": accepted, "200": response("Cancelled run", "MiniAppJob"), "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "422": errorResponseRef()}}}
 	paths["/foxxycode/miniapp-runs/{run_id}/cancel"] = miniAppsCancelPath("Cancel Mini App run", "cancelMiniAppRun", "run_id", "MiniAppJob")
 
+	paths["/foxxycode/miniapps/{id}/inputs/{input_id}/uploads"] = map[string]interface{}{"post": map[string]interface{}{
+		"summary": "Upload one file for a declared Mini App input", "operationId": "uploadMiniAppInput",
+		"description": "Streams one multipart file (up to 256 MiB; 512 MiB staging quota per app). Uploads are bound to app, input, revision and optional immutable release version, expire after 24 hours, and resolve from {upload_id} values into isolated run workspace paths. Extension, sniffed media type and byte limits are enforced. Only the file part named file is accepted.",
+		"parameters":  []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("input_id", "File input id"), map[string]interface{}{"name": "revision", "in": "query", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "version", "in": "query", "schema": map[string]string{"type": "string"}}},
+		"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"multipart/form-data": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []string{"file"}, "properties": map[string]interface{}{"file": map[string]string{"type": "string", "format": "binary"}}}}}},
+		"responses":   map[string]interface{}{"201": response("Staged upload metadata", "MiniAppUpload"), "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "413": errorResponseRef(), "422": errorResponseRef()},
+	}}
+	paths["/foxxycode/miniapps/{id}/uploads/{upload_id}"] = map[string]interface{}{"delete": map[string]interface{}{"summary": "Remove a staged upload", "operationId": "deleteMiniAppUpload", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("upload_id", "Opaque upload id")}, "responses": map[string]interface{}{"204": map[string]string{"description": "Upload removed"}, "400": errorResponseRef(), "422": errorResponseRef()}}}
+	paths["/foxxycode/miniapp-runs/{run_id}/files/{file_id}"] = map[string]interface{}{"get": map[string]interface{}{
+		"summary": "Download a declared file result from a successful persisted run", "operationId": "downloadMiniAppRunFile",
+		"description": "Accepts the persisted run_id and opaque file id from run.files. Confined opens and SHA-256 verification reject symlinks, changed files and arbitrary paths. Private, no-store, nosniff. Inline display is limited to sniffed audio, video and raster image content. Bearer authentication is the same as other API routes; clients may fetch an authenticated blob for previews.",
+		"parameters":  []interface{}{miniAppsPathParameter("run_id", "Persisted run id"), miniAppsPathParameter("file_id", "Opaque file result id"), map[string]interface{}{"name": "inline", "in": "query", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}}},
+		"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Result file", "content": map[string]interface{}{"application/octet-stream": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}}}}, "206": map[string]string{"description": "Partial result file"}, "304": map[string]string{"description": "Not modified"}, "404": errorResponseRef(), "416": map[string]string{"description": "Invalid byte range"}},
+	}}
+
 	components, _ := (*doc)["components"].(map[string]interface{})
 	if components == nil {
 		components = make(map[string]interface{})
@@ -145,6 +160,7 @@ func miniAppsSchemas() map[string]interface{} {
 		"Capabilities":              map[string]interface{}{"type": "object", "properties": map[string]interface{}{"object": map[string]string{"type": "string"}, "capabilities": capabilityMap}},
 		"MiniApp":                   anyObject,
 		"MiniAppCatalog":            map[string]interface{}{"type": "object", "properties": map[string]interface{}{"object": map[string]string{"type": "string"}, "items": map[string]interface{}{"type": "array", "items": anyObject}, "apps": map[string]interface{}{"type": "array", "items": anyObject}}},
+		"MiniAppUpload":             map[string]interface{}{"type": "object", "required": []string{"id", "name", "size_bytes", "media_type"}, "properties": map[string]interface{}{"id": map[string]string{"type": "string"}, "app_id": map[string]string{"type": "string"}, "input_id": map[string]string{"type": "string"}, "revision": map[string]string{"type": "string"}, "version": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "media_type": map[string]string{"type": "string"}, "size_bytes": map[string]string{"type": "integer"}, "sha256": map[string]string{"type": "string"}, "created_at": map[string]string{"type": "string", "format": "date-time"}}},
 		"MiniAppJob":                anyObject,
 		"MiniAppRun":                anyObject,
 		"MiniAppRunList":            map[string]interface{}{"type": "object", "properties": map[string]interface{}{"items": map[string]interface{}{"type": "array", "items": anyObject}, "runs": map[string]interface{}{"type": "array", "items": anyObject}}},

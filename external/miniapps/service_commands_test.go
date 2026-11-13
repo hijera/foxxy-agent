@@ -82,6 +82,9 @@ func TestServiceTestRunPausesForTrustAndResumesAfterRecording(t *testing.T) {
 		t.Fatalf("ConfirmRun() = %v", err)
 	}
 	done := waitForJob(t, service, job.ID, func(item AsyncJob) bool { return item.Status.terminal() })
+	if done.RunID != waiting.RunID {
+		t.Fatalf("confirmation created a second run: waiting=%s done=%s", waiting.RunID, done.RunID)
+	}
 	if done.Status != JobSucceeded {
 		t.Fatalf("resumed job = %+v", done)
 	}

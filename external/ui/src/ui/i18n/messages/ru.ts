@@ -2344,4 +2344,14 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.description":
     "Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (foxxycode plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.foxxycode/marketplaces.json, записи проекта в его .foxxycode/marketplaces.json, который приходит вместе с чекаутом, и при значении \"ask\" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.foxxycode/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.",
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
+  "miniapps.typeFile": "Файл",
+  "miniapps.typeFiles": "Несколько файлов",
+  "miniapps.typeInteger": "Целое число",
+  "miniapps.typeText": "Многострочный текст",
+  "miniapps.files.tooMany": "Выберите не более {count} файлов.",
+  "miniapps.files.uploading": "Загрузка…",
+  "miniapps.files.drop": "Выберите файл или перетащите его сюда.",
+  "miniapps.files.remove": "Убрать {name}",
+  "miniapps.files.loading": "Подготовка скачивания…",
+  "miniapps.files.download": "Скачать {name}",
 };
