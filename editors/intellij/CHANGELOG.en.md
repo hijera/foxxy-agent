@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-12
+## Unreleased — 2026-11-13
 
 **Turn a completed task into a Mini App.**
 The web and desktop workspace distills successful tool-backed sessions into reviewed,
@@ -43,6 +43,11 @@ Applying a patch invalidates the checks for the previous draft revision.
 
 **Live progress works with tokens and remote servers.**
 Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.47 — 2026-11-12
+
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.
 
 ## 0.3.46 — 2026-11-12
 
@@ -92,6 +97,7 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
+
 
 ## 0.3.38 — 2026-10-26
 
