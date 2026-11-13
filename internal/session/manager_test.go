@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -638,6 +639,77 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	}
 }
 
+func TestHandleSessionPromptRunnerFailurePersistsActivityError(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	wantErr := errors.New("runner failed")
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", wantErr
+	}
+	mgr := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "fail"}},
+	}); !errors.Is(err, wantErr) {
+		t.Fatalf("prompt error = %v, want %v", err, wantErr)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	if state.GetActivitySeq() != 1 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("failure counters = activity=%d lastError=%d, want 1 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 1 || snap.Meta.LastErrorSeq != 1 {
+		t.Fatalf("persisted failure counters = activity=%d lastError=%d, want 1 and 1", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
+func TestSequentialStaleManagersAllocateDistinctActivityGenerations(t *testing.T) {
+	root := t.TempDir()
+	storeA := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	storeB := &session.FileStore{Root: storeA.Root}
+	mgrA := session.NewManager(testConfig(), noopSender{}, noopRunner, slog.Default(), "/tmp", storeA)
+	mgrB := session.NewManager(testConfig(), noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", errors.New("manager B failed")
+	}, slog.Default(), "/tmp", storeB)
+	ctx := context.Background()
+	created, err := mgrA.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.EnsureHTTPSession(ctx, created.SessionID, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgrA.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "first"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "second"}},
+	}); err == nil || err.Error() != "manager B failed" {
+		t.Fatalf("manager B prompt error = %v, want manager B failed", err)
+	}
+
+	snap, err := storeA.ReadSnapshot(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 2 || snap.Meta.LastErrorSeq != 2 {
+		t.Fatalf("activity metadata = activity %d, lastError %d; want 2, 2", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
 func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	cfg := testConfig()
 	blockStarted := make(chan struct{})
@@ -653,6 +725,8 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := res.SessionID
+	state := mgr.SessionByID(id)
+	state.RestoreActivityFromSnapshot(1, 0, 1)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -678,6 +752,9 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 	if out.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("stop reason %q want %q", out.StopReason, acp.StopReasonCancelled)
+	}
+	if state.GetActivitySeq() != 2 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("cancellation counters = activity=%d lastError=%d, want 2 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
 	}
 }
 
@@ -782,6 +859,11 @@ func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
 }
 
 func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
+	// The default skill folders are read in every workspace, ~/.agents/skills
+	// among them: an empty home keeps the operator's skills out of the count.
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	skRoot := t.TempDir()
 	skillDir := filepath.Join(skRoot, "probe")
 	if err := os.MkdirAll(filepath.Join(skillDir, "demo"), 0o755); err != nil {
@@ -934,21 +1016,21 @@ func TestSetSessionWorkspaceRejectsActiveTurn(t *testing.T) {
 
 func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 	home := t.TempDir()
-	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
-		{Name: "cfg-srv", Command: "cfg-mcp"},
-		{Name: "off-srv", Command: "off-mcp", Disabled: true},
-	}}
+	cfg := &config.Config{}
 	cfg.Paths.Home = home
 	cwd := t.TempDir()
 
-	// Global <home>/mcp.json overrides config.yaml; project overrides both.
-	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
-		t.Fatal(err)
+	// The project's mcp.json overrides a name of the global <home>/mcp.json.
+	for name, entry := range map[string]config.MCPJSONServer{
+		"home-srv": {Command: "home-mcp"},
+		"off-srv":  {Command: "off-mcp", Disabled: true},
+		"shared":   {Command: "home-shared"},
+	} {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, entry); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "shared", config.MCPJSONServer{Command: "proj-override"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
@@ -963,11 +1045,11 @@ func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 	for _, s := range servers {
 		byName[s.Name] = s
 	}
-	if byName["cfg-srv"].Command != "home-override" {
-		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	if byName["home-srv"].Command != "home-mcp" {
+		t.Errorf("home-srv command = %q, want the global declaration", byName["home-srv"].Command)
 	}
-	if byName["home-srv"].Command != "proj-override" {
-		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	if byName["shared"].Command != "proj-override" {
+		t.Errorf("shared command = %q, want project override", byName["shared"].Command)
 	}
 	if !byName["off-srv"].Disabled {
 		t.Errorf("off-srv must keep its disabled flag in the effective list")
@@ -976,8 +1058,8 @@ func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 		t.Errorf("proj-srv missing from effective list")
 	}
 
-	// A broken project mcp.json must not fail the session; config.yaml plus
-	// the global file still apply.
+	// A broken project mcp.json must not fail the session; the global file
+	// still applies.
 	if err := os.WriteFile(filepath.Join(cwd, ".foxxycode", "mcp.json"), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1181,6 +1263,9 @@ func TestSetSessionWorkspaceReconnectsProjectMCPAndPreservesClientServers(t *tes
 
 	if err := m.SetSessionWorkspace(context.Background(), st, beta); err != nil {
 		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	if err := m.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatal(err)
 	}
 	assertMCPClientNames(t, st, "beta-project", "client-supplied")
 	if got := mcpClientByName(t, st, "client-supplied"); got != clientSupplied {
@@ -1422,7 +1507,7 @@ func TestApplySessionSettingsPublishesTheWholeSnapshot(t *testing.T) {
 	defer remove()
 
 	model, off := "nd/qwen3.8-27b", "off"
-	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &model, Reasoning: &off, Source: "test"})
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &model, Reasoning: &off, Source: session.SettingsSourceModel})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1433,7 +1518,7 @@ func TestApplySessionSettingsPublishesTheWholeSnapshot(t *testing.T) {
 		t.Fatalf("reasoning choices = %v, want %v", snap.ReasoningChoices, want)
 	}
 	mu.Lock()
-	if len(seen) != 1 || seen[0].Settings.Version != snap.Version || seen[0].Source != "test" ||
+	if len(seen) != 1 || seen[0].Settings.Version != snap.Version || seen[0].Source != session.SettingsSourceModel ||
 		!strings.Contains(seen[0].Notice, "Model: nd/qwen3.8-27b for this session") {
 		mu.Unlock()
 		t.Fatalf("observer saw %+v", seen)
@@ -1456,6 +1541,91 @@ func TestApplySessionSettingsPublishesTheWholeSnapshot(t *testing.T) {
 	sender.mu.Unlock()
 	if !sawOption || !sawSnapshot {
 		t.Fatalf("sender saw config option update %v, settings snapshot %v", sawOption, sawSnapshot)
+	}
+}
+
+// Only a change the agent made itself - its switch_model call, a skill's
+// frontmatter - is noted, in the transcript's log and on the published update.
+// What the operator changes - the options a console or `foxxycode -p` starts a
+// session with, the composer, the permission dialog, a command - is on the
+// selectors of every surface already; a command is still answered with its
+// notice.
+func TestOnlyTheAgentsOwnSettingsChangesAreNoted(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.SessionID
+	var mu sync.Mutex
+	var published []acp.SessionSettingsUpdate
+	remove := m.AddSessionSettingsObserver(func(u acp.SessionSettingsUpdate) {
+		mu.Lock()
+		published = append(published, u)
+		mu.Unlock()
+	})
+	defer remove()
+	ctx := context.Background()
+	str := func(s string) *string { return &s }
+
+	if _, err := m.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{SessionID: id, ConfigID: "model", Value: "nd/qwen3.8-27b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.HandleSessionSetMode(ctx, acp.SessionSetModeParams{SessionID: id, ModeID: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []session.SettingsChange{
+		{Model: str("p1/gpt-5"), Source: "web"},
+		{PermissionMode: str("bypass"), Source: "permission_dialog"},
+		{Reasoning: str("high"), Turns: 2, Source: "console"},
+	} {
+		if _, err := m.ApplySessionSettings(ctx, id, ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taken, err := m.TakeSettingsCommands(ctx, id, promptText("/plan"), "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !taken.Handled || taken.Notice != "Mode: plan for this session" {
+		t.Fatalf("the command was answered %+v, want its notice", taken)
+	}
+	st := m.SessionByID(id)
+	if log := st.GetUILog(); len(log) != 0 {
+		t.Fatalf("the operator's changes were noted in the transcript: %+v", log)
+	}
+	mu.Lock()
+	for _, u := range published {
+		if u.Notice != "" {
+			mu.Unlock()
+			t.Fatalf("an operator's change was published with the notice %q (source %s)", u.Notice, u.Source)
+		}
+	}
+	operator := len(published)
+	mu.Unlock()
+
+	if _, err := m.ApplySessionSettings(ctx, id, session.SettingsChange{Model: str("nd/qwen3.8-27b"), Source: session.SettingsSourceModel}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ApplyTurnSettings(ctx, id, session.SettingsChange{Reasoning: str("off"), Source: session.SettingsSourceSkill + "review"}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range st.GetUILog() {
+		got = append(got, e.Source+" | "+e.Level+" | "+e.Message)
+	}
+	want := []string{
+		"model | notice | Model: nd/qwen3.8-27b for this session",
+		"skill:review | notice | Reasoning: off for the rest of this turn",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the agent's changes were noted as %q, want %q", got, want)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(published) != operator+2 || published[operator].Notice != "Model: nd/qwen3.8-27b for this session" ||
+		published[operator+1].Notice != "Reasoning: off for the rest of this turn" {
+		t.Fatalf("the agent's changes were published as %+v", published[operator:])
 	}
 }
 
@@ -1638,6 +1808,49 @@ func TestSessionWideChangeEndsATurnOverride(t *testing.T) {
 	}
 }
 
+// A session keeps its permission mode and what is armed for its next turns for
+// as long as the process runs, also when a surface lets go of it in between:
+// the console does on /new and /resume (#362).
+func TestSessionKeepsItsProcessSettingsWhenLetGo(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	ctx := context.Background()
+	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bypass, mini := "bypass", "p2/gpt-4o-mini"
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{PermissionMode: &bypass}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{Model: &mini, Turns: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(m.SessionByID(res.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ForgetLiveSession(res.SessionID)
+	if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "bypass" {
+		t.Fatalf("permission mode after the session was let go and loaded again = %q, want bypass", snap.PermissionMode)
+	}
+	if len(snap.Overrides) != 1 || snap.Overrides[0].Setting != session.SettingModel || snap.Overrides[0].Value != mini || snap.Overrides[0].TurnsLeft != 2 {
+		t.Fatalf("turn overrides after the session was let go and loaded again = %+v, want the model for 2 turns", snap.Overrides)
+	}
+}
+
 func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
 	cfg := settingsTestConfig()
 	root := t.TempDir()
@@ -1675,5 +1888,52 @@ func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
 	}
 	if snap.PermissionMode != "ask" {
 		t.Fatalf("permission mode after a restart = %q, want the configured ask", snap.PermissionMode)
+	}
+}
+
+// Two replacements that overlap reach an observer in the order they were
+// stored. The first is held in the middle of its publication while the second
+// is made: published first, the second was then overwritten by the first, and
+// the observer stayed on the older configuration while the manager held the
+// newer - an HTTP server following the manager kept a rotated token valid
+// (issue #401).
+func TestConfigReplacementsReachObserversInTheOrderTheyWereStored(t *testing.T) {
+	m := session.NewManager(&config.Config{}, noopSender{}, noopRunner, slog.Default(), "/tmp", nil)
+	first, second := &config.Config{}, &config.Config{}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var last *config.Config
+	remove := m.AddConfigObserver(func(c *config.Config) {
+		if c == first {
+			close(entered)
+			<-release
+		}
+		mu.Lock()
+		last = c
+		mu.Unlock()
+	})
+	defer remove()
+	firstDone, secondDone := make(chan struct{}), make(chan struct{})
+	go func() { m.ReplaceConfig(first); close(firstDone) }()
+	<-entered
+	go func() { m.ReplaceConfig(second); close(secondDone) }()
+	// Give a second replacement that is not held back the time to publish
+	// before the first one's publication resumes.
+	select {
+	case <-secondDone:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	for _, done := range []chan struct{}{firstDone, secondDone} {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a replacement never finished")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if last != m.Cfg() {
+		t.Fatalf("the observer was left on %p while the manager holds %p", last, m.Cfg())
 	}
 }

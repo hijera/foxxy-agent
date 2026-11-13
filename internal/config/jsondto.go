@@ -16,7 +16,6 @@ type ConfigJSON struct {
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
 	Rules        RulesJSON        `json:"rules,omitempty"`
-	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
@@ -34,6 +33,13 @@ type ConfigJSON struct {
 	Browser      BrowserJSON      `json:"browser,omitempty"`
 	VCS          VCSJSON          `json:"vcs,omitempty"`
 	Debug        DebugJSON        `json:"debug,omitempty"`
+	// Revision names the configuration a GET /foxxycode/config document was read from.
+	// It is no setting: a client sends the document back with it unchanged, so a PUT
+	// can tell the values the client changed from the ones it only read, even when
+	// the live configuration moved in between (another save, the agent's
+	// config_commit, a hand edit). A document without one is measured against the
+	// configuration live when the PUT arrives.
+	Revision string `json:"revision,omitempty"`
 }
 
 // VCSJSON mirrors VCSConfig for JSON APIs.
@@ -116,6 +122,7 @@ type ProviderJSON struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	APIBase       string `json:"api_base,omitempty"`
+	UserAgent     string `json:"user_agent,omitempty"`
 	APIKey        string `json:"api_key,omitempty"`
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
@@ -145,32 +152,35 @@ type ModelJSON struct {
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
 // distinction where an explicit 0 means something different from "unset": the
-// loop-guard counters, llm_retry_max (0 disables retries), and
+// max_turns (0 disables the cap), loop-guard counters, llm_retry_max (0 disables retries), and
 // llm_first_token_timeout_ms (0 disables the silence guard).
 type AgentJSON struct {
-	Model                      string `json:"model"`
-	MaxTurns                   int    `json:"max_turns,omitempty"`
-	LLMRetryMax                *int   `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS             int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS           int    `json:"llm_min_interval_ms,omitempty"`
-	LLMFirstTokenTimeoutMS     *int   `json:"llm_first_token_timeout_ms,omitempty"`
-	LLMStreamIdleTimeoutMS     *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
-	LLMStallRetry              *bool  `json:"llm_stall_retry,omitempty"`
-	LLMStallRetryDelaysMS      []int  `json:"llm_stall_retry_delays_ms,omitempty"`
-	LLMStallRetryMaxWaitMS     *int   `json:"llm_stall_retry_max_wait_ms,omitempty"`
-	LLMContinue                *bool  `json:"llm_continue,omitempty"`
-	LLMContinueMax             *int   `json:"llm_continue_max,omitempty"`
-	LLMContinueStallDelaysMS   []int  `json:"llm_continue_stall_delays_ms,omitempty"`
-	LLMContinueErrorDelaysMS   []int  `json:"llm_continue_error_delays_ms,omitempty"`
-	LLMContinueRetryAfterMaxMS *int   `json:"llm_continue_retry_after_max_ms,omitempty"`
-	LoopGuard                  *bool  `json:"loop_guard,omitempty"`
-	LoopToolRepeatLimit        *int   `json:"loop_tool_repeat_limit,omitempty"`
-	LoopStreamRepeatCycles     *int   `json:"loop_stream_repeat_cycles,omitempty"`
-	LoopToolCycleRepeats       *int   `json:"loop_tool_cycle_repeats,omitempty"`
-	LoopStuckAction            string `json:"loop_stuck_action,omitempty"`
-	LoopNudgeMax               *int   `json:"loop_nudge_max,omitempty"`
-	WaitForLimitReset          bool   `json:"wait_for_limit_reset,omitempty"`
-	WaitForLimitResetMaxMS     *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	QueueMode                     string `json:"queue_mode,omitempty"`
+	Model                         string `json:"model"`
+	MaxTurns                      *int   `json:"max_turns,omitempty"`
+	LLMRetryMax                   *int   `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS                int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS              int    `json:"llm_min_interval_ms,omitempty"`
+	LLMFirstTokenTimeoutMS        *int   `json:"llm_first_token_timeout_ms,omitempty"`
+	LLMStreamIdleTimeoutMS        *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
+	LLMStallRetry                 *bool  `json:"llm_stall_retry,omitempty"`
+	LLMStallRetryDelaysMS         []int  `json:"llm_stall_retry_delays_ms,omitempty"`
+	LLMStallRetryMaxWaitMS        *int   `json:"llm_stall_retry_max_wait_ms,omitempty"`
+	LLMContinue                   *bool  `json:"llm_continue,omitempty"`
+	LLMContinueMax                *int   `json:"llm_continue_max,omitempty"`
+	LLMContinueBackgroundMax      *int   `json:"llm_continue_background_max,omitempty"`
+	LLMContinueBackgroundDelaysMS []int  `json:"llm_continue_background_delays_ms,omitempty"`
+	LLMContinueStallDelaysMS      []int  `json:"llm_continue_stall_delays_ms,omitempty"`
+	LLMContinueErrorDelaysMS      []int  `json:"llm_continue_error_delays_ms,omitempty"`
+	LLMContinueRetryAfterMaxMS    *int   `json:"llm_continue_retry_after_max_ms,omitempty"`
+	LoopGuard                     *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit           *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles        *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopToolCycleRepeats          *int   `json:"loop_tool_cycle_repeats,omitempty"`
+	LoopStuckAction               string `json:"loop_stuck_action,omitempty"`
+	LoopNudgeMax                  *int   `json:"loop_nudge_max,omitempty"`
+	WaitForLimitReset             bool   `json:"wait_for_limit_reset,omitempty"`
+	WaitForLimitResetMaxMS        *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -192,7 +202,7 @@ type PerProviderPromptsJSON struct {
 // SkillsJSON mirrors Skills for JSON APIs.
 type SkillsJSON struct {
 	Dirs          []string `json:"dirs,omitempty"`
-	Sources       []string `json:"sources,omitempty"`
+	ProjectTrust  string   `json:"project_trust,omitempty"`
 	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
 }
 
@@ -202,35 +212,10 @@ type RulesJSON struct {
 	Systems      []string `json:"systems,omitempty"`
 }
 
-// MCPServerJSON mirrors MCPServerConfig for JSON APIs.
-type MCPServerJSON struct {
-	Type               string           `json:"type,omitempty"`
-	Name               string           `json:"name"`
-	Command            string           `json:"command,omitempty"`
-	Args               []string         `json:"args,omitempty"`
-	Env                []EnvVarJSON     `json:"env,omitempty"`
-	URL                string           `json:"url,omitempty"`
-	Headers            []HTTPHeaderJSON `json:"headers,omitempty"`
-	InsecureSkipVerify bool             `json:"insecure_skip_verify,omitempty"`
-	Disabled           bool             `json:"disabled,omitempty"`
-	DisabledTools      []string         `json:"disabled_tools,omitempty"`
-}
-
-// EnvVarJSON mirrors EnvVarConfig.
-type EnvVarJSON struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-// HTTPHeaderJSON mirrors HTTPHeaderConfig.
-type HTTPHeaderJSON struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
 // MCPJSON mirrors MCP for JSON APIs.
 type MCPJSON struct {
-	ProjectTrust string `json:"project_trust,omitempty"`
+	ProjectTrust       string `json:"project_trust,omitempty"`
+	IdleTimeoutSeconds *int   `json:"idle_timeout_seconds,omitempty"`
 }
 
 // ToolsJSON mirrors Tools for JSON APIs.
@@ -264,9 +249,12 @@ type ToolWebSearchJSON struct {
 	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
 }
 
-// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs. DefaultHeaders
+// travels both ways, like brave_api_key: the settings screen edits the headers,
+// and config_get is what keeps their values from the model.
 type ToolHTTPRequestJSON struct {
-	Allowlist []string `json:"allowlist,omitempty"`
+	Allowlist      []string          `json:"allowlist,omitempty"`
+	DefaultHeaders map[string]string `json:"default_headers,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
@@ -352,6 +340,7 @@ type MemoryJSON struct {
 type CompactionJSON struct {
 	Engine           string `json:"engine,omitempty"`
 	Enabled          *bool  `json:"enable,omitempty"`
+	AutoEnabled      *bool  `json:"auto_enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
@@ -434,10 +423,14 @@ type HTTPCORSJSON struct {
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
-// HTTPRemoteJSON mirrors HTTPRemote.
+// HTTPRemoteJSON mirrors HTTPRemote. Token travels both ways, like a provider's
+// api_key: it is a credential for another server that the page itself presents
+// when it switches to that remote, not one that grants access to this server,
+// which is what the write-only fields are. config_get still redacts it.
 type HTTPRemoteJSON struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // SwarmJSON mirrors SwarmConfig. Every credential is write-only: reading the
@@ -553,29 +546,32 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
-		Model:                      c.Agent.Model,
-		MaxTurns:                   c.Agent.MaxTurns,
-		LLMRetryMax:                c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:             c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:           c.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:     c.Agent.LLMFirstTokenTimeoutMS,
-		LLMStreamIdleTimeoutMS:     c.Agent.LLMStreamIdleTimeoutMS,
-		LLMStallRetry:              c.Agent.LLMStallRetry,
-		LLMStallRetryDelaysMS:      append([]int(nil), c.Agent.LLMStallRetryDelaysMS...),
-		LLMStallRetryMaxWaitMS:     c.Agent.LLMStallRetryMaxWaitMS,
-		LLMContinue:                c.Agent.LLMContinue,
-		LLMContinueMax:             c.Agent.LLMContinueMax,
-		LLMContinueStallDelaysMS:   append([]int(nil), c.Agent.LLMContinueStallDelaysMS...),
-		LLMContinueErrorDelaysMS:   append([]int(nil), c.Agent.LLMContinueErrorDelaysMS...),
-		LLMContinueRetryAfterMaxMS: c.Agent.LLMContinueRetryAfterMaxMS,
-		LoopGuard:                  c.Agent.LoopGuard,
-		LoopToolRepeatLimit:        c.Agent.LoopToolRepeatLimit,
-		LoopStreamRepeatCycles:     c.Agent.LoopStreamRepeatCycles,
-		LoopToolCycleRepeats:       c.Agent.LoopToolCycleRepeats,
-		LoopStuckAction:            c.Agent.LoopStuckAction,
-		LoopNudgeMax:               c.Agent.LoopNudgeMax,
-		WaitForLimitReset:          c.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:     cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		QueueMode:                     c.Agent.QueueMode,
+		Model:                         c.Agent.Model,
+		MaxTurns:                      intPtr(c.Agent.MaxTurns),
+		LLMRetryMax:                   c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:                c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:              c.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS:        c.Agent.LLMFirstTokenTimeoutMS,
+		LLMStreamIdleTimeoutMS:        c.Agent.LLMStreamIdleTimeoutMS,
+		LLMStallRetry:                 c.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:         append([]int(nil), c.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS:        c.Agent.LLMStallRetryMaxWaitMS,
+		LLMContinue:                   c.Agent.LLMContinue,
+		LLMContinueMax:                c.Agent.LLMContinueMax,
+		LLMContinueBackgroundMax:      c.Agent.LLMContinueBackgroundMax,
+		LLMContinueBackgroundDelaysMS: append([]int(nil), c.Agent.LLMContinueBackgroundDelaysMS...),
+		LLMContinueStallDelaysMS:      append([]int(nil), c.Agent.LLMContinueStallDelaysMS...),
+		LLMContinueErrorDelaysMS:      append([]int(nil), c.Agent.LLMContinueErrorDelaysMS...),
+		LLMContinueRetryAfterMaxMS:    c.Agent.LLMContinueRetryAfterMaxMS,
+		LoopGuard:                     c.Agent.LoopGuard,
+		LoopToolRepeatLimit:           c.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles:        c.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:          c.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:               c.Agent.LoopStuckAction,
+		LoopNudgeMax:                  c.Agent.LoopNudgeMax,
+		WaitForLimitReset:             c.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS:        cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
 	out.Prompts = PromptsJSON{
 		DocsPrompt: c.Prompts.DocsPrompt,
@@ -587,30 +583,14 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
 	out.Skills = SkillsJSON{
 		Dirs:          append([]string(nil), c.Skills.Dirs...),
-		Sources:       append([]string(nil), c.Skills.Sources...),
+		ProjectTrust:  c.Skills.ProjectTrust,
 		AutoDiscovery: c.Skills.AutoDiscovery,
 	}
 	out.Rules = RulesJSON{
 		AutoDiscover: cloneBoolPtr(c.Rules.AutoDiscover),
 		Systems:      append([]string(nil), c.Rules.Systems...),
 	}
-	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{
-			Type: s.Type, Name: s.Name, Command: s.Command,
-			Args: append([]string(nil), s.Args...), URL: s.URL,
-			InsecureSkipVerify: s.InsecureSkipVerify,
-			Disabled:           s.Disabled,
-			DisabledTools:      append([]string(nil), s.DisabledTools...),
-		}
-		for _, e := range s.Env {
-			mj.Env = append(mj.Env, EnvVarJSON(e))
-		}
-		for _, h := range s.Headers {
-			mj.Headers = append(mj.Headers, HTTPHeaderJSON(h))
-		}
-		out.MCPServers = append(out.MCPServers, mj)
-	}
-	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
+	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust(), IdleTimeoutSeconds: cloneIntPtr(c.MCP.IdleTimeoutSeconds)}
 	out.Tools = ToolsJSON{
 		PermissionMode:           c.Tools.ResolvedPermMode(),
 		CommandAllowlist:         append([]string(nil), c.Tools.CommandAllowlist...),
@@ -638,7 +618,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			PublicHost: c.Tools.PreviewServer.PublicHost,
 		},
 		HTTPRequest: ToolHTTPRequestJSON{
-			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+			DefaultHeaders: cloneStringMap(c.Tools.HTTPRequest.DefaultHeaders),
 		},
 	}
 	out.Logger = LoggerJSON{
@@ -659,6 +640,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Compaction = CompactionJSON{
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
+		AutoEnabled:      cloneBoolPtr(c.Compaction.AutoEnabled),
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens:      c.Compaction.MaxTokens,
 		FallbackModels: append([]string(nil), c.Compaction.FallbackModels...),
@@ -855,29 +837,35 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
-		Model:                      j.Agent.Model,
-		MaxTurns:                   j.Agent.MaxTurns,
-		LLMRetryMax:                j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:             j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS:           j.Agent.LLMMinIntervalMS,
-		LLMFirstTokenTimeoutMS:     j.Agent.LLMFirstTokenTimeoutMS,
-		LLMStreamIdleTimeoutMS:     j.Agent.LLMStreamIdleTimeoutMS,
-		LLMStallRetry:              j.Agent.LLMStallRetry,
-		LLMStallRetryDelaysMS:      append([]int(nil), j.Agent.LLMStallRetryDelaysMS...),
-		LLMStallRetryMaxWaitMS:     j.Agent.LLMStallRetryMaxWaitMS,
-		LLMContinue:                j.Agent.LLMContinue,
-		LLMContinueMax:             j.Agent.LLMContinueMax,
-		LLMContinueStallDelaysMS:   append([]int(nil), j.Agent.LLMContinueStallDelaysMS...),
-		LLMContinueErrorDelaysMS:   append([]int(nil), j.Agent.LLMContinueErrorDelaysMS...),
-		LLMContinueRetryAfterMaxMS: j.Agent.LLMContinueRetryAfterMaxMS,
-		LoopGuard:                  j.Agent.LoopGuard,
-		LoopToolRepeatLimit:        j.Agent.LoopToolRepeatLimit,
-		LoopStreamRepeatCycles:     j.Agent.LoopStreamRepeatCycles,
-		LoopToolCycleRepeats:       j.Agent.LoopToolCycleRepeats,
-		LoopStuckAction:            j.Agent.LoopStuckAction,
-		LoopNudgeMax:               j.Agent.LoopNudgeMax,
-		WaitForLimitReset:          j.Agent.WaitForLimitReset,
-		WaitForLimitResetMaxMS:     cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		QueueMode:                     j.Agent.QueueMode,
+		Model:                         j.Agent.Model,
+		LLMRetryMax:                   j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:                j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:              j.Agent.LLMMinIntervalMS,
+		LLMFirstTokenTimeoutMS:        j.Agent.LLMFirstTokenTimeoutMS,
+		LLMStreamIdleTimeoutMS:        j.Agent.LLMStreamIdleTimeoutMS,
+		LLMStallRetry:                 j.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:         append([]int(nil), j.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS:        j.Agent.LLMStallRetryMaxWaitMS,
+		LLMContinue:                   j.Agent.LLMContinue,
+		LLMContinueMax:                j.Agent.LLMContinueMax,
+		LLMContinueBackgroundMax:      j.Agent.LLMContinueBackgroundMax,
+		LLMContinueBackgroundDelaysMS: append([]int(nil), j.Agent.LLMContinueBackgroundDelaysMS...),
+		LLMContinueStallDelaysMS:      append([]int(nil), j.Agent.LLMContinueStallDelaysMS...),
+		LLMContinueErrorDelaysMS:      append([]int(nil), j.Agent.LLMContinueErrorDelaysMS...),
+		LLMContinueRetryAfterMaxMS:    j.Agent.LLMContinueRetryAfterMaxMS,
+		LoopGuard:                     j.Agent.LoopGuard,
+		LoopToolRepeatLimit:           j.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles:        j.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:          j.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:               j.Agent.LoopStuckAction,
+		LoopNudgeMax:                  j.Agent.LoopNudgeMax,
+		WaitForLimitReset:             j.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS:        cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+	}
+	if j.Agent.MaxTurns != nil {
+		cfg.Agent.MaxTurns = *j.Agent.MaxTurns
+		cfg.Agent.maxTurnsSet = true
 	}
 	cfg.Prompts = Prompts{
 		DocsPrompt: j.Prompts.DocsPrompt,
@@ -889,30 +877,14 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
 		Dirs:          append([]string(nil), j.Skills.Dirs...),
-		Sources:       append([]string(nil), j.Skills.Sources...),
+		ProjectTrust:  j.Skills.ProjectTrust,
 		AutoDiscovery: j.Skills.AutoDiscovery,
 	}
 	cfg.Rules = Rules{
 		AutoDiscover: cloneBoolPtr(j.Rules.AutoDiscover),
 		Systems:      append([]string(nil), j.Rules.Systems...),
 	}
-	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{
-			Type: s.Type, Name: s.Name, Command: s.Command,
-			Args: append([]string(nil), s.Args...), URL: s.URL,
-			InsecureSkipVerify: s.InsecureSkipVerify,
-			Disabled:           s.Disabled,
-			DisabledTools:      append([]string(nil), s.DisabledTools...),
-		}
-		for _, e := range s.Env {
-			mc.Env = append(mc.Env, EnvVarConfig(e))
-		}
-		for _, h := range s.Headers {
-			mc.Headers = append(mc.Headers, HTTPHeaderConfig(h))
-		}
-		cfg.MCPServers = append(cfg.MCPServers, mc)
-	}
-	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
+	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust, IdleTimeoutSeconds: cloneIntPtr(j.MCP.IdleTimeoutSeconds)}
 	cfg.Tools = Tools{
 		PermissionMode:           j.Tools.PermissionMode,
 		CommandAllowlist:         append([]string(nil), j.Tools.CommandAllowlist...),
@@ -940,7 +912,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			PublicHost: j.Tools.PreviewServer.PublicHost,
 		},
 		HTTPRequest: ToolHTTPRequest{
-			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
+			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
+			DefaultHeaders: cloneStringMap(j.Tools.HTTPRequest.DefaultHeaders),
 		},
 	}
 	cfg.Logger = Logger{
@@ -963,6 +936,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Compaction = CompactionConfig{
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
+		AutoEnabled:      cloneBoolPtr(j.Compaction.AutoEnabled),
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens:      j.Compaction.MaxTokens,
 		FallbackModels: append([]string(nil), j.Compaction.FallbackModels...),

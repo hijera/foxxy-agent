@@ -18,7 +18,7 @@ A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it b
    mood, and end with a "Breaking changes" section, or "None" when there are none.
    ```
 
-   Saved as `~/.foxxycode/skills/release-notes/SKILL.md`. The other two default directories are `~/.agents/skills/` (global, shared with `npx skills` and other agents) and `${CWD}/.foxxycode/skills/` (project-local, the highest priority); a later directory wins when two skills share a name, and any other folder can be added to `skills.dirs` in `config.yaml`.
+   Saved as `~/.foxxycode/skills/release-notes/SKILL.md`, the third of the four folders FoxxyCode always reads. In order, lowest priority first: `~/.agents/skills/` (yours, shared with `npx skills` and other agents), the project's `.agents/skills/`, `~/.foxxycode/skills/`, the project's `.foxxycode/skills/`; a later folder wins when two skills share a name, and any other folder can be added to `skills.dirs` in `config.yaml`, after the four and stronger than them.
 
 2. **See it in the catalog.** `foxxycode skills list` prints the search roots and a table with the skill, its version, `enabled` or `disabled`, and the description.
 

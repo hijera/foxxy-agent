@@ -38,6 +38,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	llmStreamIdleTimeoutMS := AgentDefaultLLMStreamIdleTimeoutMS
 	llmContinue := true
 	llmContinueMax := AgentDefaultLLMContinueMax
+	llmContinueBackgroundMax := AgentDefaultLLMContinueBackgroundMax
 	llmContinueRetryAfterMaxMS := AgentDefaultLLMContinueRetryAfterMaxMS
 	llmStallRetry := true
 	llmStallRetryMaxWaitMS := AgentDefaultLLMStallRetryMaxWaitMS
@@ -54,27 +55,29 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			},
 		},
 		Agent: AgentJSON{
-			Model:                      "openai/gpt-5.6-terra",
-			MaxTurns:                   AgentDefaultMaxTurns,
-			LLMRetryMax:                &llmRetryMax,
-			LLMRetryBaseMS:             AgentDefaultLLMRetryBaseMS,
-			LLMFirstTokenTimeoutMS:     &llmFirstTokenTimeoutMS,
-			LLMStreamIdleTimeoutMS:     &llmStreamIdleTimeoutMS,
-			LLMStallRetry:              &llmStallRetry,
-			LLMStallRetryDelaysMS:      append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
-			LLMStallRetryMaxWaitMS:     &llmStallRetryMaxWaitMS,
-			LLMContinue:                &llmContinue,
-			LLMContinueMax:             &llmContinueMax,
-			LLMContinueStallDelaysMS:   append([]int(nil), agentDefaultLLMContinueStallDelaysMS...),
-			LLMContinueErrorDelaysMS:   append([]int(nil), agentDefaultLLMContinueErrorDelaysMS...),
-			LLMContinueRetryAfterMaxMS: &llmContinueRetryAfterMaxMS,
-			LoopGuard:                  &loopGuard,
-			LoopToolRepeatLimit:        &loopToolRepeatLimit,
-			LoopStreamRepeatCycles:     &loopStreamRepeatCycles,
-			LoopToolCycleRepeats:       &loopToolCycleRepeats,
-			LoopStuckAction:            AgentDefaultLoopStuckAction,
-			LoopNudgeMax:               &loopNudgeMax,
-			WaitForLimitResetMaxMS:     &waitForLimitResetMaxMS,
+			Model:                         "openai/gpt-5.6-terra",
+			MaxTurns:                      intPtr(AgentDefaultMaxTurns),
+			LLMRetryMax:                   &llmRetryMax,
+			LLMRetryBaseMS:                AgentDefaultLLMRetryBaseMS,
+			LLMFirstTokenTimeoutMS:        &llmFirstTokenTimeoutMS,
+			LLMStreamIdleTimeoutMS:        &llmStreamIdleTimeoutMS,
+			LLMStallRetry:                 &llmStallRetry,
+			LLMStallRetryDelaysMS:         append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
+			LLMStallRetryMaxWaitMS:        &llmStallRetryMaxWaitMS,
+			LLMContinue:                   &llmContinue,
+			LLMContinueMax:                &llmContinueMax,
+			LLMContinueBackgroundMax:      &llmContinueBackgroundMax,
+			LLMContinueBackgroundDelaysMS: append([]int(nil), agentDefaultLLMContinueBackgroundDelaysMS...),
+			LLMContinueStallDelaysMS:      append([]int(nil), agentDefaultLLMContinueStallDelaysMS...),
+			LLMContinueErrorDelaysMS:      append([]int(nil), agentDefaultLLMContinueErrorDelaysMS...),
+			LLMContinueRetryAfterMaxMS:    &llmContinueRetryAfterMaxMS,
+			LoopGuard:                     &loopGuard,
+			LoopToolRepeatLimit:           &loopToolRepeatLimit,
+			LoopStreamRepeatCycles:        &loopStreamRepeatCycles,
+			LoopToolCycleRepeats:          &loopToolCycleRepeats,
+			LoopStuckAction:               AgentDefaultLoopStuckAction,
+			LoopNudgeMax:                  &loopNudgeMax,
+			WaitForLimitResetMaxMS:        &waitForLimitResetMaxMS,
 		},
 		Autocomplete: AutocompleteJSON{
 			Enabled:        &autocompleteEnabled,
@@ -97,20 +100,19 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AskPrompt:   "ask.md",
 			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
+		// instructions.files only adds files after the AGENTS.md and
+		// DESIGN.md documents, which are read without being listed.
 		Instructions: InstructionsJSON{
 			Files: DefaultInstructionFiles(),
 		},
+		// skills.dirs only adds directories to the default folders
+		// (DefaultSkillDirs), which are read beside it and never written in.
 		Skills: SkillsJSON{
-			Dirs: []string{
-				"~/.agents/skills",
-				"${FOXXYCODE_HOME}/skills",
-				"${CWD}/.foxxycode/skills",
-			},
-			Sources:       []string{},
+			Dirs:          []string{},
+			ProjectTrust:  ProjectTrustAsk,
 			AutoDiscovery: &skillsAutoDiscovery,
 		},
-		MCPServers: []MCPServerJSON{},
-		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk},
+		MCP: MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
 		Tools: ToolsJSON{
 			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
@@ -118,7 +120,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               &subagentsEnabled,
-			Dirs:                  DefaultSubagentDirs(),
+			Dirs:                  []string{},
 			ProjectTrust:          SubagentsProjectTrustAsk,
 			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
 			MaxDepth:              &subagentsMaxDepth,

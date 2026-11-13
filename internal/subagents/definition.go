@@ -103,6 +103,14 @@ type Definition struct {
 	Background bool
 	// Hidden keeps the definition out of the model-facing catalog.
 	Hidden bool
+	// Spawns is an allowlist of subagent names (same pattern syntax as
+	// Tools) this definition may delegate to. Non-empty does two things: it
+	// restricts the child to spawning only matching names at any depth, and
+	// it lets a child sitting at subagents.max_depth still spawn those names
+	// - exactly one generation past the cap, since the spawned children at
+	// the deeper depth never get spawn_agent. Honored only for builtin and
+	// user scope: a project file cannot widen the depth guard.
+	Spawns []string
 	// Role is the body of the file: the child's role block.
 	Role string
 
@@ -133,6 +141,7 @@ type frontmatter struct {
 	TimeoutSeconds  int         `yaml:"timeout_seconds"`
 	Background      bool        `yaml:"background"`
 	Hidden          bool        `yaml:"hidden"`
+	Spawns          interface{} `yaml:"spawns"`
 }
 
 // Parse turns a definition file into a Definition. path decides the default
@@ -222,6 +231,7 @@ func Parse(path string, data []byte) (*Definition, error) {
 		TimeoutSeconds:  timeout,
 		Background:      meta.Background,
 		Hidden:          meta.Hidden,
+		Spawns:          stringList(meta.Spawns),
 		Role:            role,
 		Path:            path,
 		Digest:          hex.EncodeToString(sum[:]),
@@ -314,6 +324,47 @@ func (d *Definition) Allows(tool string) bool {
 		}
 	}
 	return false
+}
+
+// EffectiveSpawns is the spawn allowlist the runtime honours. The field does
+// two jobs at once - it narrows the names a definition may delegate to and it
+// widens the depth guard by one generation - and a project file must not
+// defeat subagents.max_depth after a single trust receipt. The jobs cannot be
+// separated here, so a project definition's declaration is parsed and shown
+// in the catalog but ignored whole; builtin and user scope keep it whole
+// (docs/features/subagents.md).
+func (d *Definition) EffectiveSpawns() []string {
+	if d == nil || d.Scope == ScopeProject {
+		return nil
+	}
+	return d.Spawns
+}
+
+// MatchSpawns reports whether a spawn allowlist admits a subagent name. The
+// pattern syntax is the tool one: an exact name, a bare *, or a prefix
+// ending in *.
+func MatchSpawns(spawns []string, name string) bool {
+	for _, p := range spawns {
+		if MatchTool(p, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// DefinitionsMatching filters defs to the names a spawn allowlist admits.
+// An empty allowlist admits everything.
+func DefinitionsMatching(defs []*Definition, spawns []string) []*Definition {
+	if len(spawns) == 0 {
+		return defs
+	}
+	out := make([]*Definition, 0, len(defs))
+	for _, d := range defs {
+		if d != nil && MatchSpawns(spawns, d.Name) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // MatchTool matches a tool name against a pattern: an exact name, a bare *,

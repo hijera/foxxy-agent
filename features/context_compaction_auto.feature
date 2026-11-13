@@ -13,6 +13,8 @@ Feature: Automatic context compaction
     And the session transcript contains a compaction summary row
     And the session transcript still contains all 4 original exchanges
     And HTTP session stats match the compacted LLM context
+    When the client reloads the session context stats
+    Then the context indicator still reflects the compacted history
 
   # foxxycode-project/foxxycode-agent#245: a model entry without max_context_tokens.
   # The web UI draws its context ring against the window GET /v1/models

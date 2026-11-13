@@ -4,8 +4,9 @@
 Starts build/foxxycode cli in a pty against a local OpenAI-compatible stub (no
 provider, no key), types `/permissions bypass`, then a chained line that
 switches the model for one turn and the reasoning level for three, and
-renders one PNG: the two notices in the transcript, the footer's permission
-mode in the warning colour and the line of turn overrides under it.
+renders one PNG: the footer's permission mode in the warning colour and the
+line of turn overrides under it. The transcript stays as it was: a change the
+operator makes is shown in the footer only.
 
 Usage: python3 capture_settings.py [repo] [outdir]   (default docs/assets/session-settings)
 Needs a cli-tagged build/foxxycode (make build TAGS=cli, or FOXXYCODE_BIN), pexpect,
@@ -153,10 +154,13 @@ tui.pump(0.5)
 tui.send("/model stub/foxxycode-mini --once /reasoning high --count=3" + CR)
 tui.wait_for("foxxycode-mini", timeout=20)
 tui.pump(1.0)
-# The shot is only worth keeping if what it exists to show is on screen.
+# The shot is only worth keeping if what it exists to show is on screen, and
+# nothing the operator's changes should not leave.
 for row in ("bypass", "foxxycode-mini", "high"):
     if row not in tui.text():
         raise AssertionError(f"{row!r} is not on the captured screen:\n{tui.text()}")
+if "for this session" in tui.text() or "for the next" in tui.text():
+    raise AssertionError(f"a settings notice is on the captured screen:\n{tui.text()}")
 capture.snapshot(tui, OUT, NAME)
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")
 tui.pump(1)

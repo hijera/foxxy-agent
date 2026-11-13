@@ -26,7 +26,8 @@ type ModelEntry struct {
 	// (session.Manager.ContextWindow).
 	MaxContextTokens int `yaml:"max_context_tokens"`
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
-	// When true the UI may offer file attachment for messages sent with this model.
+	// When true the UI may offer file attachment for messages sent with this model,
+	// and read hands it the picture in an image file instead of refusing it.
 	Multimodal bool `yaml:"multimodal"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
 	// A nil pointer (key omitted) auto-detects the levels from the API model id (see

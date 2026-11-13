@@ -106,6 +106,8 @@ type panelLoopState struct {
 	cancels    []context.CancelFunc
 	tab        context.Context
 	browserLog bytes.Buffer
+	resizeRow  string
+	resizeTop  float64
 }
 
 func (s *panelLoopState) close() {
@@ -368,6 +370,66 @@ func (s *panelLoopState) userDraftsAndGrowsTheComposer() error {
 	return chromedp.Run(s.tab, chromedp.Sleep(panelLoopReserveSettle))
 }
 
+const panelDistanceFromBottom = `(() => {
+  const sc = document.querySelector(".chat-scroll");
+  return matchMedia("(max-width: 1199px)").matches
+    ? document.documentElement.scrollHeight - scrollY - innerHeight
+    : sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+})()`
+
+func (s *panelLoopState) resizeKeepsNewest(width int) error {
+	if err := chromedp.Run(s.tab, chromedp.EmulateViewport(int64(width), 700)); err != nil {
+		return err
+	}
+	return s.waitUntil(panelDistanceFromBottom+` < 4`, 5*time.Second)
+}
+
+func (s *panelLoopState) inspectOlderRow() error {
+	// Grow the real render window above its initial slice, then leave a row
+	// partway down the scrollport so this is not a tail-follow test.
+	if err := s.eval(`document.querySelector(".chat-scroll").scrollTop = 0`, nil); err != nil {
+		return err
+	}
+	if err := s.waitUntil(`document.querySelectorAll("[data-row-id]").length > 16`, 5*time.Second); err != nil {
+		return err
+	}
+	var row struct {
+		ID  string  `json:"id"`
+		Top float64 `json:"top"`
+	}
+	if err := s.eval(`(() => {
+  const rows = document.querySelectorAll("[data-row-id]");
+  const row = rows[Math.floor(rows.length / 2)];
+  const sc = document.querySelector(".chat-scroll");
+  sc.scrollTop += row.getBoundingClientRect().top - sc.getBoundingClientRect().top - 100;
+  const first = [...rows].find(el => el.getBoundingClientRect().bottom > sc.getBoundingClientRect().top);
+  return {id: first.dataset.rowId, top: first.getBoundingClientRect().top - sc.getBoundingClientRect().top};
+})()`, &row); err != nil {
+		return err
+	}
+	s.resizeRow, s.resizeTop = row.ID, row.Top
+	// Let the scroll event record the reader's position before resizing.
+	return chromedp.Run(s.tab, chromedp.Sleep(100*time.Millisecond))
+}
+
+func (s *panelLoopState) resizeKeepsInspectedRow(width int) error {
+	if err := chromedp.Run(s.tab, chromedp.EmulateViewport(int64(width), 700)); err != nil {
+		return err
+	}
+	expr := fmt.Sprintf(`(() => {
+  const row = [...document.querySelectorAll("[data-row-id]")].find(el => el.dataset.rowId === %q);
+  if (!row) return false;
+  const top = matchMedia("(max-width: 1199px)").matches ? 0 : document.querySelector(".chat-scroll").getBoundingClientRect().top;
+  return Math.abs(row.getBoundingClientRect().top - top - %f) < 4;
+})()`, s.resizeRow, s.resizeTop)
+	if err := s.waitUntil(expr, 5*time.Second); err != nil {
+		var details string
+		_ = s.eval(fmt.Sprintf(`JSON.stringify({width: innerWidth, y: scrollY, row: [...document.querySelectorAll("[data-row-id]")].find(el => el.dataset.rowId === %q)?.getBoundingClientRect().top, rows: document.querySelectorAll("[data-row-id]").length})`, s.resizeRow), &details)
+		return fmt.Errorf("%w (%s)", err, details)
+	}
+	return nil
+}
+
 func (s *panelLoopState) transcriptAndComposerRendered() error {
 	var probe struct {
 		Callbacks int `json:"callbacks"`
@@ -519,6 +581,9 @@ func TestIDEPanelResizeLoopFeature(t *testing.T) {
 			sc.Step(`^a foxxycode HTTP server with a transcript of (\d+) tool-call exchanges$`, s.serverWithTranscript)
 			sc.Step(`^the embedded panel opens that transcript at (\d+) pixels wide$`, s.panelOpensTranscript)
 			sc.Step(`^the user drafts a message and the composer grows taller$`, s.userDraftsAndGrowsTheComposer)
+			sc.Step(`^the newest message stays in view after resizing the panel to (\d+) pixels$`, s.resizeKeepsNewest)
+			sc.Step(`^the reader scrolls up to inspect an older transcript row$`, s.inspectOlderRow)
+			sc.Step(`^the inspected row stays in place after resizing the panel to (\d+) pixels$`, s.resizeKeepsInspectedRow)
 			sc.Step(`^the transcript and the composer are rendered$`, s.transcriptAndComposerRendered)
 			sc.Step(`^no ResizeObserver loop error was raised$`, s.noLoopError)
 			sc.Step(`^every composer reserve write landed in a later frame than the resize observation that measured it$`, s.reserveWritesLandInALaterFrame)

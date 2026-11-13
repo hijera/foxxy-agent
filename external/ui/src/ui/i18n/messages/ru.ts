@@ -1,5 +1,8 @@
 /** Russian UI strings for the FoxxyCode SPA. */
 export const messagesRu: Record<string, string> = {
+  "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
+  "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
+  "settings.userAgent.foxxycode": "Foxxycode/версия",
   "messages.svn.card": "Операция Subversion",
   "messages.svn.paths": "Пути",
   "messages.svn.target": "Объект",
@@ -68,6 +71,10 @@ export const messagesRu: Record<string, string> = {
   "auth.signOut.action": "Выйти",
   "auth.signOut.tooltipUser": "Выйти ({user})",
 
+  "settings.save.saved": "Сохранено",
+  "settings.schema.agent.queue_mode.label": "Режим очереди",
+  "settings.schema.agent.queue_mode.desc": "Определяет, что делает Enter с сообщением, написанным во время хода. В режиме steer сообщение встраивается в текущий ход на ближайшем шаге, в режиме after_turn запускает отдельный промпт после ответа. Tab отправляет в другом режиме. Если режим не задан, браузер и консоль спросят при первом таком сообщении.",
+  "mcp.error.load": "Не удалось загрузить серверы MCP: {message}",
   "nav.ariaLabel": "Навигация",
   "nav.useNarrowSidebar": "Узкая боковая панель",
   "nav.useWideSidebar": "Широкая боковая панель",
@@ -113,6 +120,26 @@ export const messagesRu: Record<string, string> = {
   "composer.queueRemove": "Убрать из очереди",
   "composer.queueFull": "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
   "composer.attachReadFailed": "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
+  "composer.queueModeSteer": "В текущий ход",
+  "composer.queueModeAfterTurn": "После хода",
+  "composer.queueChoiceLabel": "Режим очереди по умолчанию",
+  "composer.queueChoiceQuestion": "Как отправлять сообщения во время работы с помощью {key}?",
+  "composer.queueChoiceSteer": "В текущий ход",
+  "composer.queueChoiceAfterTurn": "После этого хода",
+  "composer.queueModeSteerTitle": "Попадёт в текущий ход на ближайшем шаге. Нажмите, чтобы отправить после ответа.",
+  "composer.queueModeAfterTurnTitle": "Запустит отдельный промпт после ответа. Нажмите, чтобы отправить в текущий ход.",
+  "composer.queueImages.one": "{count} картинка во вложении",
+  "composer.queueImages.few": "{count} картинки во вложении",
+  "composer.queueImages.many": "{count} картинок во вложении",
+  "composer.queueImages.other": "{count} картинки во вложении",
+  "composer.queueImagesDropped.one":
+    "{count} вложение не встало в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.few":
+    "{count} вложения не встали в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.many":
+    "{count} вложений не встало в очередь: выбранная модель не читает изображения.",
+  "composer.queueImagesDropped.other":
+    "{count} вложения не встали в очередь: выбранная модель не читает изображения.",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.queueBusyElsewhere":
     "Ход этого чата выполняется в другом окне FoxxyCode, и его очередь там. Сообщение возвращено в поле ввода.",
@@ -167,6 +194,7 @@ export const messagesRu: Record<string, string> = {
   "composer.closePicker": "Закрыть выбор",
   "composer.slashCommandsAriaLabel": "Команды со слэшем",
   "composer.workspaceFilesAriaLabel": "Файлы проекта",
+  "composer.mcpCommand": "Открыть настройки MCP-серверов",
   "composer.atRangeTitle": "Строки файла",
   "composer.atRangeAriaLabel": "Выбор диапазона строк",
   "composer.atRangeHint": "Введите 21-31 или выделите строки мышью",
@@ -184,12 +212,12 @@ export const messagesRu: Record<string, string> = {
   "composer.env.groupEnvironment": "Окружение",
   "composer.env.groupRemote": "Удалённые",
   "composer.env.localThisOrigin": "Локальное (этот origin)",
-  "composer.env.addFormTitle": "Добавить удалённое",
+  "composer.env.addFormTitle": "Подключиться к серверу",
   "composer.env.namePlaceholder": "название",
   "composer.env.tokenPlaceholder": "bearer-токен (пусто, если не нужен)",
-  "composer.env.connect": "Подключить",
+  "composer.env.connect": "Подключиться",
   "composer.env.cancel": "Отмена",
-  "composer.env.addRemote": "+ Добавить удалённое…",
+  "composer.env.addRemote": "Подключиться к…",
 
   "composer.workspace.recent": "Недавние",
   "composer.workspace.openFolder": "Открыть папку…",
@@ -224,8 +252,16 @@ export const messagesRu: Record<string, string> = {
   "composer.folderModal.go": "Перейти",
   "composer.folderModal.cannotList": "Не удалось прочитать {path}",
 
-  "env.banner.unreachable":
-    "Удалённое окружение {name} недоступно или не авторизовано — проверьте, что оно запущено, что {cors} разрешает этот origin и что токен верный.",
+  "env.banner.down":
+    "{name} не отвечает. Проверьте, что сервер запущен и адрес указан верно.",
+  "env.banner.unauthorizedAgent":
+    "{name} не принимает токен. Укажите для этого окружения токен из его {agentToken}.",
+  "env.banner.unauthorizedRelay":
+    "Релей {name} не принимает токен. Ему нужен клиентский токен из {relayToken}.",
+  "env.banner.corsRelay":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее.",
+  "env.banner.corsEither":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это foxxycode serve.",
   "env.banner.switchLocal": "Переключиться на локальное",
   "env.error.cannotReach":
     "Не удалось связаться с удалённым {host} — возможно, оно выключено или указан неверный URL, либо ответ заблокирован CORS (включите httpserver.cors на удалённой стороне).",
@@ -259,10 +295,8 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.automate": "автоматизировать",
   "chat.heroVerb.refactor": "рефакторить",
   "chat.heroVerb.plan": "спланировать",
-  "chat.subagentReadOnly.notice":
-    "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
-  "chat.subagentReadOnly.noticeUnnamed":
-    "Транскрипт субагента доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.notice": "Только для чтения: транскрипт субагента {name}.",
+  "chat.subagentReadOnly.noticeUnnamed": "Только для чтения: транскрипт субагента.",
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
@@ -302,6 +336,9 @@ export const messagesRu: Record<string, string> = {
     "Поиск в истории по заголовку или первому сообщению",
   "sessions.clearSearch": "Очистить поиск",
   "sessions.empty": "История пуста",
+  "sessions.emptyFilteredStatus": "Нет чатов с выбранным статусом",
+  "sessions.statusSummary": "Статус: {status}",
+  "sessions.showActive": "Показать активные чаты",
   "sessions.loadingMore": "Загрузка…",
   "sessions.permissionRequired": "Требуется разрешение",
   "sessions.questionPending": "Ожидается ответ",
@@ -432,14 +469,14 @@ export const messagesRu: Record<string, string> = {
   "swarm.state.offline": "не в сети",
   "swarm.state.noRoute": "нет маршрута",
   "swarm.search.placeholder": "Поиск по задаче, папке, узлу или адресу",
-  "swarm.results.label": "Найденные сессии",
+  "swarm.results.label": "Результаты поиска",
   "swarm.empty.noSwarm": "Роя здесь нет.",
   "swarm.empty.looking": "Загрузка…",
-  "swarm.empty.noMatches": "Подходящих сессий нет.",
+  "swarm.empty.noMatches": "Ничего не найдено.",
   "swarm.empty.noNodes": "Ни один узел ещё не подключился.",
   "swarm.error.notRelay": "Это окружение не релей роя.",
   "swarm.error.needsToken":
-    'Релею нужен токен. Добавьте его кнопкой "Подключить" в меню окружения.',
+    'Релею нужен токен. Введите его в меню окружения, пункт "Подключиться к…".',
   "swarm.session.working": "работает",
   "swarm.session.waiting": "ожидает",
   "usage.resets": "сброс {time}",
@@ -494,8 +531,12 @@ export const messagesRu: Record<string, string> = {
   "settings.statusLine.off": "Скрывать",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
   "onboarding.provider.neuraldeep.description":
-    "Российский AI-хаб — модели через api.neuraldeep.ru",
-  "onboarding.openHub": "Открыть hub.neuraldeep.ru",
+    "AI-хаб — neuraldeep.ru или neuraldeep.tech",
+  "onboarding.neuralDeepAuth.fieldLabel": "или войдите в NeuralDeep",
+  "onboarding.neuralDeepAuth.description":
+    "Ключ вводить не обязательно: войдите под учёткой хаба NeuralDeep, и хаб выдаст персональный ключ для FoxxyCode. Модель по умолчанию бесплатного тарифа уже подставлена ниже, а пикер моделей подтянет каталог вашего тарифа с этим входом.",
+  "onboarding.neuralDeepDomain": "Домен NeuralDeep",
+  "onboarding.openHub": "Открыть {domain}",
   "onboarding.title": "Выберите провайдера",
   "onboarding.lead":
     "Подключите LLM-бэкенд, чтобы начать общение. Другие провайдеры можно добавить позже в настройках.",
@@ -841,6 +882,7 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "обращается к",
   "settings.mcp.trust.fact.env": "окружение",
   "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.trust.fact.reads": "читает",
   "settings.mcp.trust.fact.tls": "tls",
   "settings.mcp.trust.factValue.insecure": "проверка сертификата отключена",
   "settings.mcp.insecureTls.label": "Игнорировать проверку SSL",
@@ -1088,6 +1130,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.list_dir": "смотрю каталог",
   "tool.name.mkdir": "создаю каталог",
   "tool.name.touch": "создаю файл",
+  "tool.name.worktree_create": "создаю worktree",
   "tool.name.mv": "перемещаю",
   "tool.name.rm": "удаляю",
   "tool.name.rmdir": "удаляю каталог",
@@ -1380,8 +1423,6 @@ export const messagesRu: Record<string, string> = {
   "messages.subagentApproval.approve": "Одобрить",
   "messages.subagentApproval.openSettings": "Открыть настройки субагентов",
   "messages.toolSubagentOpenTranscript": "Открыть транскрипт субагента",
-  "messages.toolBgTaskOpen": "Открыть в задачах",
-  "messages.toolBgTaskStop": "Остановить",
   "tasks.badge.agent": "агент",
   "tasks.agentHeading": "Субагент",
   "tasks.openTranscript": "Показать транскрипт",
@@ -1548,7 +1589,7 @@ export const messagesRu: Record<string, string> = {
   // Настройки -> Субагенты: каталог определений
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
-    'Все определения, которые может запустить сессия этого рабочего пространства: встроенные, ваши файлы в ~/.foxxycode/agents и файлы проекта в .foxxycode/agents или .claude/agents. При значении "ask" одобрите проектный файл здесь или командой foxxycode agents trust <name>.',
+    "Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.foxxycode/agents и файлы .agents/agents и .foxxycode/agents, пришедшие вместе с чекаутом. При значении \"ask\" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой foxxycode agents trust <name> на машине, где работает foxxycode. Изменённый одобренный файл потребует одобрения снова.",
   "subagents.catalog.workspace": "Рабочее пространство",
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
@@ -1562,7 +1603,7 @@ export const messagesRu: Record<string, string> = {
   "subagents.badge.hidden": "скрытый",
   "subagents.badge.needsApproval": "нужно одобрение",
   "subagents.badge.needsApprovalTitle":
-    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства: foxxycode agents trust {name}",
+    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства щитом или командой foxxycode agents trust {name}",
   "subagents.fact.file": "файл",
   "subagents.fact.model": "модель",
   "subagents.fact.modelInherits": "модель родителя",
@@ -1718,6 +1759,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.openTranscriptAria": "Показать транскрипт запуска {label}",
   "sessions.backgroundRunning": "Идут фоновые задачи",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
+  "messages.toolImages": "Картинки, которые вызов показал модели",
+  "messages.openToolImage": "Открыть {fileName} крупнее",
   "composer.openAttachmentImage": "Открыть {fileName} крупнее",
   "settings.fieldHint.aria": "Пояснение: {label}",
   "settings.fieldHint.ariaGeneric": "Пояснение к полю",
@@ -1802,7 +1845,8 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.tls": "Сертификат TLS",
   "structuredTool.tlsNotVerified": "не проверяется",
   "structuredTool.redirects": "Редиректы",
-  "structuredTool.redirectsFollowed": "выполняются в пределах того же источника",
+  "structuredTool.redirectsFollowed":
+    "выполняются в пределах того же источника",
   "structuredTool.responseHeaders": "Заголовки ответа",
   "structuredTool.outputFile": "Сохранено в",
   "structuredTool.status": "Ответ",
@@ -1819,7 +1863,8 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.noTasks": "Фоновых задач нет",
   "structuredTool.noLeftovers": "Процессов от прошлого запуска не осталось",
   "structuredTool.stillRunning": "Ещё выполняется после ожидания {seconds} с",
-  "structuredTool.earlierDropped": "Начало вывода отброшено, полный лог лежит в бандле сессии",
+  "structuredTool.earlierDropped":
+    "Начало вывода отброшено, полный лог лежит в бандле сессии",
   "structuredTool.noOutput": "Вывода пока нет",
   "structuredTool.stops": "Остановка",
   "structuredTool.stopsAfter": "через {seconds} с после запуска",
@@ -1852,4 +1897,287 @@ export const messagesRu: Record<string, string> = {
   "skills.switch.disabledTitle": "Отключён - нажмите, чтобы включить",
   "skills.switch.disableAria": "Отключить {name}",
   "skills.switch.enableAria": "Включить {name}",
+
+  "settings.map.namePlaceholder": "Имя",
+  "settings.map.valuePlaceholder": "Значение",
+  "settings.map.nameAria": "{label} {n}, имя",
+  "settings.map.valueAria": "{label} {n}, значение",
+  "settings.schema.tools.http_request.label": "HTTP-запросы",
+  "settings.schema.tools.http_request.desc":
+    "Политика инструмента http_request, curl агента. Здесь задано, куда запрос идёт без вопроса и какие заголовки несёт каждый запрос. В режимах ask и accept_edits запрос спрашивает разрешение, если адрес не разрешён здесь и не одобрен в сессии, а bypass не спрашивает никогда.",
+  "settings.schema.tools.http_request.allowlist.label": "Белый список адресов",
+  "settings.schema.tools.http_request.allowlist.desc":
+    'Адреса, куда запрос идёт без вопроса. Хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/), а "*" разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат. Прокси нужна своя запись, а сохранение ответа в файл следует политике записи.',
+  "settings.schema.tools.http_request.default_headers.label":
+    "Заголовки по умолчанию",
+  "settings.schema.tools.http_request.default_headers.desc":
+    "Заголовки, которые уходят с каждым запросом, если вызов не задал их сам. Например, браузерный User-Agent для сайта, который не отдаёт файлы инструментам. Заголовки вызова важнее, пустое значение убирает заголовок. Они уходят на любой адрес, поэтому учётные данные здесь уместны только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization не принимаются, а webfetch и провайдеры моделей эти заголовки не отправляют.",
+  "settings.section.swarm.label": "Релей роя",
+  "settings.section.swarm.desc": "Адрес, токены, CORS, узлы",
+  "settings.secret.keep": "Задан. Оставьте пустым, чтобы не менять",
+  "settings.secret.unset": "Не задан",
+  "settings.secret.listSet.one":
+    "Задан {count} токен, он не показывается. Введённые здесь значения заменят его.",
+  "settings.secret.listSet.few":
+    "Задано {count} токена, они не показываются. Введённые здесь значения заменят их все.",
+  "settings.secret.listSet.many":
+    "Задано {count} токенов, они не показываются. Введённые здесь значения заменят их все.",
+  "settings.secret.listSet.other":
+    "Задано {count} токена, они не показываются. Введённые здесь значения заменят их все.",
+  "settings.schema.swarm.label": "Релей роя",
+  "settings.schema.swarm.desc":
+    "Развёртывание этого релея. Имя и адрес, токены клиентов и узлов, CORS для страниц с других адресов, узлы, до которых релей дозванивается сам, и релеи, к которым он присоединяется. Сохранение пересобирает релей, новый адрес вступает в силу после перезапуска.",
+  "settings.schema.swarm.name.label": "Имя",
+  "settings.schema.swarm.name.desc": "Имя релея на карте и в /swarm/info.",
+  "settings.schema.swarm.host.label": "Адрес прослушивания",
+  "settings.schema.swarm.host.desc":
+    "Адрес для привязки, 0.0.0.0 слушает на всех интерфейсах. Вступает в силу после перезапуска.",
+  "settings.schema.swarm.port.label": "Порт",
+  "settings.schema.swarm.port.desc":
+    "Порт для привязки. Вступает в силу после перезапуска.",
+  "settings.schema.swarm.auth_token.label": "Клиентский токен",
+  "settings.schema.swarm.auth_token.desc":
+    'Bearer-токен, который клиент предъявляет, чтобы пользоваться релеем и всеми узлами за ним. Новый токен отключает всех клиентов, эту страницу тоже, после сохранения введите его заново в меню окружения, пункт "Подключиться к…".',
+  "settings.schema.swarm.pairing_tokens.label": "Токены присоединения",
+  "settings.schema.swarm.pairing_tokens.desc":
+    "Токены, с которыми узел присоединяется к релею. Список не показывается, введённые здесь токены заменяют заданные.",
+  "settings.schema.swarm.cors.label": "CORS",
+  "settings.schema.swarm.cors.desc":
+    "Страницы с других адресов, например foxxycode serve на ноутбуке, которым можно обращаться к релею из браузера.",
+  "settings.schema.swarm.cors.enable.label": "Включить CORS",
+  "settings.schema.swarm.cors.enable.desc":
+    "Отвечать на кросс-доменные запросы с адресов ниже.",
+  "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
+  "settings.schema.swarm.cors.allowed_origins.desc":
+    "Точные origin, например http://localhost:12345, или * для любого.",
+  "settings.schema.swarm.tls.label": "TLS",
+  "settings.schema.swarm.tls.desc":
+    "Сертификат и ключ, с которыми релей отвечает по HTTPS. Нужны оба или ни одного.",
+  "settings.schema.swarm.tls.cert_file.label": "Файл сертификата",
+  "settings.schema.swarm.tls.cert_file.desc": "Цепочка сертификатов в PEM.",
+  "settings.schema.swarm.tls.key_file.label": "Файл ключа",
+  "settings.schema.swarm.tls.key_file.desc": "Закрытый ключ в PEM.",
+  "settings.schema.swarm.lease_ttl_seconds.label": "Срок аренды (секунды)",
+  "settings.schema.swarm.lease_ttl_seconds.desc":
+    "Сколько живёт регистрация без обновления, узлы обновляют её на трети срока.",
+  "settings.schema.swarm.fanout_timeout_seconds.label":
+    "Ожидание узлов (секунды)",
+  "settings.schema.swarm.fanout_timeout_seconds.desc":
+    "Сколько общий список сессий и топология ждут ответа узла.",
+  "settings.schema.swarm.upstreams.label": "Узлы релея",
+  "settings.schema.swarm.upstreams.desc":
+    "Узлы, до которых релей дозванивается сам. Они закреплены на карте, отмечаются они или нет.",
+  "settings.schema.swarm.upstreams.name.label": "Имя",
+  "settings.schema.swarm.upstreams.name.desc":
+    "Имя, под которым узел смонтирован, /swarm/nodes/<name>.",
+  "settings.schema.swarm.upstreams.url.label": "URL",
+  "settings.schema.swarm.upstreams.url.desc":
+    "Адрес, по которому релей обращается к узлу.",
+  "settings.schema.swarm.upstreams.kind.label": "Вид",
+  "settings.schema.swarm.upstreams.kind.desc":
+    "agent или relay для релея, подключённого под этим.",
+  "settings.schema.swarm.upstreams.token.label": "Токен",
+  "settings.schema.swarm.upstreams.token.desc":
+    "Собственный bearer-токен узла, который релей предъявляет, проксируя запросы.",
+  "settings.schema.swarm.upstreams.dial.label": "Подключение",
+  "settings.schema.swarm.upstreams.dial.desc":
+    "Как релей добирается до узла, исходящий прокси и проверка сертификата.",
+  "settings.schema.swarm.upstreams.dial.proxy.label": "Прокси",
+  "settings.schema.swarm.upstreams.dial.proxy.desc":
+    "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
+  "settings.schema.swarm.upstreams.dial.ca_file.label": "Файл CA",
+  "settings.schema.swarm.upstreams.dial.ca_file.desc":
+    "Набор сертификатов в PEM, которому доверяют для сертификата узла вдобавок к системным.",
+  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
+    "Не проверять сертификат",
+  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
+    "Только для стенда, каждое такое соединение пишется в журнал как небезопасное.",
+  "settings.schema.swarm.join.label": "Родительские релеи",
+  "settings.schema.swarm.join.desc":
+    "Релеи, в которых регистрируется этот релей. Так релеи выстраиваются в цепочку.",
+  "settings.schema.swarm.join.url.label": "URL релея",
+  "settings.schema.swarm.join.url.desc":
+    "Родительский релей, в котором регистрируется этот.",
+  "settings.schema.swarm.join.name.label": "Имя",
+  "settings.schema.swarm.join.name.desc":
+    "Имя, под которым регистрируется этот релей. Пустое берёт имя хоста.",
+  "settings.schema.swarm.join.pairing_token.label": "Токен присоединения",
+  "settings.schema.swarm.join.pairing_token.desc":
+    "Токен присоединения родительского релея.",
+  "settings.schema.swarm.join.advertise_url.label": "Адрес для родителя",
+  "settings.schema.swarm.join.advertise_url.desc":
+    "Адрес, по которому родитель обращается к этому релею. Пустой означает исходящее подключение, и родитель управляет релеем через туннель.",
+  "settings.schema.swarm.join.token.label": "Токен",
+  "settings.schema.swarm.join.token.desc":
+    "Собственный клиентский токен этого релея, который предъявляет родитель, проксируя запросы.",
+  "settings.schema.swarm.join.dial.label": "Подключение",
+  "settings.schema.swarm.join.dial.desc":
+    "Как этот релей добирается до родителя, исходящий прокси и проверка сертификата.",
+  "settings.schema.swarm.join.dial.proxy.label": "Прокси",
+  "settings.schema.swarm.join.dial.proxy.desc":
+    "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
+  "settings.schema.swarm.join.dial.ca_file.label": "Файл CA",
+  "settings.schema.swarm.join.dial.ca_file.desc":
+    "Набор сертификатов в PEM, которому доверяют для сертификата родителя вдобавок к системным.",
+  "settings.schema.swarm.join.dial.insecure_skip_verify.label":
+    "Не проверять сертификат",
+  "settings.schema.swarm.join.dial.insecure_skip_verify.desc":
+    "Только для стенда, каждое такое соединение пишется в журнал как небезопасное.",
+  "settings.schema.swarm.allow_private_upstreams.label": "Частные адреса узлов",
+  "settings.schema.swarm.allow_private_upstreams.desc":
+    "Имена хостов, которым можно указывать на частные диапазоны адресов, когда узел сообщает свой URL.",
+  "settings.schema.swarm.allow_insecure.label":
+    "Работать без клиентского токена",
+  "settings.schema.swarm.allow_insecure.desc":
+    "Разрешить релею на внешнем адресе работать без клиентского токена. Только для стенда.",
+  "settings.schema.swarm.insecure_open_registration.label":
+    "Открытая регистрация",
+  "settings.schema.swarm.insecure_open_registration.desc":
+    "Разрешить любому узлу присоединяться без токена присоединения. Только для стенда.",
+  "settings.schema.compaction.auto_enable.label": "Автоматическое сжатие",
+  "settings.schema.compaction.auto_enable.desc":
+    "Включает сжатие по порогу. При выключении ручное сжатие остаётся доступным. По умолчанию включено.",
+  "mcp.error.request": "Ошибка запроса MCP: {message}",
+  "subagents.fact.spawns": "порождает",
+  "chat.contextCompactAt": "Сжимать при {percent}%",
+  "chat.contextCompactNow": "Сжать сейчас",
+  "chat.contextCompacting": "Сжимаю…",
+  "chat.contextCompactError": "Не удалось сжать контекст",
+  "chat.contextCompactNothing": "Сжимать пока нечего",
+  "composer.env.enterToken": "Ввести токен",
+  "composer.env.hint.down": "Не отвечает.",
+  "composer.env.hint.agentToken":
+    "Не принимает токен. Нужен токен из его httpserver.auth_token.",
+  "composer.env.hint.relayToken":
+    "Релей не принимает токен. Нужен его клиентский токен из swarm.auth_token.",
+  "composer.env.hint.configToken":
+    "Токен этой записи в httpserver.remotes не принят.",
+  "composer.env.hint.cors":
+    "Ответ заблокирован CORS. Разрешите {origin} в swarm.cors.allowed_origins (релей) или httpserver.cors.allowed_origins (foxxycode serve).",
+  "composer.env.relay": "релей",
+  "composer.env.nodeOffline": "не в сети",
+  "swarm.close": "Закрыть карту роя",
+  "swarm.graph.enterRelay": "Подключиться к релею {node}",
+  "swarm.graph.enterClient": "Открыть локальную машину",
+  "swarm.layout.label": "Раскладка графа",
+  "swarm.layout.tree": "Древовидная раскладка",
+  "swarm.layout.graph": "Графовая раскладка",
+  "swarm.viewport.zoomIn": "Увеличить",
+  "swarm.viewport.zoomOut": "Уменьшить",
+  "swarm.viewport.fit": "Показать граф целиком",
+  "swarm.tier.client": "эта машина",
+  "swarm.results.nodes": "Узлы",
+  "swarm.results.sessions": "Сессии",
+  "settings.mcp.error.load": "Не удалось загрузить серверы MCP: {message}",
+  "settings.mcp.error.request": "Ошибка запроса MCP: {message}",
+  "settings.subagents.fact.spawns": "может запускать",
+  "chat.footer.github": "GitHub",
+  "nav.activeSessions.one": "{count} активная сессия",
+  "nav.activeSessions.few": "{count} активные сессии",
+  "nav.activeSessions.many": "{count} активных сессий",
+  "nav.activeSessions.other": "{count} активной сессии",
+  "nav.activeRuns.one": "{count} активный запуск",
+  "nav.activeRuns.few": "{count} активных запуска",
+  "nav.activeRuns.many": "{count} активных запусков",
+  "nav.activeRuns.other": "{count} активного запуска",
+  "sessions.stateFinished": "Завершена",
+  "sessions.stateError": "Последний ход завершился ошибкой",
+  "chat.subagentReadOnly.model": "Используемая модель: {model}",
+  "composer.folderModal.showHidden": "Скрытые",
+  "messages.spawnAgentReasoning": "Уровень рассуждения: {reasoning}",
+  "workspace.filterRecent": "Фильтровать недавние папки",
+  "workspace.filterBranches": "Фильтровать ветки",
+  "workspace.noRecentMatch": "Недавних папок нет",
+  "workspace.noBranchesMatch": "Подходящих веток нет",
+  "messages.toolArtifacts": "Переданные файлы",
+  "messages.openArtifactImage": "Открыть {fileName}",
+  "messages.artifactActions": "Действия для {fileName}",
+  "messages.artifactMention": "Упомянуть источник",
+  "messages.artifactCopyName": "Копировать имя",
+  "messages.artifactCopyRelative": "Копировать относительный путь",
+  "messages.artifactCopyAbsolute": "Копировать абсолютный путь",
+  "messages.artifactReveal": "Показать на сервере",
+  "messages.artifactRevealFailed": "Не удалось показать файл на сервере",
+  "messages.artifactCopyFailed": "Не удалось скопировать в буфер обмена",
+  "messages.artifactRevealUnavailable": "Показ на удалённом сервере или сервере без интерфейса недоступен",
+  "messages.downloadArtifact": "Скачать {fileName}",
+  "messages.downloadArtifactButton": "Скачать",
+  "messages.artifactDownloading": "Скачивание…",
+  "messages.artifactUnavailable": "Скачивание недоступно",
+  "settings.error.failedToLoad": "Не удалось загрузить: {error}",
+  "codexAuth.cliLoginOtherRow": "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
+  "mcp.discovery.legend": "Обнаружение MCP",
+  "mcp.discovery.projectServersLabel": "Проектные серверы",
+  "mcp.switch.enabledTitle": "Включён — нажмите, чтобы отключить",
+  "mcp.switch.disabledTitle": "Отключён — нажмите, чтобы включить",
+  "mcp.switch.disableAria": "Отключить MCP-сервер {name}",
+  "mcp.switch.enableAria": "Включить MCP-сервер {name}",
+  "mcp.discovery.description":
+    "Проектный ./.foxxycode/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме \"Спрашивать\" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.foxxycode/mcp.json ваши и никогда не блокируются.",
+  "messages.spawnAgentPrompt": "Промпт агента",
+  "messages.spawnAgentTimeout": "Таймаут {seconds} с",
+  "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
+  "workspace.noBranches": "Веток нет",
+  "mcp.error.saveChanged":
+    "Запись изменилась в файле после открытия редактора. Закройте его и откройте запись снова, чтобы увидеть, что в ней сейчас.",
+  "mcp.edit.title": "Изменить запись ({origin})",
+  "mcp.edit.aria": "Изменить {name}",
+  "mcp.delete.title": "Удалить из {origin}",
+  "mcp.delete.aria": "Удалить {name}",
+  "mcp.editor.valuesHint":
+    "Значения env и заголовков не показываются. {placeholder} оставляет сохранённое значение, новое значение заменяет его, а убранный ключ удаляется из записи.",
+  "subagents.trust.approveTitle": "Разрешить запуск {name} в этом рабочем пространстве",
+  "subagents.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "subagents.trust.approveAria": "Одобрить субагента {name}",
+  "subagents.trust.withdrawAria": "Отозвать одобрение субагента {name}",
+  "subagents.error.trust": "Не удалось изменить одобрение {name}.",
+  "skills.error.sync": "Не удалось синхронизировать",
+  "skills.error.install": "Не удалось установить {name}",
+  "skills.trust.legend": "Обнаружение маркетплейсов",
+  "skills.trust.description":
+    "Проектный .foxxycode/marketplaces.json приходит вместе с чекаутом, поэтому то, что синхронизация установит в ~/.foxxycode/skills, выбирает репозиторий, а не вы. При значении ask его записи не синхронизируются и не предлагаются к установке, пока вы не одобрите каждую для этого рабочего пространства (щит в списке ниже); изменение одобренной записи снова потребует одобрения. Записи, которые вы добавляете в проект здесь, одобряются самим фактом записи, а ~/.foxxycode/marketplaces.json ваш и никогда не блокируется. Сохраняется вместе с остальными настройками.",
+  "skills.sources.legend": "Маркетплейсы",
+  "skills.sources.add": "Добавить",
+  "skills.sources.addAria": "Источник для добавления",
+  "skills.sources.scopeAria": "Где объявить",
+  "skills.sources.scope.global": "Ваш (~/.foxxycode)",
+  "skills.sources.scope.local": "Этот проект",
+  "skills.sources.syncAll": "Синхронизировать все",
+  "skills.sources.syncAllTitle": "Получить все действующие источники и маркетплейсы",
+  "skills.sources.completed": "Готово",
+  "skills.sources.syncedTitle": "Синхронизировано",
+  "skills.sources.syncTitle": "Синхронизировать {source}",
+  "skills.sources.heldSyncTitle": "Сначала одобрите его для этого рабочего пространства",
+  "skills.sources.deniedSyncTitle":
+    "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
+  "skills.sources.scope.noSessionTitle":
+    "Чтобы объявить маркетплейс для проекта, отправьте первое сообщение чата в этом проекте; до этого запись добавляется к вашим",
+  "skills.sources.syncAria": "Синхронизировать этот маркетплейс",
+  "skills.sources.removeTitle": "Удалить из {path}",
+  "skills.sources.systemTitle":
+    "Встроен в FoxxyCode, всегда действует, всегда доверенный и не удаляется",
+  "skills.sources.removeAria": "Удалить маркетплейс",
+  "skills.sources.kind.source": "все плагины",
+  "skills.sources.kind.marketplace": "каталог",
+  "skills.sources.origin.system": "встроенный",
+  "skills.sources.origin.home": "ваш",
+  "skills.sources.origin.project": "из проекта",
+  "skills.sources.trust.systemAria": "{source} встроен в FoxxyCode и всегда доверенный",
+  "skills.sources.trust.approveTitle": "Разрешить синхронизацию {source} в этом рабочем пространстве",
+  "skills.sources.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "skills.sources.trust.approveAria": "Одобрить {source} для этого рабочего пространства",
+  "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
+  "skills.sources.note.held":
+    "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
+  "skills.sources.note.denied":
+    "Маркетплейсы проекта отключены настройкой skills.project_trust со значением deny.",
+  "skills.sources.error.load": "Не удалось загрузить маркетплейсы.",
+  "skills.sources.error.add": "Не удалось добавить {source}.",
+  "skills.sources.error.remove": "Не удалось удалить {source}.",
+  "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
+  "skills.sources.description":
+    "Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (foxxycode plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.foxxycode/marketplaces.json, записи проекта в его .foxxycode/marketplaces.json, который приходит вместе с чекаутом, и при значении \"ask\" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.foxxycode/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.",
+  "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
 };

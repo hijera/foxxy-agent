@@ -12,6 +12,35 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check.": "Одинаковые вызовы инструментов в последовательных ответах модели, после которых вмешивается защита от зацикливания. Повторы внутри одного ответа считаются один раз; 0 отключает проверку.",
+  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap.": "Максимум итераций ReAct (вызовы модели и инструментов) на один запрос пользователя. По умолчанию 165; явный 0 отключает ограничение.",
+  "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.": "Файлы, добавляемые к системному промпту после обязательных AGENTS.md и DESIGN.md из дома агента, папки сессии и папок, к которым обращаются инструменты.",
+  "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.": "Дополнительные инструкции после AGENTS.md и DESIGN.md, в указанном порядке. По умолчанию список пуст. ${FOXXYCODE_HOME}, ${CWD} и начальная ~ раскрываются. Абсолютный путь используется как есть, относительный считается от папки сессии. Уже включённый файл повторно не читается.",
+  "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).": "Дополнительные каталоги скилов читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/skills (общий для агентов, npx skills и npx skillsbd), .agents/skills проекта, ${FOXXYCODE_HOME}/skills (собственные и установленные скилы FoxxyCode), .foxxycode/skills проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последний скил; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии или папки, выбранной для нового чата.",
+  "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.": "Проектный .foxxycode/marketplaces.json приходит вместе с репозиторием. ask: источники и маркетплейсы не синхронизируются до одобрения каждой записи для этого проекта (щит в списке или foxxycode plugin marketplace trust). allow: доверять им как собственному ~/.foxxycode/marketplaces.json. deny: не использовать, показывать отключёнными. Установка всегда идёт в ${FOXXYCODE_HOME}/skills; папки скилов самого проекта не затрагиваются.",
+  "Project marketplaces": "Маркетплейсы проекта",
+  "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.": "Дополнительные каталоги определений читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/agents, .agents/agents проекта, ${FOXXYCODE_HOME}/agents, .foxxycode/agents проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последнее определение; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии. Каталоги внутри проекта подчиняются его политике доверия.",
+  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.": "Определения внутри проекта приходят вместе с репозиторием. ask: читать их, но запускать только после одобрения для этого проекта (щит в списке, foxxycode agents trust на сервере или POST /foxxycode/subagents/{name}/trust). allow: доверять как собственным файлам. deny: не читать.",
+  "Automatic compaction": "Автоматическое сжатие",
+  "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.": "Автоматически сжимать контекст по порогу. При отключении ручное сжатие остаётся доступным. По умолчанию включено.",
+  "Master switch for manual and automatic compaction. Defaults to true.": "Общий переключатель ручного и автоматического сжатия. По умолчанию включено.",
+
+  "Background continuation delays ms": "Паузы фоновых продолжений, мс",
+  "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.": "Паузы для субагентов и заданий планировщика: по умолчанию 5000, 20000, 80000, 120000, 120000 мс. Последняя пауза повторяется.",
+  "Background continuation limit": "Лимит фоновых продолжений",
+  "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit.": "Продолжения одного запуска субагента или задания планировщика: по умолчанию 5, 0 отключает. Субагенты памяти используют обычный лимит.",
+  "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).": "Завершённые запуски памяти, сохраняемые в панели задач для каждой сессии вместе с записью задачи и диалогом субагента; 0 сохраняет все (по умолчанию 20).",
+  "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.": "Модель принимает изображения и файлы вместе с текстом. Интерфейс разрешает вложения, а read передаёт модели содержимое PNG, JPEG, GIF и WebP как изображение.",
+  "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.": "Политика инструмента http_request: разрешённые адреса и общие заголовки. В режимах ask и accept_edits запрос требует разрешения, если адрес отсутствует в списке и ещё не одобрен в сессии. В режиме bypass разрешение не запрашивается.",
+  "Default headers": "Заголовки по умолчанию",
+  "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.": "Общие заголовки всех запросов, например браузерный User-Agent. Заголовки вызова имеют приоритет; пустое значение убирает заголовок. Они отправляются на любой адрес, поэтому добавляйте учётные данные только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization запрещены. webfetch и провайдеры моделей эти заголовки не используют.",
+
+  "Queue mode": "Режим очереди",
+  "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.": "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
+
+
+  "User-Agent": "User-Agent",
+  "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.": "Идентификатор клиента для OpenAI-совместимых и Anthropic-совместимых запросов. По умолчанию используется SDK провайдера (OpenAI/Go или Anthropic/Go); Foxxycode передаёт версию запущенного приложения.",
   "ReAct loop": "Цикл ReAct",
   "Memory copilot": "Помощник памяти",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":
@@ -389,8 +418,8 @@ export const schemaTextRu: Record<string, string> = {
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
   "Compaction engine": "Движок сжатия",
-  "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
-    "Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
+  "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
+    "Какую реализацию сжатия использовать. «foxxycode» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
@@ -798,6 +827,9 @@ export const schemaTextRu: Record<string, string> = {
  * unique across the schema, so a flat token→label map is unambiguous.
  */
 export const schemaEnumLabelRu: Record<string, string> = {
+  steer: "Уточнить текущую задачу",
+  after_turn: "После ответа",
+
   // provider.type
   openai: "OpenAI",
   anthropic: "Anthropic",
@@ -845,7 +877,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   quarantine: "Карантин вызовов",
   stop: "Остановить ход",
   // compaction.engine
-  coddy: "coddy",
+  foxxycode: "foxxycode",
   opencode: "opencode",
   brave: "Brave",
   bing: "Bing",

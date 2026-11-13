@@ -2,6 +2,8 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +82,31 @@ func TestPluginSourceUnmarshal(t *testing.T) {
 			json: `{"repo":"a/b"}`,
 			want: PluginSource{Kind: "github", Repo: "a/b"},
 		},
+		{
+			name: "archive object with sha256",
+			json: `{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip","sha256":" ` + testDigest + ` "}`,
+			want: PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip", SHA256: testDigest},
+		},
+		{
+			name: "archive object without sha256",
+			json: `{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip"}`,
+			want: PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip"},
+		},
+		{
+			name: "url object naming a zip stays a git url",
+			json: `{"url":"https://example.com/plugins/demo.zip"}`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip"},
+		},
+		{
+			name: "url object with the url keyword naming a zip stays a git url",
+			json: `{"source":"url","url":"https://example.com/plugins/demo.zip","sha256":"` + testDigest + `"}`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip", SHA256: testDigest},
+		},
+		{
+			name: "string naming a zip stays a git url",
+			json: `"https://example.com/plugins/demo.zip"`,
+			want: PluginSource{Kind: "url", URL: "https://example.com/plugins/demo.zip"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,6 +118,32 @@ func TestPluginSourceUnmarshal(t *testing.T) {
 				t.Errorf("got %+v, want %+v", ps, tt.want)
 			}
 		})
+	}
+}
+
+// testDigest is a well-formed sha256 (of the empty input).
+const testDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// TestMarketplaceDecodesTheCatalogueArchiveEntry decodes the manifest the
+// neuraldeep.ru catalogue serves per skill: one plugin whose source is an
+// archive, next to fields FoxxyCode does not use.
+func TestMarketplaceDecodesTheCatalogueArchiveEntry(t *testing.T) {
+	data := `{"name":"neuraldeep","owner":{"name":"NeuralDeep","url":"https://neuraldeep.ru"},` +
+		`"plugins":[{"name":"demo","description":"A demo skill",` +
+		`"source":{"source":"archive","url":"https://neuraldeep.ru/skapi/plugins/demo.zip"},` +
+		`"homepage":"https://neuraldeep.ru/skills/demo","repository":"https://github.com/o/r",` +
+		`"author":{"name":"o"}}]}`
+	var mf Marketplace
+	if err := json.Unmarshal([]byte(data), &mf); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(mf.Plugins) != 1 {
+		t.Fatalf("plugins = %+v", mf.Plugins)
+	}
+	p := mf.Plugins[0]
+	want := PluginSource{Kind: "archive", URL: "https://neuraldeep.ru/skapi/plugins/demo.zip"}
+	if p.Name != "demo" || p.Description != "A demo skill" || p.Source != want {
+		t.Errorf("plugin = %+v, want demo with source %+v", p, want)
 	}
 }
 
@@ -252,6 +305,8 @@ func TestInstallFromDirWritesManagedDirAndLock(t *testing.T) {
 // local git repo: clone → marketplace manifest with a relative ("path") plugin
 // → locate nested SKILL.md → copy into ManagedDir → lockfile. Git-gated.
 func TestSyncFromLocalMarketplaceGit(t *testing.T) {
+	// Sync covers the built-in marketplace too, a real GitHub address.
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -285,12 +340,10 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Sources: []string{fileURL}},
-	}
+	declareHomeSources(t, home, fileURL)
+	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	res, err := Sync(context.Background(), cfg)
+	res, err := Sync(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -323,12 +376,12 @@ func TestRemoteLockRoundTrip(t *testing.T) {
 func TestAddSourceAndRemoveRemote(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Paths: config.Paths{Home: home, ConfigPath: cfgPath}}
 
-	added, err := AddSource(cfg, "owner/repo")
+	added, err := AddSource(cfg, "", "owner/repo", ScopeGlobal)
 	if err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
@@ -336,13 +389,16 @@ func TestAddSourceAndRemoveRemote(t *testing.T) {
 		t.Fatal("expected source added")
 	}
 	// idempotent
-	added2, err := AddSource(cfg, "owner/repo")
+	added2, err := AddSource(cfg, "", "owner/repo", ScopeGlobal)
 	if err != nil || added2 {
 		t.Fatalf("expected no-op second add, added=%v err=%v", added2, err)
 	}
-	data, _ := os.ReadFile(cfgPath)
+	data, _ := os.ReadFile(config.GlobalMarketplacesPath(home))
 	if !strings.Contains(string(data), "owner/repo") {
-		t.Errorf("config not persisted with source: %s", data)
+		t.Errorf("marketplaces.json not persisted with source: %s", data)
+	}
+	if cfgData, _ := os.ReadFile(cfgPath); strings.Contains(string(cfgData), "owner/repo") {
+		t.Errorf("the source was written into config.yaml: %s", cfgData)
 	}
 
 	// RemoveRemote only removes installed (locked) skills.
@@ -443,40 +499,38 @@ func TestListSourcesAndRemoveSource(t *testing.T) {
 	offlineSystemSources(t)
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources:\n    - owner/one\n    - owner/two\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home, ConfigPath: cfgPath},
-		Skills: config.Skills{Sources: []string{"owner/one", " ", "owner/two"}},
-	}
+	declareHomeSources(t, home, "owner/one", " ", "owner/two")
+	cfg := &config.Config{Paths: config.Paths{Home: home, ConfigPath: cfgPath}}
 
 	// ListSources trims blanks.
-	got := ListSources(cfg)
+	got := ListSources(cfg, "")
 	if len(got) != 2 || got[0] != "owner/one" || got[1] != "owner/two" {
 		t.Fatalf("ListSources = %v", got)
 	}
 
 	// Removing an unknown source is a no-op (removed=false, no error).
-	removed, err := RemoveSource(cfg, "owner/missing")
+	removed, err := RemoveSource(cfg, "", "owner/missing", "")
 	if err != nil || removed {
 		t.Fatalf("remove unknown: removed=%v err=%v", removed, err)
 	}
 
 	// Empty source is an error.
-	if _, err := RemoveSource(cfg, "  "); err == nil {
+	if _, err := RemoveSource(cfg, "", "  ", ""); err == nil {
 		t.Fatal("expected error for empty source")
 	}
 
 	// Case-insensitive match, persisted to disk.
-	removed, err = RemoveSource(cfg, "OWNER/ONE")
+	removed, err = RemoveSource(cfg, "", "OWNER/ONE", "")
 	if err != nil || !removed {
 		t.Fatalf("remove existing: removed=%v err=%v", removed, err)
 	}
-	if got := ListSources(cfg); len(got) != 1 || got[0] != "owner/two" {
+	if got := ListSources(cfg, ""); len(got) != 1 || got[0] != "owner/two" {
 		t.Errorf("after remove ListSources = %v", got)
 	}
-	data, _ := os.ReadFile(cfgPath)
+	data, _ := os.ReadFile(config.GlobalMarketplacesPath(home))
 	if strings.Contains(string(data), "owner/one") {
 		t.Errorf("removed source still on disk: %s", data)
 	}
@@ -524,12 +578,10 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Sources: []string{fileURL}},
-	}
+	declareHomeSources(t, home, fileURL)
+	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	if _, err := Sync(context.Background(), cfg); err != nil {
+	if _, err := Sync(context.Background(), cfg, ""); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	managed := cfg.Skills.ManagedDir(home)
@@ -538,7 +590,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// No update available right after install.
-	ups, err := CheckUpdates(context.Background(), cfg)
+	ups, err := CheckUpdates(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("CheckUpdates: %v", err)
 	}
@@ -550,7 +602,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	writeMarketplaceManifest(t, repo, "demo", "2.0.0")
 	gitCommitAllRepo(t, repo, false, "v2")
 
-	ups, err = CheckUpdates(context.Background(), cfg)
+	ups, err = CheckUpdates(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("CheckUpdates 2: %v", err)
 	}
@@ -559,7 +611,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// Applying the update installs it and clears the flag.
-	if _, err := UpdateSkill(context.Background(), cfg, "demo"); err != nil {
+	if _, err := UpdateSkill(context.Background(), cfg, "", "demo"); err != nil {
 		t.Fatalf("UpdateSkill: %v", err)
 	}
 	if ent := readRemoteLock(managed)["demo"]; ent.Version != "2.0.0" {
@@ -567,7 +619,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// Updating a non-remote skill errors.
-	if _, err := UpdateSkill(context.Background(), cfg, "not-installed"); err == nil {
+	if _, err := UpdateSkill(context.Background(), cfg, "", "not-installed"); err == nil {
 		t.Error("expected error updating unknown skill")
 	}
 }
@@ -610,37 +662,45 @@ func TestSafeCloneBlocksLoopbackHTTP(t *testing.T) {
 	}
 }
 
+// A source is declared in marketplaces.json, so adding and removing one never
+// touches config.yaml, and the marketplaces the file declares stay.
 func TestAddRemoveSourceDoNotClobberConfig(t *testing.T) {
 	home := t.TempDir()
+	// The home the loader resolves, never the operator's own.
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	cfgPath := filepath.Join(home, "config.yaml")
-	// A config carrying an unrelated field that must survive source mutations.
-	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 17\nskills:\n  sources: []\n"), 0o644); err != nil {
+	const original = "agent:\n  max_turns: 17\n"
+	if err := os.WriteFile(cfgPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(home), config.MarketplacesFile{
+		Marketplaces: []config.DeclaredMarketplace{{Name: "shop", Source: "owner/shop"}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AddSource(cfg, "owner/repo"); err != nil {
+	if cfg.Paths.Home != home {
+		t.Fatalf("config home = %q, want the test's %q", cfg.Paths.Home, home)
+	}
+	if _, err := AddSource(cfg, "", "owner/repo", ScopeGlobal); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
-	reloaded, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatal(err)
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if err != nil || len(file.Sources) != 1 || file.Sources[0] != "owner/repo" || len(file.Marketplaces) != 1 {
+		t.Fatalf("marketplaces.json after the add = %+v, %v", file, err)
 	}
-	if reloaded.Agent.MaxTurns != 17 {
-		t.Errorf("unrelated field clobbered: max_turns = %d, want 17", reloaded.Agent.MaxTurns)
-	}
-	if len(reloaded.Skills.Sources) != 1 || reloaded.Skills.Sources[0] != "owner/repo" {
-		t.Errorf("source not persisted: %v", reloaded.Skills.Sources)
-	}
-	// Remove leaves the unrelated field intact too.
-	if _, err := RemoveSource(cfg, "owner/repo"); err != nil {
+	if _, err := RemoveSource(cfg, "", "owner/repo", ""); err != nil {
 		t.Fatalf("RemoveSource: %v", err)
 	}
-	reloaded2, _ := config.Load(cfgPath)
-	if reloaded2.Agent.MaxTurns != 17 || len(reloaded2.Skills.Sources) != 0 {
-		t.Errorf("after remove: max_turns=%d sources=%v", reloaded2.Agent.MaxTurns, reloaded2.Skills.Sources)
+	file, _ = config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if len(file.Sources) != 0 || len(file.Marketplaces) != 1 {
+		t.Fatalf("marketplaces.json after the remove = %+v", file)
+	}
+	if data, _ := os.ReadFile(cfgPath); string(data) != original {
+		t.Fatalf("config.yaml changed: %q", data)
 	}
 }
 
@@ -725,9 +785,10 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
+	declareHomeSources(t, home, fileURL)
 	cfg := &config.Config{
 		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}, Sources: []string{fileURL}},
+		Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}},
 	}
 	ctx := context.Background()
 
@@ -741,7 +802,7 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	}
 
 	// Install just that plugin.
-	res, err := InstallPlugin(ctx, cfg, fileURL, "demo")
+	res, err := InstallPlugin(ctx, cfg, ".", fileURL, "demo")
 	if err != nil {
 		t.Fatalf("InstallPlugin: %v", err)
 	}
@@ -779,8 +840,23 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	}
 
 	// Installing an unknown plugin errors.
-	if _, err := InstallPlugin(ctx, cfg, fileURL, "nope"); err == nil {
+	if _, err := InstallPlugin(ctx, cfg, ".", fileURL, "nope"); err == nil {
 		t.Error("expected error installing unknown plugin")
+	}
+}
+
+func TestInstallPluginRefusesAHeldProjectSource(t *testing.T) {
+	offlineSystemSources(t)
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: cwd}}
+	source := "https://example.test/marketplace.json"
+	if err := config.WriteMarketplacesFile(config.ProjectMarketplacesPath(cwd), config.MarketplacesFile{Sources: []string{source}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := InstallPlugin(ctx, cfg, cwd, source, "demo"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("InstallPlugin error = %v, want ErrHeld before any fetch", err)
 	}
 }
 
@@ -793,4 +869,96 @@ func offlineSystemSources(t *testing.T) {
 	prev := SystemSources
 	SystemSources = nil
 	t.Cleanup(func() { SystemSources = prev })
+}
+
+// TestInstallRefusesNamesOfTheManagedDirsOwnFiles: a skill whose name starts
+// with a dot would take the place of .remote.json, .marketplaces.json or a
+// staging copy in the managed dir - and the loader skips dot names anyway - so
+// the installer refuses it and leaves the lock as it was.
+func TestInstallRefusesNamesOfTheManagedDirsOwnFiles(t *testing.T) {
+	src := t.TempDir()
+	writeSkill(t, filepath.Join(src, "skills", "evil"), ".remote.json")
+	writeSkill(t, filepath.Join(src, "skills", "good"), "good")
+	managed := t.TempDir()
+	lock := map[string]RemoteEntry{"older": {Source: "owner/older"}}
+	if err := writeRemoteLock(managed, lock); err != nil {
+		t.Fatal(err)
+	}
+	res := &SyncResult{}
+	err := installFromDir(src, RemoteEntry{Source: "evil/market"}, managed, lock, res)
+	if err == nil || !strings.Contains(err.Error(), `".remote.json"`) {
+		t.Fatalf("installFromDir = %v, want the dot name refused", err)
+	}
+	if strings.Join(res.Added, ",") != "good" || len(res.Updated) != 0 {
+		t.Errorf("result = %+v, want only good added", res)
+	}
+	if err := writeRemoteLock(managed, lock); err != nil {
+		t.Fatalf("the lock can no longer be written: %v", err)
+	}
+	got := readRemoteLock(managed)
+	if _, ok := got["older"]; !ok || len(got) != 2 {
+		t.Fatalf("lock = %+v, want older and good", got)
+	}
+}
+
+// TestGitPluginsInstallTheSkillAtTheirRoot: a plugin that is one skill, its
+// SKILL.md at the plugin root and no "skills" field in its manifest, installs
+// that skill from git too - cloned from its own repository (a url source) or
+// read from inside the marketplace repository (a path source). Git plugins are
+// searched for every SKILL.md, so the root one is found without the rule
+// archives follow.
+func TestGitPluginsInstallTheSkillAtTheirRoot(t *testing.T) {
+	offlineSystemSources(t)
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	writeRootSkillPlugin := func(dir, name string) {
+		t.Helper()
+		files := map[string]string{
+			filepath.Join(".claude-plugin", "plugin.json"): `{"name":"` + name + `"}`,
+			"SKILL.md":                                 "---\nname: " + name + "\ndescription: d\n---\n",
+			filepath.Join("commands", "review.md"):     "Review the argument.\n",
+			filepath.Join("references", "concepts.md"): "concepts\n",
+		}
+		for rel, body := range files {
+			p := filepath.Join(dir, rel)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pluginRepo := t.TempDir()
+	writeRootSkillPlugin(pluginRepo, "logika")
+	gitCommitAllRepo(t, pluginRepo, true, "plugin")
+
+	market := t.TempDir()
+	writeRootSkillPlugin(filepath.Join(market, "plugins", "rooted"), "rooted")
+	if err := os.MkdirAll(filepath.Join(market, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"m","plugins":[` +
+		`{"name":"logika","source":{"source":"url","url":"file://` + filepath.ToSlash(pluginRepo) + `"}},` +
+		`{"name":"rooted","source":"./plugins/rooted"}]}`
+	if err := os.WriteFile(filepath.Join(market, ".claude-plugin", "marketplace.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAllRepo(t, market, true, "marketplace")
+
+	home := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home}, Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}}}
+	res, err := SyncSource(context.Background(), cfg, "file://"+filepath.ToSlash(market))
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("failures: %+v", res.Failed)
+	}
+	for _, name := range []string{"logika", "rooted"} {
+		if _, err := os.Stat(filepath.Join(home, "skills", name, "references", "concepts.md")); err != nil {
+			t.Errorf("skill %q was not installed with its references: %v", name, err)
+		}
+	}
 }

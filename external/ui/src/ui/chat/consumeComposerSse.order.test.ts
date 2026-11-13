@@ -102,6 +102,26 @@ test("streaming interleaves text and tool calls in arrival order", async () => {
   expect(shape).toEqual(["text:Reading files. ", "tool:tc1", "text:All good."]);
 });
 
+test("completed share_file metadata attaches its artifacts to the live tool row", async () => {
+  const artifact = {
+    id: "file-1",
+    name: "report.pdf",
+    sha256: "a".repeat(64),
+    size: 1024,
+    url: "/foxxycode/sessions/s1/artifacts/file-1",
+  };
+  const items = await drive(
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "share-1", title: "share_file", status: "pending" })}\n\n` +
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "share-1", status: "completed", content: [{ content: { text: "shared" } }], meta: { foxxycode: { artifacts: [artifact] } } })}\n\n`,
+  );
+
+  const tool = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call",
+  );
+  expect(tool?.artifacts).toEqual([artifact]);
+});
+
 test("completed todo calls keep the plan snapshot sent with their status update", async () => {
   const todoPlan = [
     { content: "Inspect existing cards", status: "completed" },
@@ -119,6 +139,38 @@ test("completed todo calls keep the plan snapshot sent with their status update"
   );
 
   expect(call?.todoPlan).toEqual(todoPlan);
+});
+
+test("a completed read keeps the pictures its call showed the model", async () => {
+  const images = [
+    {
+      name: "shot.png",
+      mime_type: "image/png",
+      asset: "shot-1a2b.png",
+      url: "/foxxycode/sessions/s1/assets/shot-1a2b.png",
+      preview_url: "/foxxycode/sessions/s1/assets/shot-1a2b.png/thumbnail",
+    },
+  ];
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "r1", title: "read", kind: "read", status: "pending" })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "r1", status: "completed", content: [{ content: { text: "shot.png: PNG image" } }], _meta: { foxxycode: { images } } })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const call = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call" && item.toolCallId === "r1",
+  );
+
+  expect(call?.images).toEqual([
+    {
+      name: "shot.png",
+      mimeType: "image/png",
+      url: "/foxxycode/sessions/s1/assets/shot-1a2b.png",
+      previewUrl: "/foxxycode/sessions/s1/assets/shot-1a2b.png/thumbnail",
+    },
+  ]);
+  expect(items.some((item) => item.type === "user_message")).toBe(false);
 });
 
 // Two tool calls with text before, between, and after must all interleave.

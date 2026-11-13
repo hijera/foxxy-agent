@@ -24,6 +24,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.docking.DockableContent
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
@@ -64,7 +67,7 @@ import javax.swing.SwingConstants
  * Tool window content: hosts the FoxxyCode web UI in a JCEF browser (with graceful fallbacks)
  * and manages the backing `foxxycode http` process via [FoxxyCodeProcessManager].
  */
-class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
+class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow) : JPanel(BorderLayout()), Disposable {
     private var browser: JBCefBrowser? = null
     /** JS→Kotlin channel: the SPA calls this when its locale changes (single app-wide switcher). */
     private var localeQuery: JBCefJSQuery? = null
@@ -77,6 +80,12 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     }
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
+    private var disposed = false
+    private val backendLifecycle = PanelBackendLifecycle(
+        shouldStop = { FoxxyCodeSettings.getInstance().state.stopOnTabClose },
+        start = { start() },
+        stop = { stopBackend() },
+    )
 
     /**
      * True once the SPA page has loaded, so JS calls will land.
@@ -122,6 +131,14 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 },
             )
         start()
+        project.messageBus.connect(this).subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun stateChanged(toolWindowManager: ToolWindowManager) {
+                    backendLifecycle.visibilityChanged(toolWindow.isVisible)
+                }
+            },
+        )
     }
 
     private fun onLanguageChanged() {
@@ -168,6 +185,16 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             },
             onError = { msg -> showError(msg) }
         )
+    }
+
+    private fun stopBackend() {
+        FoxxyCodeProcessManager.getInstance(project).stop()
+        FoxxyCodeAutocompleteService.getInstance(project).stop()
+        FoxxyCodeIdeDiffService.getInstance(project).stop()
+        currentUrl = null
+        markPageNavigating()
+        // Release the page's HTTP streams and timers while retaining the reusable browser.
+        if (!disposed) browser?.loadURL("about:blank")
     }
 
     private fun loadUrl(url: String) {
@@ -236,7 +263,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
-                    if (frame?.isMain == true) {
+                    if (frame?.isMain == true && frame.url == currentUrl) {
                         injectBootstrap()
                         injectLocaleBridge()
                         injectNotificationBridge()
@@ -474,8 +501,21 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         LOG.info("FoxxyCode mention: pushing to composer: $relPath")
         val b = browser ?: return
         val json = JsonPrimitive(relPath).toString()
-        val js =
-            "(function(){ try { if (window.foxxycodeUi && window.foxxycodeUi.insertFileMention) window.foxxycodeUi.insertFileMention($json); } catch (e) {} })();"
+        val js = """
+            (function () {
+              var remaining = 100;
+              function insert() {
+                try {
+                  if (window.foxxycodeUi && window.foxxycodeUi.insertFileMention && document.getElementById('composer')) {
+                    window.foxxycodeUi.insertFileMention($json);
+                  } else if (remaining-- > 0) {
+                    window.setTimeout(insert, 50);
+                  }
+                } catch (e) {}
+              }
+              insert();
+            })();
+        """.trimIndent()
         b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
@@ -493,12 +533,6 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
-    /**
-     * Subscribes to SPA-driven locale changes: when the user flips the single
-     * app-wide switcher (SPA Settings → General), the SPA calls back through the
-     * JBCefJSQuery channel so plugin chrome re-localizes. The guard resets on each
-     * page load, so a reload re-subscribes exactly once.
-     */
     private fun injectNotificationBridge() {
         val query = notificationQuery ?: return
         val script = """
@@ -509,6 +543,12 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         browser?.cefBrowser?.executeJavaScript(script, browser?.cefBrowser?.url ?: "", 0)
     }
 
+    /**
+     * Subscribes to SPA-driven locale changes: when the user flips the single
+     * app-wide switcher (SPA Settings → General), the SPA calls back through the
+     * JBCefJSQuery channel so plugin chrome re-localizes. The guard resets on each
+     * page load, so a reload re-subscribes exactly once.
+     */
     private fun injectLocaleBridge() {
         val b = browser ?: return
         val query = localeQuery ?: return
@@ -722,8 +762,10 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         }
 
     override fun dispose() {
+        disposed = true
         chatNotifications.clear()
         panelsByProject.remove(project, this)
+        if (!project.isDisposed) backendLifecycle.dispose()
         // JBCefBrowser is released via its Disposer registration on this panel.
     }
 

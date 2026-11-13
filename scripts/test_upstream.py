@@ -41,9 +41,9 @@ class GitRepoCase(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", message)
 
-    def run_script(self, *args, expected=0):
+    def run_script(self, *args, expected=0, env=None):
         result = subprocess.run([sys.executable, str(SCRIPT), "--repo", str(self.root), *args],
-                                capture_output=True, text=True, encoding="utf-8")
+                                capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(result.returncode, expected, result.stderr)
         return result
 

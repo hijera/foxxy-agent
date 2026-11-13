@@ -1,70 +1,112 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { probeEnvHealth } from "./activeHealth";
+import { probeActiveEnv, probeEnvHealth } from "./activeHealth";
 
 describe("probeEnvHealth", () => {
   it("reports the local environment as up without any network call", async () => {
     expect(await probeEnvHealth({ mode: "local" })).toBe("up");
   });
+});
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.resetModules();
-  });
+// probeEnvHealth reaches the network through localFetch, which captures the
+// native fetch at module load, so the module is mocked rather than the global.
+const seen: string[] = [];
+let respond: (url: string, init?: RequestInit) => Response | Error = () =>
+  new Response(null, { status: 200 });
 
-  /**
-   * remoteEnv binds window.fetch once, at module load, so the stub has to be in
-   * place before the import - hence the fresh module per case. answers replies one
-   * status per URL substring; anything unlisted is a 500.
-   */
-  async function probeWith(
-    answers: Array<[string, number]>,
-  ): Promise<{ health: string; asked: string[] }> {
-    const asked: string[] = [];
-    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+vi.mock("./remoteEnv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./remoteEnv")>();
+  return {
+    ...actual,
+    localFetch: (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      asked.push(url);
-      const hit = answers.find(([part]) => url.includes(part));
-      return Promise.resolve(new Response("", { status: hit ? hit[1] : 500 }));
-    });
-    vi.resetModules();
-    const mod = await import("./activeHealth");
-    const health = await mod.probeEnvHealth({
-      mode: "remote",
-      baseUrl: "http://relay:12346",
-      token: "t",
-    });
-    return { health, asked };
+      seen.push(url);
+      const out = respond(url, init);
+      return out instanceof Error ? Promise.reject(out) : Promise.resolve(out);
+    },
+  };
+});
+
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** A relay: no /v1, a public /swarm/info, the node list behind `client`. */
+function relay(url: string, init?: RequestInit): Response {
+  if (url.endsWith("/swarm/info")) {
+    return json(200, { swarm: true });
   }
+  if (url.endsWith("/swarm/nodes")) {
+    const auth = new Headers(init?.headers ?? undefined).get("Authorization");
+    return auth === "Bearer client"
+      ? json(200, { nodes: [] })
+      : json(401, { error: { message: "unauthorized" } });
+  }
+  return new Response("404 page not found\n", { status: 404 });
+}
 
-  it("counts a swarm relay as up even though it serves no /v1", async () => {
-    // A relay has to be added as a remote to be given its token, and it answers
-    // 404 for the agent API it does not have.
-    const { health, asked } = await probeWith([
-      ["/v1/models", 404],
-      ["/swarm/info", 200],
-    ]);
+describe("probeEnvHealth against a relay", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    seen.length = 0;
+  });
+
+  // A relay serves no model catalog of its own, so the usual probe would call a
+  // healthy relay unreachable and the app would offer to switch away from it.
+  it("calls a relay that accepts the client token up", async () => {
+    respond = relay;
+    const health = await probeEnvHealth({
+      mode: "remote",
+      baseUrl: "http://relay.example",
+      token: "client",
+    });
     expect(health).toBe("up");
-    expect(asked.some((u) => u.includes("/swarm/info"))).toBe(true);
+    expect(seen.some((u) => u.endsWith("/swarm/info"))).toBe(true);
   });
 
-  it("stays down when neither the agent API nor a relay answers", async () => {
-    const { health } = await probeWith([
-      ["/v1/models", 404],
-      ["/swarm/info", 404],
-    ]);
-    expect(health).toBe("down");
+  // /swarm/info is public: answering it says nothing about the token, and the
+  // chip used to show a relay without one as healthy while the map said it
+  // needed a token.
+  it("calls a relay down while it refuses the token", async () => {
+    respond = relay;
+    const probe = await probeActiveEnv({
+      mode: "remote",
+      baseUrl: "http://relay.example",
+      token: "",
+    });
+    expect(probe).toEqual({ reach: "unauthorized", relay: true });
+    await expect(
+      probeEnvHealth({ mode: "remote", baseUrl: "http://relay.example", token: "" }),
+    ).resolves.toBe("down");
   });
 
-  it("does not ask a relay about a wrong token", async () => {
-    // 401 is a credential this environment rejected, not a surface it lacks.
-    const { health, asked } = await probeWith([["/v1/models", 401]]);
-    expect(health).toBe("down");
-    expect(asked.some((u) => u.includes("/swarm/info"))).toBe(false);
+  it("still calls a refused agent down, and says why", async () => {
+    respond = (url) =>
+      url.endsWith("/v1/models")
+        ? json(401, { error: { message: "unauthorized" } })
+        : new Response("404 page not found\n", { status: 404 });
+    const env = {
+      mode: "remote" as const,
+      baseUrl: "http://agent.example",
+      token: "bad",
+    };
+    await expect(probeEnvHealth(env)).resolves.toBe("down");
+    await expect(probeActiveEnv(env)).resolves.toEqual({
+      reach: "unauthorized",
+      relay: false,
+    });
   });
 
-  it("reports a working agent API as up without asking about a relay", async () => {
-    const { health, asked } = await probeWith([["/v1/models", 200]]);
-    expect(health).toBe("up");
-    expect(asked.some((u) => u.includes("/swarm/info"))).toBe(false);
+  it("calls a host that is neither an agent nor a relay down", async () => {
+    respond = () => new Response("nope", { status: 404 });
+    await expect(
+      probeEnvHealth({
+        mode: "remote",
+        baseUrl: "http://nothing.example",
+        token: "t",
+      }),
+    ).resolves.toBe("down");
   });
 });

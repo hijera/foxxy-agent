@@ -380,8 +380,9 @@ func TestSettingsCommandsInTheConsole(t *testing.T) {
 	if !strings.Contains(footer, "bypass") {
 		t.Fatalf("footer does not name the permission mode:\n%s", footer)
 	}
-	if got := transcriptText(a); !strings.Contains(got, "Permission mode: bypass for this session") {
-		t.Fatalf("no notice for the change: %q", got)
+	// The footer says it; a line in the transcript would say it twice.
+	if got := transcriptText(a); strings.Contains(got, "Permission mode: bypass") {
+		t.Fatalf("the operator's own change was noted in the transcript: %q", got)
 	}
 
 	if !a.dispatchSlash("/plan --once") {
@@ -406,4 +407,19 @@ func TestSettingsCommandsInTheConsole(t *testing.T) {
 	if !a.dispatchSlash("/mode plan") {
 		t.Fatal("/mode plan was not handled")
 	}
+}
+
+// A change the agent made itself - its switch_model call - is the one the
+// console notes in the transcript: nobody at the keyboard picked it.
+func TestTheAgentsOwnSwitchIsNotedInTheConsole(t *testing.T) {
+	a := newReasoningApp(t)
+	high := "high"
+	if _, err := a.mgr.ApplySessionSettings(context.Background(), a.sessionID, session.SettingsChange{
+		Reasoning: &high, Source: session.SettingsSourceModel,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pumpUntil(t, a, "the agent's switch in the transcript", func() bool {
+		return strings.Contains(transcriptText(a), "Reasoning: high for this session")
+	})
 }

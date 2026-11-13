@@ -38,7 +38,7 @@ const (
 // expandConfigBody prepares raw config.yaml text for parsing: ${FOXXYCODE_HOME} is
 // substituted (with forward slashes, see ExpandPathVars) and environment
 // references are expanded, while ${CWD} survives verbatim. Per-session paths
-// (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers) resolve
+// (skills.dirs, subagents.dirs, hooks.files, prompts.dir) resolve
 // it against the workspace of the session that uses them; the process-scoped
 // directories expand it against Paths.CWD in applyDefaults. A leading ~ inside
 // a value is left to those consumers as well, as it always was: the previous
@@ -47,7 +47,13 @@ func expandConfigBody(s string, p Paths) string {
 	// Every path that parses a config file passes through here, so this is where
 	// what an editor left in the bytes - a byte order mark, Windows line endings -
 	// stops travelling any further (see source.go).
-	s = string(normalizeConfigSource([]byte(s)))
+	return expandConfigText(string(normalizeConfigSource([]byte(s))), p)
+}
+
+// expandConfigText is the expansion expandConfigBody applies to the text of a config
+// file, on any piece of it: a save uses it to tell what one value's spelling stood for
+// when the whole document no longer loads (see keepPreviousSpelling).
+func expandConfigText(s string, p Paths) string {
 	// "$$" is resolved before ${FOXXYCODE_HOME} is substituted so that
 	// "$${FOXXYCODE_HOME}" keeps a literal placeholder, like "$${CWD}" does.
 	s = strings.ReplaceAll(s, "$$", escapedDollarSentinel)

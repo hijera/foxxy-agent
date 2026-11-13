@@ -28,7 +28,7 @@ class FoxxyCodeToolWindowFactory : ToolWindowFactory, DumbAware {
                 if (!FoxxyCodeSettings.getInstance().state.firstRunCompleted) {
                     FirstRunDialog(project).showAndConfigure()
                 }
-                FoxxyCodeBrowserPanel(project)
+                FoxxyCodeBrowserPanel(project, toolWindow)
             } catch (e: LinkageError) {
                 LOG.warn("FoxxyCode browser panel could not be loaded", e)
                 jcefMissingPanel(e)

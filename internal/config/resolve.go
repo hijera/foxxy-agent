@@ -14,6 +14,7 @@ type ResolvedLLM struct {
 	Model        string
 	APIKey       string
 	BaseURL      string
+	UserAgent    string
 	ProxyURL     string
 	AuthPath     string
 	// NoCLILogin prevents this provider profile from inheriting the shared CLI login.
@@ -96,6 +97,20 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 		}
 	}
 	return nil
+}
+
+// ModelMultimodal reports whether the model explicitly opts in to image/file
+// inputs (ModelEntry.Multimodal). Missing and unknown entries fail closed: a
+// model nobody declared takes no images. This is the one gate every delivery
+// path applies - the enqueue gate of a queued message, and the read that hands
+// its images to the model - so a switch to a text-only model between the two
+// drops the attachments instead of failing the request.
+func (c *Config) ModelMultimodal(ref string) bool {
+	if c == nil {
+		return false
+	}
+	entry := c.FindModelEntry(ref)
+	return entry != nil && entry.Multimodal
 }
 
 // FirstModelID returns the alphabetically first configured model id, or ""
@@ -197,6 +212,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Model:            entry.APIModel(),
 		APIKey:           prov.EffectiveAPIKey(),
 		BaseURL:          prov.APIBase,
+		UserAgent:        prov.UserAgent,
 		ProxyURL:         prov.Proxy,
 		AuthPath:         ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		NoCLILogin:       !c.ProviderMayUseCLILogin(prov.Name, prov.Type),

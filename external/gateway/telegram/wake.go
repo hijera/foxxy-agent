@@ -74,6 +74,7 @@ func (b *Bot) runWokenTurn(ctx context.Context, bot *tgbotapi.BotAPI, chatID int
 		allowDraft: rich && !isGroup,
 		draftID:    b.draftSeq.Add(1),
 	})
+	sender.pictures = st
 	mirrored, releaseMirror := session.Mirror(b.mirror, st.GetID(), sender)
 	defer releaseMirror()
 

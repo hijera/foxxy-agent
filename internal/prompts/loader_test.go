@@ -114,9 +114,9 @@ func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
 	}
 }
 
-// The agent invents a place for a git worktree unless the prompt names one,
-// and what it invents ends up untracked at the repository root.
-func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+// The agent uses the worktree tool instead of constructing git commands and
+// guessing where the new checkout belongs.
+func TestAgentPromptUsesWorktreeTool(t *testing.T) {
 	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
@@ -125,14 +125,18 @@ func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
 		t.Fatalf("Render agent: %v", err)
 	}
 	for _, want := range []string{
-		".foxxycode/worktrees",            // the directory itself
-		"main checkout",                   // resolved, not relative to a linked worktree
-		"feature-login",                   // the branch name is mapped to a folder name
-		".foxxycode/worktrees/.gitignore", // the ignore file sits beside the worktrees
+		"worktree_create",
+		".foxxycode/worktrees",
+		"main checkout",
+		"default branch",
+		"without a manual `cd`",
 	} {
 		if !strings.Contains(result, want) {
-			t.Errorf("agent prompt should mention %q so worktrees land where FoxxyCode puts them", want)
+			t.Errorf("agent prompt should mention %q for tool-based worktrees", want)
 		}
+	}
+	if strings.Contains(result, "git worktree add") {
+		t.Error("agent prompt still teaches manual worktree creation")
 	}
 }
 
@@ -396,7 +400,7 @@ func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 // family back on a cache miss per request without any test noticing.
 func TestNoBuiltinTemplateIsVolatile(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
-		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
+		for _, variants := range [][]string{nil, {"openai"}, {"gpt-oss"}, {"anthropic"}, {"kimi"}, {"gpt-oss-20b", "gpt-oss"}, {"gpt-oss-120b", "gpt-oss"}} {
 			if prompts.RendersVolatile(mode, variants, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile) {
 				t.Errorf("built-in %s template (variants %v) prints the clock or the todo list", mode, variants)
 			}
@@ -644,13 +648,17 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
+// knownFamilies lists every prompt family with a notes_<family>.md fragment.
+// Shared by the family render tests below so a new family is added once and
+// covered by all of them; keep it in sync with prompts.Family.
+var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "neuraldeep"}
+
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
 	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
@@ -773,8 +781,7 @@ func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
 	// "Background commands" sections. After the section-assembly refactor every
 	// family variant must render those shared sections, because they come from a
 	// single shared fragment.
-	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
-	for _, fam := range families {
+	for _, fam := range knownFamilies {
 		t.Run(fam, func(t *testing.T) {
 			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
@@ -888,10 +895,13 @@ func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
 	}
 }
 
-func TestRenderWithFallbackNoPanic(t *testing.T) {
-	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
-	if result == "" {
-		t.Error("RenderWithFallback should return non-empty string even on error")
+func TestRenderCheckedFallsBackAndSaysSo(t *testing.T) {
+	result, rendered := prompts.RenderChecked("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
+	if result == "" || rendered {
+		t.Errorf("RenderChecked = %q, %v; want the fallback prompt, reported as not rendered", result, rendered)
+	}
+	if _, rendered := prompts.RenderChecked("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"}); !rendered {
+		t.Error("the built-in template reported as not rendered")
 	}
 }
 

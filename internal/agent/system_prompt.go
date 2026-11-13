@@ -9,7 +9,6 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/prompts"
-	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
@@ -69,16 +68,14 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 		// A skill the model loads brings its model and reasoning level for
 		// the rest of the turn, as one the operator invokes does.
 		a.applySkillSettings(context.Background(), strings.TrimSpace(name), sk)
-		return strings.TrimSpace(sk.Content), available, true
+		return skillBodyForModel(sk, a.managedSkillsDir()), available, true
 	}
 	return "", available, false
 }
 
 // systemPromptBuild is a rendered system message plus what the turn still needs
 // from it once it is frozen: the component blocks the context estimate
-// subtracts, the tool definitions it described, and the sticky rule set it
-// already carries, so a rule activated later can be told apart from one the
-// model has already been given.
+// subtracts and the tool definitions it described.
 type systemPromptBuild struct {
 	Mode     string
 	Content  string
@@ -86,19 +83,12 @@ type systemPromptBuild struct {
 	ToolsMD  string
 	RulesMD  string
 	ToolDefs []llm.ToolDefinition
-	// RenderedRules is what the {{.Rules}} block of this message carries, and
-	// what the turn context block diffs a later activation against.
-	RenderedRules []*rules.Rule
 	// Clock is the wall clock this build was stamped with: the {{.UTCNow}} a
 	// template may render and the reading the turn context block carries. It is
 	// taken once per turn and reused by every step, so a step the lane re-issues
 	// sends byte for byte the request that failed (react.go, lane replays)
 	// rather than one that ticked a second forward.
 	Clock time.Time
-	// RendersRules is false for a template under prompts.dir with no
-	// {{.Rules}} in it. That operator asked for no rules block at all, so a
-	// rule a tool call activates is not smuggled in after the history either.
-	RendersRules bool
 	// Volatile marks a template under prompts.dir that prints {{.UTCNow}} or
 	// {{.TodoList}}. Such a message cannot be frozen for the turn - its own
 	// conditionals have to keep matching the state - so the loop re-renders it
@@ -108,21 +98,23 @@ type systemPromptBuild struct {
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) string {
-	return a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles).Content
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
+	return a.buildSystemPromptParts(mode, activeSkills, toolDefs).Content
 }
 
 // buildSystemPromptParts renders the system message for the turn. It is built
 // once per turn and then frozen: a provider caches a request by its prefix, and
 // the system message sits in front of the whole conversation, so rewriting it
 // between the steps of a turn throws away the cached copy of everything behind
-// it. What moves while the turn runs - the wall clock, the todo checklist, the
-// rules a tool call activated - travels in the turn context block appended
-// after the history instead (turn_context.go). So does the memory subagent's
-// report, which moves between turns: a recall answers one message, and a
-// report rendered here would make every turn's system message a new one and
-// cost the cached copy of the whole conversation each time.
-func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) *systemPromptBuild {
+// it. What moves while the turn runs - the wall clock, the todo checklist -
+// travels in the turn context block appended after the history instead
+// (turn_context.go), and a rule a tool call activates rides in that call's
+// result (rules_activation.go). So does the memory subagent's report, which
+// moves between turns: a recall answers one message, and a report rendered here
+// would make every turn's system message a new one and cost the cached copy of
+// the whole conversation each time. The rules and instructions blocks do not
+// move between turns either (standingParts).
+func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
@@ -152,25 +144,11 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	if a.cfg.Prompts.PerProviderEnabled() {
 		promptVariants = a.promptVariants()
 	}
-	rulesMD := ""
-	// Project docs the rules block already carries: instructions.files names
-	// AGENTS.md too, and one system prompt does not need it twice. A template
-	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
-	// then nothing carries them - so the skip list is taken only from a
-	// template that actually prints the block.
-	var embeddedDocs []string
-	var renderedRules []*rules.Rule
-	rendersRules := prompts.RendersRules(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile())
-	if rs, ok := a.state.(rulesState); ok {
-		rulesMD, embeddedDocs, renderedRules = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, a.agentsOnDemand())
-		if !rendersRules {
-			embeddedDocs = nil
-		}
-	}
-	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Paths.Home, a.cfg.Instructions.Files, embeddedDocs)
 	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
 	vscodeContextMD := session.LoadVSCodeProjectContext(a.state.GetCWD())
-	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
+	standing := a.standingParts()
+	rulesMD := joinNonEmptyPromptBlocks(standing.Docs, standing.Rules)
+	full := a.renderWithDocuments(mode, promptsDir, standing, prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -179,7 +157,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		TodoList:       promptTodoMD,
 		PlanContext:    planCtx,
 		DiscardedPlans: discardedPlans,
-		Instructions:   instructionsMD,
+		Instructions:   standing.User,
 		Subagents:      a.subagentCatalogBlock(),
 		SubagentRole:   a.subagentRoleBlock(),
 		// The templates describe switch_model only to a turn that can call
@@ -211,15 +189,13 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// answer format is the nearest instruction to the conversation itself.
 	full = joinNonEmptyPromptBlocks(full, a.surfaceBlock())
 	build := &systemPromptBuild{
-		Mode:          mode,
-		Content:       full,
-		SkillsMD:      skillsMD,
-		ToolsMD:       toolsMD,
-		RulesMD:       rulesMD,
-		ToolDefs:      toolDefs,
-		RenderedRules: renderedRules,
-		Clock:         clock,
-		RendersRules:  rendersRules,
+		Mode:     mode,
+		Content:  full,
+		SkillsMD: skillsMD,
+		ToolsMD:  toolsMD,
+		RulesMD:  rulesMD,
+		ToolDefs: toolDefs,
+		Clock:    clock,
 		// The variant list is the one this render resolved, so the verdict
 		// follows the footer the provider family actually got.
 		Volatile: prompts.RendersVolatile(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile()),
@@ -227,8 +203,64 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// Counted with the block its requests will carry, as the loop counts every
 	// step: this is the estimate usage_update reports before the first model call
 	// and the one the foxxycode trigger reads before the loop.
+	a.setDocumentKeys(standing.Keys)
 	a.refreshContextBreakdown(build, a.buildTurnContext(build))
 	return build
+}
+
+// renderWithDocuments renders the template of mode and makes sure the
+// AGENTS.md and DESIGN.md layers and the files of instructions.files reach the
+// prompt whatever the template prints (issue #425). It looks at what was
+// rendered rather than at the template's source, so a {{.Rules}} named in a
+// comment or printed under a condition that is false does not count. Documents
+// a template did not print where it was handed them go to its instructions
+// slot, ahead of the user's files, and what neither slot printed is appended
+// as one "## Project instructions" block right after the template, so the
+// documents stay together and the user's files are always the last of them.
+// A template that could not be rendered is replaced by the fallback prompt,
+// and the documents, the always-on rules and the user's files all follow it.
+// Every decision depends on the template and the generation's files only, so
+// the system message is the same on every turn of a generation.
+func (a *Agent) renderWithDocuments(mode, promptsDir string, standing *session.RulesPrompt, data prompts.TemplateData) string {
+	render := func(d prompts.TemplateData) (string, bool) {
+		var variants []string
+		if a.cfg.Prompts.PerProviderEnabled() {
+			variants = a.promptVariants()
+		}
+		return prompts.RenderCheckedForVariants(mode, variants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile(), d)
+	}
+	full, ok := render(data)
+	if !ok {
+		return joinNonEmptyPromptBlocks(full, standing.Docs, standing.Rules, instructionsBlock(standing.User))
+	}
+	if standing.Docs != "" && !strings.Contains(full, standing.Docs) {
+		retry := data
+		retry.Instructions = joinNonEmptyPromptBlocks(standing.Docs, standing.User)
+		// Kept only when the documents now appear exactly once: a template
+		// that prints {{.Rules}} behind {{if .Instructions}} would otherwise
+		// print them through both slots, and the appended block below is the
+		// better place for them.
+		if again, ok := render(retry); ok && strings.Count(again, standing.Docs) == 1 {
+			full = again
+		}
+	}
+	var missing []string
+	if standing.Docs != "" && !strings.Contains(full, standing.Docs) {
+		missing = append(missing, standing.Docs)
+	}
+	if standing.User != "" && !strings.Contains(full, standing.User) {
+		missing = append(missing, standing.User)
+	}
+	return joinNonEmptyPromptBlocks(full, instructionsBlock(strings.Join(missing, "\n\n")))
+}
+
+// instructionsBlock is body under the heading the built-in templates give the
+// instructions, or nothing for an empty body.
+func instructionsBlock(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	return "## Project instructions\n\n" + body
 }
 
 // offersTool reports whether the turn's tool definitions include name.
@@ -292,7 +324,7 @@ func (a *Agent) refreshContextBreakdown(build *systemPromptBuild, turnCtx string
 	// the active compaction engine still replays.
 	sys := joinNonEmptyPromptBlocks(build.Content, turnCtx)
 	msgs := a.prunedForLLM(a.llmVisibleMessages())
-	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, build.ToolDefs), false)
+	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, a.modelReadsImages(), build.ToolDefs), false)
 }
 
 // languageDirective returns a system-prompt instruction telling the model which

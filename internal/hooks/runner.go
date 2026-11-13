@@ -255,6 +255,7 @@ func (r *Runner) exec(ctx context.Context, event string, h Handler, payload []by
 	cmd.Stderr = stderr
 	cmd.WaitDelay = waitDelay
 	platform.DetachProcessGroup(cmd)
+	platform.AdaptCommand(cmd)
 
 	timeout := h.TimeoutSeconds
 	if timeout <= 0 {

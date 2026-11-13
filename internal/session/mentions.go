@@ -105,7 +105,7 @@ func (m *Manager) mentionAgents(cwd string, askMode bool) ([]MentionAgent, strin
 	if cfg == nil || !cfg.Subagents.ResolvedEnabled() {
 		return nil, ""
 	}
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = m.log
 	entries := subagents.BuildCatalog(loader.Load(cwd, cfg.Paths.Home), cfg.Subagents.ResolvedProjectTrust(),
 		subagents.CanonicalWorkspace(cwd), subagents.NewTrustStore(cfg.Paths.Home))
@@ -719,7 +719,7 @@ func digestLines(msgs []llm.Message) []string {
 			if m.BackgroundWake != nil || m.CompactionSummary {
 				continue
 			}
-			text := strings.TrimSpace(mention.ForDisplay(StripContextBlocks(m.Content, TagSessionAssets)))
+			text := UserMessageDisplayText(m.Content)
 			if text == "" {
 				continue
 			}

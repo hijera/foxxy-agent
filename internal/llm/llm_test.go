@@ -28,7 +28,7 @@ func TestWrappedStreamCancelIsCanceled(t *testing.T) {
 // ImageParts is serialised as an array of content parts (text + image_url)
 // rather than a plain string.
 func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "", "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "describe this", ImageParts: []ImagePart{
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
@@ -196,13 +196,15 @@ func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
+	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "", ""), srv.Close
 }
 
-// TestOpenAIStreamUndecodableFrameFails verifies that a malformed non-empty
-// data frame after valid chunks aborts the stream with the offending payload
-// preserved: silently skipping it would return a truncated response as
-// success.
+// TestOpenAIStreamUndecodableFrameFails verifies that a data frame whose JSON
+// ends early, between valid chunks, aborts the stream with the offending
+// payload preserved: silently skipping it would return a truncated response as
+// success. Such a frame is a cut inside the event (issue #384): the text before
+// it is kept next to a truncation error, the frames after it are not read, and
+// no success is made up.
 func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
 	p, done := streamStubProvider(t,
 		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"+
@@ -211,12 +213,18 @@ func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
 			"data: [DONE]\n\n")
 	defer done()
 
-	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
 	if err == nil {
 		t.Fatal("Stream must fail on a malformed non-empty data frame")
 	}
 	if !strings.Contains(err.Error(), "undecodable SSE frame") || !strings.Contains(err.Error(), `{"choices":[{"index":0,"delta":{"content":`) {
 		t.Errorf("error %q must name the undecodable frame and carry its payload", err)
+	}
+	if !IsStreamTruncated(err) {
+		t.Errorf("err = %v, want a stream truncation", err)
+	}
+	if resp == nil || resp.Content != "Hel" || resp.StopReason != "" {
+		t.Errorf("resp = %+v, want the text before the cut frame, %q, and no stop reason", resp, "Hel")
 	}
 }
 
@@ -356,17 +364,25 @@ func TestStreamErrorSnippetRuneBoundary(t *testing.T) {
 }
 
 // TestOpenAIStreamAllFramesUndecodable verifies that a stream yielding no
-// decodable chunk fails with the offending frame preserved in the error.
+// decodable chunk fails with the offending frame preserved in the error. The
+// frame's JSON stops short, so it is a truncation before any output: nothing to
+// keep, and the request is worth a retry.
 func TestOpenAIStreamAllFramesUndecodable(t *testing.T) {
 	p, done := streamStubProvider(t, "data: {\"choices\":[{\"index\n\n"+"data: [DONE]\n\n")
 	defer done()
 
-	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
 	if err == nil {
 		t.Fatal("Stream must fail when no frame decodes")
 	}
 	if !strings.Contains(err.Error(), `{"choices":[{"index`) {
 		t.Errorf("error %q must include the undecodable frame payload", err)
+	}
+	if !IsStreamTruncated(err) || !isRetryableLLMError(err) {
+		t.Errorf("err = %v, want a stream truncation that is retried before any output", err)
+	}
+	if resp != nil {
+		t.Errorf("resp = %+v, want none: nothing was delivered", resp)
 	}
 }
 
@@ -401,7 +417,7 @@ func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 
-	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "")
+	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -423,7 +439,7 @@ func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "", "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
@@ -634,7 +650,7 @@ func anthropicStreamStub(t *testing.T, sse string) (*anthropicProvider, func()) 
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	return newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), srv.Close
+	return newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), srv.Close
 }
 
 const anthropicStreamPrefix = "event: message_start\n" +

@@ -62,8 +62,8 @@ func (s *Server) foxxycodeSessionExportFilePost(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	delivered := ideEvents.hasSubscribers()
-	ideEvents.broadcast(ideEvent{Type: "reveal_file", SessionID: id, Path: path})
+	delivered := ideEvents.HasSubscribers()
+	ideEvents.Broadcast(ideEvent{Type: "reveal_file", SessionID: id, Path: path})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

@@ -49,6 +49,23 @@ class BrowserPanelUiTest {
     }
 
     @Test
+    fun switchingThemesDoesNotRaiseAnInternalIdeError() {
+        fun writeUnsafeErrors(): Int = robot.callJs<String>(
+            "String(java.nio.file.Files.readString(java.nio.file.Paths.get(" +
+                "com.intellij.openapi.application.PathManager.getLogPath(), 'idea.log')))", true,
+        ).split("Write-unsafe context!").size - 1
+        val before = writeUnsafeErrors()
+        try {
+            IdeControl.setTheme(robot, false)
+            IdeControl.setTheme(robot, true)
+            val after = writeUnsafeErrors()
+            assertEquals("theme switching raised an internal IDE error", before, after)
+        } finally {
+            IdeControl.setTheme(robot, true)
+        }
+    }
+
+    @Test
     fun theBackendStartsAndTheBrowserSurfaceIsShown() {
         val panel = FoxxyCodeToolWindowFixture.find(robot)
         // Starting the bundled binary and polling it to readiness takes a few seconds on a cold
@@ -127,7 +144,12 @@ class BrowserPanelUiTest {
             Thread.sleep(1500)
             chat.eval("(function(){location.hash='#/s/$sessionId';return 'nav'})()")
             waitFor(Duration.ofSeconds(30), Duration.ofMillis(500), "the transcript's tool rows to render") {
-                (chat.eval("document.querySelectorAll('#messages details').length").toIntOrNull() ?: 0) >= 10
+                // The transcript window deliberately keeps only a few tool rows in the DOM.
+                chat.eval(
+                    "(function(){var m=document.getElementById('messages');return !!m&&" +
+                        "m.innerText.indexOf('Line 59 carries the marker.')>=0&&" +
+                        "m.querySelectorAll('details[data-testid^=tool-details-]').length>0;})()"
+                ) == "true"
             }
             // Let the layout settle through a few more frames before judging.
             Thread.sleep(1500)
@@ -149,7 +171,8 @@ class BrowserPanelUiTest {
         // Unique per run: the backend keeps loaded sessions in memory, so reusing an id
         // would serve a stale transcript from an earlier run.
         val id = "sess_uitestlong" + System.currentTimeMillis()
-        val dir = File("build/uitest-foxxycode-home/sessions/$id")
+        val home = File(System.getProperty("foxxycode.uitest.home", "build/uitest-foxxycode-home"))
+        val dir = File(home, "sessions/$id")
         dir.mkdirs()
         val cwd = File(".").absolutePath.replace("\\", "/")
         File(dir, "session.json").writeText(
@@ -157,6 +180,11 @@ class BrowserPanelUiTest {
         )
         val rows = StringBuilder()
         for (i in 0 until 60) {
+            val toolDir = File(dir, "tool_calls/call_$i")
+            toolDir.mkdirs()
+            File(toolDir, "meta.json").writeText(
+                """{"version":1,"toolCallId":"call_$i","name":"$toolName","kind":"read","status":"completed","startedAt":"2026-09-01T10:00:00.000Z","finishedAt":"2026-09-01T10:00:00.250Z"}"""
+            )
             if (i > 0) rows.append(',')
             rows.append(
                 """{"role":"user","content":"Read notes.txt and report line $i."},""" +
@@ -178,7 +206,11 @@ class BrowserPanelUiTest {
             Thread.sleep(1500)
             chat.eval("(function(){location.hash='#/s/$sessionId';return 'nav'})()")
             waitFor(Duration.ofSeconds(30), Duration.ofMillis(500), "the MCP rows to render") {
-                (chat.eval("document.querySelectorAll('#messages details').length").toIntOrNull() ?: 0) >= 10
+                chat.eval(
+                    "(function(){var m=document.getElementById('messages');return !!m&&" +
+                        "m.innerText.indexOf('Line 59 carries the marker.')>=0&&" +
+                        "m.querySelectorAll('details[data-testid^=tool-details-]').length>0;})()"
+                ) == "true"
             }
             assertTrue(
                 "a long MCP label widened the page",

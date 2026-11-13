@@ -87,7 +87,10 @@ func TestPendingQuestionClonesPayloadAndDisappearsOnCancel(t *testing.T) {
 	buffer := &syncBuffer{}
 	sender := NewSender(&config.Config{}, buffer, true, "agent")
 	go func() { _, err := sender.RequestQuestion(ctx, params); done <- err }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() {
+		cancel()
+		<-done //nolint:errcheck // Only completion is needed here.
+	})
 	deadline := time.Now().Add(5 * time.Second)
 	for buffer.String() == "" {
 		if time.Now().After(deadline) {

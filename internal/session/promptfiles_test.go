@@ -649,6 +649,28 @@ func TestSearchMentionsSchemes(t *testing.T) {
 	}
 }
 
+// The start of a scheme name is answered with that scheme even where nothing
+// in the workspace matches it, so a picker typing "@agent:" one letter at a
+// time never stops at "@ag" for want of a candidate.
+func TestSearchMentionsOffersTheSchemeBeingTyped(t *testing.T) {
+	root := t.TempDir()
+	m, sid := mentionTestManager(t, root)
+	for _, q := range []string{"a", "ag", "Agen", "agent"} {
+		res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: q})
+		if got := candidateInserts(res); len(got) == 0 || got[0] != "@agent:" || !res.Items[0].Continue {
+			t.Fatalf("%q in an empty workspace: %q", q, got)
+		}
+	}
+	res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "fox"})
+	if got := candidateInserts(res); len(got) == 0 || got[0] != "@foxxycode:" {
+		t.Fatalf("fox: %q", got)
+	}
+	res, _ = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "zz"})
+	if got := candidateInserts(res); len(got) != 0 {
+		t.Fatalf("a query that starts no scheme gets no hint: %q", got)
+	}
+}
+
 // "@foxxycode:" lists the pages of the built-in documentation, finds a page by
 // its slug or title, a section after "#", and sections by their words.
 func TestSearchMentionsDocumentation(t *testing.T) {

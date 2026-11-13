@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -73,13 +74,22 @@ func (p *bddAskProvider) Stream(_ context.Context, messages []llm.Message, defs 
 // scenario can assert that a refused call never reached the permission gate.
 type askModeSender struct {
 	resumePermissionSender
+	mu          sync.Mutex
 	updates     []interface{}
 	permissions int
 }
 
 func (s *askModeSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.updates = append(s.updates, update)
 	return nil
+}
+
+func (s *askModeSender) snapshotUpdates() []interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]interface{}(nil), s.updates...)
 }
 
 func (s *askModeSender) RequestPermission(ctx context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
@@ -257,7 +267,7 @@ func (s *askModeFeatureState) toolCallAnsweredWithRefusal() error {
 		return fmt.Errorf("the refused call still raised %d permission prompt(s)", s.sender.permissions)
 	}
 	cancelled := false
-	for _, u := range s.sender.updates {
+	for _, u := range s.sender.snapshotUpdates() {
 		if up, ok := u.(acp.ToolCallStatusUpdate); ok && up.ToolCallID == bddAskHiddenCall && up.Status == "cancelled" {
 			cancelled = true
 		}

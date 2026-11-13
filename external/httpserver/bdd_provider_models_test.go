@@ -5,7 +5,9 @@ package httpserver
 // Godog harness for features/provider_models_fetch.feature: drives
 // POST /foxxycode/providers/models against a gateway whose saved config never holds
 // the provider the scenario fetches (or holds it under another key), which is
-// the state the settings form is in while a provider row is still unsaved.
+// the state the settings form is in while a provider row is still unsaved, and
+// against a saved codex provider whose catalog comes from a stand-in Codex
+// backend that gates models by Codex release the way the live one does.
 
 import (
 	"context"
@@ -18,12 +20,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -33,10 +38,32 @@ type providerModelsWorld struct {
 
 	gotAuth string
 
+	// codex is the stand-in Codex backend, codexRows the catalog it offers and
+	// codexVersions the client_version of every catalog request it answered;
+	// codexMu guards both, since the stand-in reads the rows and records the
+	// versions on its own goroutines.
+	codex         *httptest.Server
+	codexMu       sync.Mutex
+	codexRows     []codexCatalogRow
+	codexVersions []string
+
 	ok     bool
 	models []string
 	ctx    map[string]int
 }
+
+// codexCatalogRow is one model of the stand-in Codex catalog: its slug and
+// the oldest Codex release the backend offers it to.
+type codexCatalogRow struct {
+	slug       string
+	minVersion string
+}
+
+// codexSourceBuildVersion is the release the stand-in answers a Codex source
+// build (client_version 0.0.0) as. The live backend did the same on
+// 2026-09-27: 0.0.0 got the catalog of a 0.153/0.154 release, with
+// gpt-6-astra (0.153.0) in it and gpt-6-sol (0.155.0) left out.
+const codexSourceBuildVersion = "0.154.0"
 
 // upstreamServing starts a stand-in provider endpoint that answers the model
 // list with the given ids and records the credential it was called with. An
@@ -67,6 +94,135 @@ func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 	return nil
 }
 
+// codexCatalogStandIn starts a stand-in for the Codex backend's model
+// catalog, GET /models, gating it the way the live backend does: client_version
+// is required and must read x.y.z, a model is offered only to a client at or
+// above its minimal_client_version, and a source build (0.0.0) is answered as
+// codexSourceBuildVersion. Every row reports the 272000-token window the live
+// catalog reports.
+func (w *providerModelsWorld) codexCatalogStandIn(t *testing.T, csv, minVersion string) error {
+	w.codexOffers(csv, minVersion)
+	w.codex = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(rw, r)
+			return
+		}
+		raw := r.URL.Query().Get("client_version")
+		w.codexMu.Lock()
+		defer w.codexMu.Unlock()
+		w.codexVersions = append(w.codexVersions, raw)
+		client, ok := parseCodexVersion(raw)
+		if !ok {
+			http.Error(rw, `{"detail":"Invalid client_version format"}`, http.StatusBadRequest)
+			return
+		}
+		if raw == "0.0.0" {
+			client, _ = parseCodexVersion(codexSourceBuildVersion)
+		}
+		models := []map[string]any{}
+		for i, row := range w.codexRows {
+			minimal, _ := parseCodexVersion(row.minVersion)
+			if codexVersionBelow(client, minimal) {
+				continue
+			}
+			models = append(models, map[string]any{
+				"slug":                   row.slug,
+				"display_name":           strings.ToUpper(row.slug),
+				"visibility":             "list",
+				"priority":               i + 1,
+				"minimal_client_version": row.minVersion,
+				"context_window":         272000,
+			})
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(rw).Encode(map[string]any{"models": models})
+	}))
+	t.Cleanup(w.codex.Close)
+	return nil
+}
+
+// codexOffers adds catalog rows offered from the given Codex release on.
+func (w *providerModelsWorld) codexOffers(csv, minVersion string) {
+	w.codexMu.Lock()
+	defer w.codexMu.Unlock()
+	for _, slug := range strings.Split(csv, ",") {
+		w.codexRows = append(w.codexRows, codexCatalogRow{slug: strings.TrimSpace(slug), minVersion: minVersion})
+	}
+}
+
+// parseCodexVersion reads a Codex client version; ok is false for anything
+// but x.y.z.
+func parseCodexVersion(s string) (v [3]int, ok bool) {
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+// codexVersionBelow reports whether release a is older than release b.
+func codexVersionBelow(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
+
+// gatewayWithSignedInCodex boots a gateway whose config holds a codex
+// provider row "codex" with a FoxxyCode-managed ChatGPT credential, and points
+// every Codex request of this process at the stand-in backend. CODEX_HOME is
+// an empty directory, so a Codex CLI login of whoever runs the tests is never
+// read.
+func (w *providerModelsWorld) gatewayWithSignedInCodex(t *testing.T) error {
+	if w.codex == nil {
+		return fmt.Errorf("Codex stand-in not started")
+	}
+	t.Setenv(llm.EnvCodexBaseURL, w.codex.URL)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	home := t.TempDir()
+	yml := `providers:
+  - name: codex
+    type: codex
+models:
+  - model: codex/gpt-6-astra
+agent:
+  model: codex/gpt-6-astra
+`
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(yml), 0o644); err != nil {
+		return err
+	}
+	token := codexE2ETestJWT(map[string]any{"exp": time.Now().Add(time.Hour).Unix()})
+	auth, err := json.Marshal(map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens":    map[string]any{"access_token": token, "refresh_token": "rt-models", "account_id": "acct-models"},
+	})
+	if err != nil {
+		return err
+	}
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(authPath, auth, 0o600); err != nil {
+		return err
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
+	if err != nil {
+		return err
+	}
+	w.serve(t, cfg, home)
+	return nil
+}
+
 // startGateway boots an HTTP gateway whose config holds the given provider
 // rows (possibly none of the one under test) and a seed model on seedProvider
 // so validation passes.
@@ -86,6 +242,12 @@ agent:
 	if err != nil {
 		return err
 	}
+	w.serve(t, cfg, home)
+	return nil
+}
+
+// serve runs the gateway over cfg with a runner that ends every turn at once.
+func (w *providerModelsWorld) serve(t *testing.T, cfg *config.Config, home string) {
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
 	}
@@ -93,7 +255,6 @@ agent:
 	srv := New(cfg, mgr, slog.Default(), home)
 	w.ts = httptest.NewServer(srv.Handler())
 	t.Cleanup(w.ts.Close)
-	return nil
 }
 
 func (w *providerModelsWorld) gatewayWithUnrelatedProvider(t *testing.T, name string) error {
@@ -140,6 +301,25 @@ func (w *providerModelsWorld) postBody(body string) error {
 	if err != nil {
 		return err
 	}
+	return w.readModels(res)
+}
+
+// getSaved reads the model list of a saved provider row through
+// GET /foxxycode/providers/{name}/models, the route that looks the row up in the
+// saved config instead of merging a posted one.
+func (w *providerModelsWorld) getSaved(name string) error {
+	if w.ts == nil {
+		return fmt.Errorf("gateway not started")
+	}
+	res, err := http.Get(w.ts.URL + "/foxxycode/providers/" + name + "/models")
+	if err != nil {
+		return err
+	}
+	return w.readModels(res)
+}
+
+// readModels records the {"ok","models"} answer both routes share.
+func (w *providerModelsWorld) readModels(res *http.Response) error {
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("status %d, want 200", res.StatusCode)
@@ -169,6 +349,11 @@ func (w *providerModelsWorld) wantModels(csv string) error {
 		return fmt.Errorf("response reported ok:false")
 	}
 	if strings.Join(w.models, ",") != csv {
+		if w.codex != nil {
+			w.codexMu.Lock()
+			defer w.codexMu.Unlock()
+			return fmt.Errorf("models = %v, want %v (the Codex catalog was asked with client_version %q)", w.models, csv, w.codexVersions)
+		}
 		return fmt.Errorf("models = %v, want %v", w.models, csv)
 	}
 	return nil
@@ -190,6 +375,38 @@ func (w *providerModelsWorld) wantCtx(want int, id string) error {
 	return nil
 }
 
+// modelListReportsWindow checks the window GET /v1/models reports for a model
+// row, the number the web UI draws its context ring against and automatic
+// compaction measures against.
+func (w *providerModelsWorld) modelListReportsWindow(want int, ref string) error {
+	if w.ts == nil {
+		return fmt.Errorf("gateway not started")
+	}
+	res, err := http.Get(w.ts.URL + "/v1/models")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Data []struct {
+			ID               string `json:"id"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return fmt.Errorf("decode /v1/models: %w", err)
+	}
+	for _, m := range body.Data {
+		if m.ID == ref {
+			if m.MaxContextTokens != want {
+				return fmt.Errorf("GET /v1/models max_context_tokens for %s = %d, want %d", ref, m.MaxContextTokens, want)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("GET /v1/models has no %s row", ref)
+}
+
 func TestProviderModelsFetchFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "provider_models_fetch",
@@ -204,11 +421,23 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^a foxxycode server holding a provider "([^"]*)" of type "([^"]*)" at that upstream with key "([^"]*)"$`, func(name, providerType, key string) error {
 				return w.gatewayWithProviderAtUpstream(t, name, providerType, key)
 			})
+			sc.Step(`^a stand-in Codex backend whose catalog offers "([^"]*)" from Codex (\d+\.\d+\.\d+)$`, func(csv, minVersion string) error {
+				return w.codexCatalogStandIn(t, csv, minVersion)
+			})
+			sc.Step(`^the Codex catalog offers "([^"]*)" from Codex (\d+\.\d+\.\d+)$`, func(csv, minVersion string) error {
+				w.codexOffers(csv, minVersion)
+				return nil
+			})
+			sc.Step(`^a foxxycode server holding a codex provider signed in to that backend$`, func() error {
+				return w.gatewayWithSignedInCodex(t)
+			})
 			sc.Step(`^the settings form posts the provider row "([^"]*)" of type "([^"]*)" at that upstream with key "([^"]*)"$`, w.postRow)
 			sc.Step(`^the settings form posts only the provider name "([^"]*)"$`, w.postNameOnly)
+			sc.Step(`^the settings form reads the models of the saved provider "([^"]*)"$`, w.getSaved)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
+			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

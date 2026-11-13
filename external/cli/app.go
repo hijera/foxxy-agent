@@ -15,6 +15,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 )
@@ -36,6 +38,9 @@ type turnDone struct {
 	// server refused as session_busy can be taken back and queued instead.
 	text string
 	row  tui.Component
+	// images are that prompt's attachments, taken back with its text on the
+	// same refusal (queue.go).
+	images []acp.ImagePartRef
 	// woken marks the turn a finished background task started: a busy
 	// refusal of it is the waker's to retry, not a failure to report.
 	woken bool
@@ -73,10 +78,18 @@ type App struct {
 	status *tui.Container
 	plan   *planWidget
 	// queue shows the follow-ups waiting for the running turn (queue.go).
-	queue      *queueWidget
-	editorWrap *tui.Container
-	editor     *tui.Editor
-	foot       *footer
+	queue                 *queueWidget
+	queuePreference       session.QueueMode
+	pendingQueueText      string
+	pendingQueueAlternate bool
+	// pendingQueueImages ride with the message the first-use question is
+	// holding; draftImages wait with the editor for the next message to take
+	// them (queue.go).
+	pendingQueueImages []acp.ImagePartRef
+	draftImages        []acp.ImagePartRef
+	editorWrap         *tui.Container
+	editor             *tui.Editor
+	foot               *footer
 
 	// Local shell state (the `!!` prefix): the running command, its block, and
 	// the most recent block, which ctrl+o expands.
@@ -86,10 +99,20 @@ type App struct {
 	curShell      *shellBox
 	lastShell     *shellBox
 
-	spinner       *tui.Loader
-	stepStatus    liveStatus
-	stepBlocked   string
-	turnActive    bool
+	spinner     *tui.Loader
+	stepStatus  liveStatus
+	stepBlocked string
+	turnActive  bool
+	// mcpConnected of mcpTotal configured MCP servers have answered while
+	// mcpPending (mcp_status.go); mcpReported remembers the servers whose
+	// failure or hold was already said in the visible transcript.
+	mcpConnected int
+	mcpTotal     int
+	mcpPending   bool
+	mcpReported  map[string]bool
+	// mcpGeneration is the dial the shown progress belongs to; an update of
+	// an older dial that arrives late is dropped (mcp_status.go).
+	mcpGeneration uint64
 	turnSessionID string
 	// The running turn's own numbers, which lead the status line (status.go): when it
 	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
@@ -252,8 +275,16 @@ func (a *App) buildTree() {
 	a.status = &tui.Container{}
 	a.plan = newPlanWidget(a.theme)
 	a.queue = newQueueWidget(a.theme)
+	a.queuePreference = session.QueueMode(a.config().Agent.QueueMode)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
+	a.editor.OnAlternateSubmit = func(text string) bool {
+		if text == "" || (!a.turnActive && !a.remoteTurnActive) {
+			return false
+		}
+		a.submitQueueChoice(text, true)
+		return true
+	}
 	a.editor.OnChange = a.onEditorChange
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
@@ -400,6 +431,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		a.modes = modes.AvailableModes
 	}
 	a.configOpts = opts
+	permission := ""
 	for _, opt := range opts {
 		if opt.ID == "model" {
 			a.modelID = opt.CurrentValue
@@ -407,6 +439,18 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		if opt.ID == "reasoning" {
 			a.reasoning = opt.CurrentValue
 		}
+		if opt.ID == "permission_mode" {
+			permission = opt.CurrentValue
+		}
+	}
+	// The footer names the permission mode of the session on screen, never
+	// the one of the session the console left (#362). What a session entered
+	// has changed for its next turns arrives with its next snapshot.
+	switch {
+	case switched:
+		a.foot.SetSettings(permission, nil)
+	case permission != "":
+		a.foot.SetPermission(permission)
 	}
 	if a.modelID == "" {
 		a.modelID = a.config().Agent.Model
@@ -434,21 +478,60 @@ func (a *App) refreshFooterModel() {
 }
 
 func (a *App) populateHeader() {
-	var contextFiles []string
-	contextFiles = append(contextFiles, a.config().Instructions.Files...)
 	var skillNames []string
 	rulesCount := 0
-	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+	cfg := a.config()
+	cwd := cfg.Paths.CWD
+	st := a.mgr.SessionByID(a.sessionID)
+	if st != nil {
+		cwd = st.GetCWD()
+	}
+	// The documents the session's prompt carries: the AGENTS.md and DESIGN.md
+	// of the agent home and of the workspace, then the files instructions.files
+	// adds, each once (rules.LoadStanding).
+	var contextFiles []string
+	standing := rules.LoadStanding(cfg.Paths.Home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, cfg.Paths.Home))
+	for _, doc := range append(standing.Docs, standing.User...) {
+		contextFiles = append(contextFiles, doc.Label)
+	}
+	if st != nil {
 		for _, sk := range st.GetSkills() {
 			skillNames = append(skillNames, sk.Name)
 		}
 		rulesCount = len(st.GetRulesCatalog())
 	}
-	var mcpNames []string
-	for _, srv := range a.config().MCPServers {
-		mcpNames = append(mcpNames, srv.Name)
+	a.header.SetSections(contextFiles, skillNames, rulesCount, a.headerMCPNames())
+	a.seedMCPStatus()
+}
+
+// headerMCPNames lists the MCP servers a session in the console's workspace
+// starts: the enabled servers of <home>/mcp.json and the project's
+// .foxxycode/mcp.json that the workspace trust gate lets run.
+func (a *App) headerMCPNames() []string {
+	cfg := a.config()
+	cwd := cfg.Paths.CWD
+	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+		cwd = st.GetCWD()
 	}
-	a.header.SetSections(contextFiles, skillNames, rulesCount, mcpNames)
+	gate := mcp.NewTrustGate(cfg)
+	var names []string
+	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, nil) {
+		if srv.Config.Disabled || gate.Evaluate(cwd, srv) != mcp.TrustStateAllowed {
+			continue
+		}
+		names = append(names, srv.Config.Name)
+	}
+	return names
+}
+
+// initialTurnStatus is the first step of a turn: waiting for the model, or,
+// while the session's configured MCP servers are still connecting, the wait
+// for their tool list that comes before it.
+func (a *App) initialTurnStatus() liveStatus {
+	if a.mcpPending {
+		return newWorkingStatus(statusConnectingMCP, mcpStatusStep)
+	}
+	return newWaitingStatus()
 }
 
 // Run drives the UI loop until quit. The terminal must already be started.
@@ -626,6 +709,35 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	if a.modal != nil {
 		return false
 	}
+	if a.queueChoicePending() {
+		switch key.String() {
+		case "1", "2":
+			// Answer the question only on an empty input: a "1" typed into the
+			// next message is a digit, not a mode pick, and goes to the editor.
+			if !a.editor.IsEmpty() {
+				return false
+			}
+			mode := session.QueueModeSteer
+			if key.String() == "2" {
+				mode = session.QueueModeAfterTurn
+			}
+			text, alternate, images := a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages
+			a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages = "", false, nil
+			a.queuePreference = mode
+			if alternate {
+				mode = oppositeQueueMode(mode)
+			}
+			a.enqueuePromptParts(text, mode, true, images)
+			return true
+		case "escape":
+			// The draft comes back ahead of anything typed since, the way
+			// restoreDraft returns a message the queue refused.
+			a.restoreDraft(a.pendingQueueText)
+			a.restoreDraftImages(a.pendingQueueImages)
+			a.pendingQueueText, a.pendingQueueAlternate, a.pendingQueueImages = "", false, nil
+			return true
+		}
+	}
 	switch key.String() {
 	case "escape":
 		if a.editor.AutocompleteOpen() {
@@ -646,8 +758,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 		}
 		return false
 	case "ctrl+c":
-		if !a.editor.IsEmpty() {
+		if !a.editor.IsEmpty() || len(a.draftImages) > 0 {
 			a.editor.SetText("")
+			a.draftImages = nil
 			return true
 		}
 		if time.Since(a.lastCtrlC) < 2*time.Second {
@@ -764,7 +877,9 @@ func (a *App) openQuestionModal(req questRequest) {
 // --- submit / turn ---
 
 func (a *App) onSubmit(text string) {
-	if strings.TrimSpace(text) == "" {
+	// A message of images alone is valid, as it is in the browser: the text
+	// may be empty when attachments are waiting with the draft.
+	if strings.TrimSpace(text) == "" && len(a.draftImages) == 0 {
 		return
 	}
 	a.editor.AddToHistory(text)
@@ -783,7 +898,7 @@ func (a *App) submitPrompt(text string) {
 		// The moment an operator knows most about what the agent should do next
 		// is while it is working, so a second prompt joins the queue the turn
 		// reads at its next step instead of being refused (queue.go).
-		a.enqueuePrompt(text)
+		a.submitQueueChoice(text, false)
 		return
 	}
 	if a.shellActive {
@@ -792,10 +907,12 @@ func (a *App) submitPrompt(text string) {
 	}
 	row := newUserMessage(a.theme, text)
 	a.chat.AddChild(row)
+	images := a.takeDraftImages()
 	a.startTurnWorker(acp.SessionPromptParams{
-		SessionID: a.sessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, nil, nil, text, row)
+		SessionID:  a.sessionID,
+		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
+		ImageParts: images,
+	}, nil, nil, text, row, images)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it
@@ -805,12 +922,9 @@ func (a *App) submitPrompt(text string) {
 // done, when non-nil, also receives the turn's error once turnDone is posted: a
 // background wake waits on it (background.go), so the waker starts at most one
 // turn at a time and hears a busy session as busy.
-func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error, text string, row tui.Component) {
-	if a.remoteURL == "" {
-		a.setQueueRows(nil)
-	}
+func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error, text string, row tui.Component, images []acp.ImagePartRef) {
 	a.curAssistant = nil
-	a.stepStatus = newWaitingStatus()
+	a.stepStatus = a.initialTurnStatus()
 	a.stepBlocked = ""
 	a.turnStartedAt = time.Now()
 	a.turnTokens = 0
@@ -830,7 +944,7 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row, woken: woken}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, text: text, row: row, woken: woken, images: images}}:
 		case <-a.closed:
 		}
 		if done != nil {
@@ -1281,6 +1395,7 @@ func (a *App) resetTranscript() {
 	a.remoteTurnActive, a.remoteActivityRevision = false, 0
 	a.queue.Reset()
 	a.chat.Clear()
+	a.mcpReported = nil
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
 	a.curShell, a.lastShell = nil, nil
@@ -1358,6 +1473,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
+		tui.AutocompleteItem{Value: "mcp", Label: "mcp", Description: "Manage MCP servers, tools and workspace trust"},
 		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read FoxxyCode's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit foxxycode"},
 	)

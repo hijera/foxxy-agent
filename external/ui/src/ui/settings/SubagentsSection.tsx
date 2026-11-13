@@ -1,48 +1,34 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Chevron } from "../components/Chevron";
 import { useT } from "../i18n/I18nProvider";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
 import {
-  pendingApprovalCount,
   scopeBadgeKey,
-  shortDigest,
-  showsSubagentTrustControl,
   subagentApprovalFacts,
   type SubagentCatalog,
   type SubagentCatalogEntry,
 } from "./subagentCatalog";
-import { fetchSubagentCatalog, trustSubagent, untrustSubagent } from "./subagentsApi";
-
-// Shield glyph, matching the MCP trust control so the two approvals read as
-// the same gesture.
-function IconShield() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6Z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}
-
+import { fetchSubagentCatalog, setSubagentTrust } from "./subagentsApi";
 import { LegendWithHint } from "./FieldHint";
+import { IconShield } from "./icons";
+import {
+  snapshotSettingsConfig,
+  subscribeSettingsConfig,
+} from "./settingsConfigStore";
 
 /**
- * The Subagents tab. Hybrid, like the Skills tab: the generated form edits the
- * `subagents` config section (including `project_trust`, which saves with the
- * rest of the document through the footer button), and the catalog below is
- * API-driven — approving a definition writes a receipt immediately, because a
- * receipt is not configuration but a signed statement about one file's current
- * content.
+ * SubagentsSection is the Settings -> Subagents tab. Hybrid, like the Skills
+ * tab: the generated form edits the `subagents` config section, and below it
+ * the catalog (/foxxycode/subagents) lists every definition the viewed session's
+ * workspace can spawn. A project file under ask carries the MCP shield: it
+ * approves the file for the workspace, bound to the digest shown (a file the
+ * checkout rewrote since is refused), and withdraws that approval again.
  *
  * A row is the definition's name behind the app's chevron, its badges, its
  * description and its file; the chevron and the name together fold open what
@@ -54,74 +40,69 @@ export function SubagentsSection(props: {
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
   /**
-   * Workspace of the viewed session. Receipts are keyed by workspace and
-   * `spawn_agent` decides against the session's own cwd, so the tab has to ask
-   * about that workspace rather than the server's. Undefined with no session
-   * open: the server then answers for its session default.
+   * Workspace of the viewed session. spawn_agent resolves definitions against
+   * the session's own cwd, so the tab lists that workspace rather than the
+   * server's. Undefined with nothing to ask about: the server then answers for
+   * its own default workspace.
    */
   workspacePath?: string | undefined;
 }) {
-  const { t, tp } = useT();
+  const { t } = useT();
   const [catalog, setCatalog] = useState<SubagentCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [trustError, setTrustError] = useState<string | null>(null);
   const factsId = useId();
   const workspacePath = props.workspacePath;
+  // The saved settings: subagents.project_trust decides which definitions
+  // need approval, so a save reads the catalog again.
+  const savedSettings = useSyncExternalStore(
+    subscribeSettingsConfig,
+    snapshotSettingsConfig,
+  ).config;
 
-  const load = useCallback(
-    async (firstLoad: boolean) => {
-      if (firstLoad) {
-        setLoading(true);
-      }
-      const res = await fetchSubagentCatalog(workspacePath);
-      if (res.ok) {
-        setCatalog(res.data);
-        setError(null);
-      } else {
-        setError(t("settings.subagents.error.load"));
-      }
-      if (firstLoad) {
-        setLoading(false);
-      }
-    },
-    // `t` is stable for a locale; the workspace is what makes this a different
-    // question.
-    [workspacePath, t],
-  );
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await fetchSubagentCatalog(workspacePath);
+    if (res.ok) {
+      setCatalog(res.data);
+      setError(null);
+    } else {
+      setError(t("subagents.error.load"));
+    }
+    setLoading(false);
+    // `t` is stable for a locale; the workspace is what makes this a
+    // different question.
+  }, [workspacePath, t]);
 
   useEffect(() => {
-    void load(true);
-  }, [load]);
-
-  // Same shape as the MCP tab: a refresh never collapses the list height, and
-  // one row's failure never blocks the others.
-  const withBusy = (key: string, fn: () => Promise<void>) => {
-    setBusy((p) => ({ ...p, [key]: true }));
-    setError(null);
-    void (async () => {
-      await fn();
-      setBusy((p) => ({ ...p, [key]: false }));
-    })();
-  };
-
-  const onToggleTrust = (entry: SubagentCatalogEntry) => {
-    withBusy(entry.name, async () => {
-      const res = entry.trusted
-        ? await untrustSubagent(entry.name, workspacePath)
-        : await trustSubagent(entry.name, workspacePath);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      await load(false);
-    });
-  };
+    void load();
+  }, [load, savedSettings]);
 
   const items = catalog?.items ?? [];
   const policy = catalog?.policy ?? "ask";
-  const pending = pendingApprovalCount(items);
+
+  const onToggleTrust = (entry: SubagentCatalogEntry) => {
+    setBusy((b) => ({ ...b, [entry.name]: true }));
+    setTrustError(null);
+    void (async () => {
+      const res = await setSubagentTrust(
+        entry.name,
+        workspacePath,
+        !entry.trusted,
+        entry.digest,
+      );
+      if (!res.ok) {
+        setTrustError(
+          res.error || t("subagents.error.trust", { name: entry.name }),
+        );
+      }
+      await load();
+      setBusy((b) => ({ ...b, [entry.name]: false }));
+    })();
+  };
 
   return (
     <div className="settings-subagents-section">
@@ -138,29 +119,22 @@ export function SubagentsSection(props: {
         ]}
       />
 
-      <fieldset className="settings-fieldset subagents-catalog-box" data-testid="subagents-catalog">
-        <LegendWithHint label={t("settings.subagents.legend")} description={<>
-
-          {t("settings.subagents.desc.start")} <code>.foxxycode/agents</code>{" "}
-          {t("settings.subagents.desc.and")} <code>.claude/agents</code>{" "}
-          {t("settings.subagents.desc.end")}
-        </>} />
-        <p className="settings-field-desc">{t("settings.subagents.policyAppliesAfterSave")}</p>
-        {catalog?.workspace ? (
-          <p className="settings-field-desc subagents-workspace">
-            {t("settings.subagents.workspace")} <code>{catalog.workspace}</code>
-          </p>
-        ) : null}
+      <fieldset
+        className="settings-fieldset subagents-catalog-box"
+        data-testid="subagents-catalog"
+      >
+        <LegendWithHint
+          label={t("subagents.catalog.legend")}
+          description={t("subagents.catalog.description")}
+        />
         {error ? <p className="settings-error">{error}</p> : null}
-        {pending > 0 ? (
-          <p className="settings-field-desc" data-testid="subagents-pending-hint">
-            {tp("settings.subagents.pendingHint", pending)}
-          </p>
-        ) : null}
+        {trustError ? <p className="settings-error">{trustError}</p> : null}
 
         {items.length === 0 ? (
           <p className="settings-muted" data-testid="subagents-empty">
-            {loading ? t("settings.subagents.loading") : t("settings.subagents.empty")}
+            {loading
+              ? t("subagents.catalog.loading")
+              : t("subagents.catalog.empty")}
           </p>
         ) : (
           <ul className="subagents-list" data-testid="subagents-list">
@@ -207,21 +181,45 @@ export function SubagentsSection(props: {
                         })}
                         data-testid={`subagent-pending-${entry.name}`}
                       >
-                        {t("settings.subagents.badge.needsApproval")}
+                        {t("subagents.badge.needsApproval")}
                       </span>
+                    ) : null}
+                    {entry.scope === "project" && policy === "ask" ? (
+                      <button
+                        type="button"
+                        className={`settings-btn settings-btn-icon subagents-trust${entry.trusted ? " is-trusted" : " settings-btn-approve"}`}
+                        disabled={!!busy[entry.name]}
+                        onClick={() => onToggleTrust(entry)}
+                        title={
+                          entry.trusted
+                            ? t("subagents.trust.approvedTitle")
+                            : t("subagents.trust.approveTitle", {
+                                name: entry.name,
+                              })
+                        }
+                        aria-label={t(
+                          entry.trusted
+                            ? "subagents.trust.withdrawAria"
+                            : "subagents.trust.approveAria",
+                          { name: entry.name },
+                        )}
+                        data-testid={`subagent-trust-${entry.name}`}
+                      >
+                        <IconShield />
+                      </button>
                     ) : null}
                   </div>
                   <div className="subagents-item-body">
                     {/*
-                      Plain text on purpose: this description comes out of a
-                      file nobody has approved yet, so it is never markdown and
-                      never a link.
+                      Plain text on purpose: the description comes out of a
+                      file that may have arrived with the checkout, so it is
+                      never markdown and never a link.
                     */}
+                    {entry.trusted && entry.description ? (
                     <div className="skills-list-item-desc">
-                      {entry.needs_approval
-                        ? t("settings.subagents.descriptionWithheld")
-                        : entry.description}
+                      {entry.description}
                     </div>
+                    ) : null}
                     {entry.path ? (
                       <code
                         className="subagents-file"
@@ -240,67 +238,13 @@ export function SubagentsSection(props: {
                         <div key={fact.labelKey}>
                           <dt>{t(fact.labelKey)}</dt>
                           <dd>
-                            <code>{fact.valueKey ? t(fact.valueKey) : fact.value}</code>
+                            <code>{fact.value ?? t(fact.valueKey!)}</code>
                           </dd>
                         </div>
                       ))}
                     </dl>
                   </div>
-                  {showsSubagentTrustControl(entry, policy) ? (
-                    <button
-                      type="button"
-                      className={`settings-btn settings-btn-icon${entry.trusted ? "" : " settings-btn-approve"}`}
-                      disabled={!!busy[entry.name]}
-                      onClick={() => onToggleTrust(entry)}
-                      title={
-                        entry.trusted
-                          ? t("settings.subagents.trust.approvedTitle", {
-                              digest: shortDigest(entry.digest),
-                            })
-                          : t("settings.subagents.trust.approveTitle", { name: entry.name })
-                      }
-                      aria-label={t(
-                        entry.trusted
-                          ? "settings.subagents.trust.withdrawAria"
-                          : "settings.subagents.trust.approveAria",
-                        { name: entry.name },
-                      )}
-                      data-testid={`subagent-trust-${entry.name}`}
-                    >
-                      <IconShield />
-                    </button>
-                  ) : null}
-
-                {entry.needs_approval ? (
-                  <div
-                    className="mcp-trust-note"
-                    data-testid={`subagent-trust-note-${entry.name}`}
-                  >
-                    <p>
-                      {t("settings.subagents.trust.note.declaredBy")}{" "}
-                      <code>{entry.path ?? ""}</code>
-                      {t("settings.subagents.trust.note.travels")}
-                    </p>
-                    <dl className="mcp-trust-facts">
-                      {subagentApprovalFacts(entry).map((fact) => (
-                        <div key={fact.labelKey}>
-                          <dt>{t(fact.labelKey)}</dt>
-                          <dd>
-                            <code>{fact.valueKey ? t(fact.valueKey) : fact.value}</code>
-                          </dd>
-                        </div>
-                      ))}
-                      <div>
-                        <dt>{t("settings.subagents.fact.digest")}</dt>
-                        <dd>
-                          <code title={entry.digest ?? ""}>{shortDigest(entry.digest)}</code>
-                        </dd>
-                      </div>
-                    </dl>
-                    <p>{t("settings.subagents.trust.note.upperBound")}</p>
-                  </div>
-                ) : null}
-              </li>
+                </li>
               );
             })}
           </ul>

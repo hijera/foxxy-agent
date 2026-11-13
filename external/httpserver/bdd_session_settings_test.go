@@ -33,11 +33,13 @@ import (
 )
 
 // settingsProvider answers a scripted list of responses, then plain text.
+// during, when set, runs while the first scripted response streams.
 type settingsProvider struct {
-	mu    sync.Mutex
-	name  string
-	steps []*llm.Response
-	calls int
+	mu     sync.Mutex
+	name   string
+	steps  []*llm.Response
+	calls  int
+	during func()
 }
 
 func (p *settingsProvider) Complete(ctx context.Context, m []llm.Message, d []llm.ToolDefinition) (*llm.Response, error) {
@@ -51,7 +53,13 @@ func (p *settingsProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.To
 	if len(p.steps) > 0 {
 		step, p.steps = p.steps[0], p.steps[1:]
 	}
+	during := p.during
+	p.during = nil
 	p.mu.Unlock()
+	if step != nil && during != nil {
+		onChunk(llm.StreamChunk{TextDelta: step.Content})
+		during()
+	}
 	if step == nil {
 		text := "answered by " + p.name
 		onChunk(llm.StreamChunk{TextDelta: text})
@@ -390,6 +398,136 @@ func (s *settingsFeatureState) switchPermissionOverAPI(mode string) error {
 	return nil
 }
 
+// browserSwitchesModelDuringAnswer scripts the model's first answer to end in a
+// tool call, and has the browser switch the session's model with
+// PATCH /foxxycode/sessions/{id} while that answer streams.
+func (s *settingsFeatureState) browserSwitchesModelDuringAnswer(model, name string) error {
+	p := s.provider(name)
+	p.steps = []*llm.Response{{
+		Content:    "written by " + name,
+		ToolCalls:  []llm.ToolCall{{ID: "g1", Name: "glob", InputJSON: `{"pattern":"*.none"}`}},
+		StopReason: "tool_use",
+	}}
+	p.during = func() {
+		body, _ := json.Marshal(map[string]string{"selectedModelId": model})
+		req, err := http.NewRequest(http.MethodPatch, s.ts.URL+"/foxxycode/sessions/"+s.sessionID, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			_ = res.Body.Close()
+		}
+	}
+	return nil
+}
+
+// sessionStartedWith sets the model and the mode the way `foxxycode -model -mode`
+// does for the session it opens: through the ACP handlers, before any prompt.
+func (s *settingsFeatureState) sessionStartedWith(model, mode string) error {
+	ctx := context.Background()
+	if _, err := s.mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
+		SessionID: s.sessionID, ConfigID: "model", Value: model,
+	}); err != nil {
+		return err
+	}
+	return s.mgr.HandleSessionSetMode(ctx, acp.SessionSetModeParams{SessionID: s.sessionID, ModeID: mode})
+}
+
+// browserSwitchesModel picks a model on the composer's selector, which sends
+// PATCH /foxxycode/sessions/{id}.
+func (s *settingsFeatureState) browserSwitchesModel(model string) error {
+	body, _ := json.Marshal(map[string]string{"selectedModelId": model})
+	req, err := http.NewRequest(http.MethodPatch, s.ts.URL+"/foxxycode/sessions/"+s.sessionID, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("PATCH: %s %s", res.Status, raw)
+	}
+	return nil
+}
+
+// userAsksAgentToSwitch has the model the session runs on answer the request
+// with a switch_model call, then sends the request.
+func (s *settingsFeatureState) userAsksAgentToSwitch(model string) error {
+	snap, err := s.mgr.SessionSettings(s.sessionID)
+	if err != nil {
+		return err
+	}
+	current := snap.Model[strings.Index(snap.Model, "/")+1:]
+	s.provider(current).steps = []*llm.Response{{
+		ToolCalls:  []llm.ToolCall{{ID: "sw1", Name: "switch_model", InputJSON: fmt.Sprintf(`{"model":%q}`, model)}},
+		StopReason: "tool_use",
+	}}
+	return s.userSends("Please switch to " + model)
+}
+
+// transcriptShowsNotices reads the transcript the way a reloaded browser does
+// and compares its notice rows, in order, joined with " | ".
+func (s *settingsFeatureState) transcriptShowsNotices(list string) error {
+	res, err := http.Get(s.ts.URL + "/foxxycode/sessions/" + s.sessionID + "/messages")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var page struct {
+		UILog []struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+		} `json:"uiLog"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
+		return err
+	}
+	var got []string
+	for _, row := range page.UILog {
+		if row.Level == session.UILogLevelNotice {
+			got = append(got, row.Message)
+		}
+	}
+	if strings.Join(got, " | ") != list {
+		return fmt.Errorf("the transcript shows the notices %q, want %q", strings.Join(got, " | "), list)
+	}
+	return nil
+}
+
+// transcriptSignsAnswers reads the transcript the way a browser does and
+// compares the model each assistant row names, in order.
+func (s *settingsFeatureState) transcriptSignsAnswers(list string) error {
+	res, err := http.Get(s.ts.URL + "/foxxycode/sessions/" + s.sessionID + "/messages")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var page struct {
+		Messages []struct {
+			Role  string `json:"role"`
+			Model string `json:"model"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
+		return err
+	}
+	var got []string
+	for _, m := range page.Messages {
+		if m.Role == "assistant" {
+			got = append(got, m.Model)
+		}
+	}
+	if strings.Join(got, ", ") != list {
+		return fmt.Errorf("assistant rows are signed %q, want %q", strings.Join(got, ", "), list)
+	}
+	return nil
+}
+
 func (s *settingsFeatureState) promptsShown(want int) error {
 	if s.prompts != want {
 		return fmt.Errorf("%d permission prompts were shown, want %d", s.prompts, want)
@@ -448,6 +586,12 @@ func initializeSessionSettingsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^(\d+) permission prompts? (?:was|were) shown$`, s.promptsShown)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.sessionPermissionIs)
 	sc.Step(`^both commands ran$`, s.bothCommandsRan)
+	sc.Step(`^the browser switches the session to "([^"]*)" while the model "([^"]*)" answers$`, s.browserSwitchesModelDuringAnswer)
+	sc.Step(`^the transcript signs the answers "([^"]*)"$`, s.transcriptSignsAnswers)
+	sc.Step(`^the session was started on the model "([^"]*)" in the mode "([^"]*)"$`, s.sessionStartedWith)
+	sc.Step(`^the browser switches the session to "([^"]*)"$`, s.browserSwitchesModel)
+	sc.Step(`^the user asks the agent to switch to "([^"]*)"$`, s.userAsksAgentToSwitch)
+	sc.Step(`^the transcript shows the notices "([^"]*)"$`, s.transcriptShowsNotices)
 }
 
 func TestSessionSettingsFeature(t *testing.T) {

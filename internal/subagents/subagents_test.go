@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func writeDef(t *testing.T, dir, rel, body string) string {
@@ -88,6 +90,77 @@ body
 	}
 	if len(def.Tools) != 2 || def.Tools[1] != "context7__*" {
 		t.Fatalf("list tools = %v", def.Tools)
+	}
+}
+
+func TestParseReadsSpawns(t *testing.T) {
+	src := `---
+description: coordinator
+tools: [spawn_agent, run_command]
+spawns: [explore, "peer-*"]
+---
+body
+`
+	def, err := Parse("/w/.foxxycode/agents/coordinator.md", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(def.Spawns, ",") != "explore,peer-*" {
+		t.Fatalf("list spawns = %v", def.Spawns)
+	}
+
+	// The comma-separated spelling parses the same way tools does.
+	def, err = Parse("/w/.foxxycode/agents/c2.md", []byte("---\ndescription: c2\nspawns: explore, general\n---\nbody\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(def.Spawns, ",") != "explore,general" {
+		t.Fatalf("comma-separated spawns = %v", def.Spawns)
+	}
+}
+
+func TestEffectiveSpawnsIgnoresProjectScope(t *testing.T) {
+	def, err := Parse("/w/.foxxycode/agents/c.md", []byte("---\ndescription: c\nspawns: [explore]\n---\nbody\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.EffectiveSpawns()) != 1 {
+		t.Fatalf("unset scope keeps the declared spawns: %v", def.EffectiveSpawns())
+	}
+	def.Scope = ScopeProject
+	if def.EffectiveSpawns() != nil {
+		t.Fatalf("project scope must not widen the depth guard: %v", def.EffectiveSpawns())
+	}
+	def.Scope = ScopeUser
+	if len(def.EffectiveSpawns()) != 1 {
+		t.Fatalf("user scope keeps the declared spawns: %v", def.EffectiveSpawns())
+	}
+}
+
+func TestMatchSpawns(t *testing.T) {
+	allow := []string{"explore", "peer-*"}
+	for _, ok := range []string{"explore", "peer-a", "peer-worker"} {
+		if !MatchSpawns(allow, ok) {
+			t.Fatalf("%q should be admitted by %v", ok, allow)
+		}
+	}
+	for _, bad := range []string{"general", "peer", ""} {
+		if MatchSpawns(allow, bad) {
+			t.Fatalf("%q must not be admitted by %v", bad, allow)
+		}
+	}
+	if !MatchSpawns([]string{"*"}, "anything") {
+		t.Fatal("bare * admits every name")
+	}
+	defs := []*Definition{
+		{Name: "explore"}, {Name: "general"}, {Name: "peer-a"}, nil,
+	}
+	got := DefinitionsMatching(defs, allow)
+	if len(got) != 2 || got[0].Name != "explore" || got[1].Name != "peer-a" {
+		t.Fatalf("DefinitionsMatching = %v", got)
+	}
+	if len(DefinitionsMatching(defs, nil)) != len(defs) {
+		t.Fatal("an empty allowlist admits every definition")
 	}
 }
 
@@ -563,6 +636,18 @@ func TestPromptBlockSaysDetachedRunsWakeTheParent(t *testing.T) {
 	}
 }
 
+// A run that stopped before its report keeps its transcript, and the parent
+// reads in the catalog to continue it with resume instead of starting a second
+// subagent on the same task from an empty context (issue #389).
+func TestPromptBlockSaysAnUnfinishedRunIsResumed(t *testing.T) {
+	block := PromptBlock([]CatalogEntry{{Name: "general", Description: "General helper"}})
+	for _, want := range []string{"`resume`", "transcript", "instead of starting"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("prompt block lacks %q:\n%s", want, block)
+		}
+	}
+}
+
 // An approval surface decides on the bounds, not on the name: the catalog has
 // to carry what the definition declares about the child's reach. The role body
 // itself never travels - only its size - because a client would render it
@@ -737,5 +822,101 @@ func TestLoaderWalksNestedDirectoriesAndSkipsDotEntries(t *testing.T) {
 	}
 	if got := FindByName(defs, "planner"); !strings.HasSuffix(got.Path, filepath.Join("planner", "AGENT.md")) {
 		t.Fatalf("planner path = %q", got.Path)
+	}
+}
+
+// ---- default folders ----
+
+// chainDef is a definition named chain whose description says which folder
+// it came from.
+func chainDef(label string) string {
+	return "---\nname: chain\ndescription: " + label + "\n---\nrole\n"
+}
+
+func describeDef(defs []*Definition, name string) string {
+	if d := FindByName(defs, name); d != nil {
+		return d.Description
+	}
+	return ""
+}
+
+// The default folders, lowest priority first: the user's agents definitions,
+// the project's, FoxxyCode's own, the project's FoxxyCode ones; a name found in
+// several comes from the last, and taking the top layer away shows the next.
+func TestDefaultSubagentDirsLayerInOrder(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	foxxycodeHome := t.TempDir()
+	cwd := t.TempDir()
+	layers := []struct{ dir, label string }{
+		{filepath.Join(userHome, ".agents", "agents"), "user agents"},
+		{filepath.Join(cwd, ".agents", "agents"), "project agents"},
+		{filepath.Join(foxxycodeHome, "agents"), "foxxycode home"},
+		{filepath.Join(cwd, ".foxxycode", "agents"), "project foxxycode"},
+	}
+	for _, l := range layers {
+		writeDef(t, l.dir, "chain.md", chainDef(l.label))
+	}
+	loader := NewLoader(config.DefaultSubagentDirs(), "ask")
+	for i := len(layers) - 1; i >= 0; i-- {
+		if got := describeDef(loader.Load(cwd, foxxycodeHome), "chain"); got != layers[i].label {
+			t.Fatalf("with %d layers chain came from %q, want %q", i+1, got, layers[i].label)
+		}
+		if err := os.Remove(filepath.Join(layers[i].dir, "chain.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The project's .agents/agents is a project folder: it follows the trust policy.
+	writeDef(t, filepath.Join(cwd, ".agents", "agents"), "proj.md", "---\nname: proj\ndescription: p\n---\nrole\n")
+	if d := FindByName(loader.Load(cwd, foxxycodeHome), "chain"); d != nil {
+		t.Fatalf("chain must be gone, got %+v", d)
+	}
+	if d := FindByName(loader.Load(cwd, foxxycodeHome), "proj"); d == nil || d.Scope != ScopeProject {
+		t.Fatalf("a definition of .agents/agents must be project scope: %+v", d)
+	}
+}
+
+// A folder named twice is read once, at its last place; under deny a project
+// spelling of a user folder (a .foxxycode/agents linked to ~/.foxxycode/agents) is
+// dropped before that, so the user copy stays.
+func TestSubagentFolderNamedTwiceAndDeny(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	writeDef(t, a, "twice.md", "---\nname: twice\ndescription: from a\n---\nrole\n")
+	writeDef(t, b, "twice.md", "---\nname: twice\ndescription: from b\n---\nrole\n")
+	if got := describeDef(NewLoader([]string{a, b, a}, "ask").Load(t.TempDir(), ""), "twice"); got != "from a" {
+		t.Fatalf("a, b, a: got %q, want a (its last place)", got)
+	}
+
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeDef(t, home, "agents/mine.md", "---\ndescription: mine\n---\nrole\n")
+	if err := os.MkdirAll(filepath.Join(cwd, ".foxxycode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "agents"), filepath.Join(cwd, ".foxxycode", "agents")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	defs := NewLoader([]string{"${FOXXYCODE_HOME}/agents", "${CWD}/.foxxycode/agents"}, "deny").Load(cwd, home)
+	if d := FindByName(defs, "mine"); d == nil || d.Scope != ScopeUser {
+		t.Fatalf("under deny the user folder must stay although a project link names it: %+v", d)
+	}
+}
+
+// ${HOME} names the user's home; a workspace entry with no workspace reads
+// nothing instead of a folder at the root of the disk or of the process.
+func TestSubagentDirPlaceholders(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	if got := expandDir("${HOME}/.agents/agents", "/w", ""); got != filepath.Join(userHome, ".agents", "agents") {
+		t.Fatalf("${HOME}: got %q", got)
+	}
+	for _, entry := range []string{"${CWD}/.foxxycode/agents", ".agents/agents"} {
+		if got := expandDir(entry, "", ""); got != "" {
+			t.Fatalf("%s with no workspace: got %q, want nothing", entry, got)
+		}
 	}
 }

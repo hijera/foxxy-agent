@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -31,23 +33,19 @@ func TestReplaceConfiguredMCPClientsPreservesSessionClients(t *testing.T) {
 	}
 }
 
-func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
+// A server added to <home>/mcp.json while sessions run reaches them: the
+// session whose turn reloads the configuration (config_commit) dials it at
+// once, and the reconcile the watcher of the file runs connects it in the
+// other one without starting it again where it runs already. The process
+// outlives the turn that started it.
+func TestMCPJSONServerReachesLiveSessionsImmediately(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	skillsDir := filepath.Join(dir, "skills")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	next := &config.Config{
-		Skills: config.Skills{Dirs: []string{skillsDir}},
-		MCPServers: []config.MCPServerConfig{{
-			Name:    "hot-mcp",
-			Command: os.Args[0],
-			Args:    []string{"-test.run=TestConfigReloadMCPHelperProcess"},
-			Env:     []config.EnvVarConfig{{Name: "GO_WANT_CONFIG_RELOAD_MCP", Value: "1"}},
-		}},
-	}
-	raw, err := config.MarshalConfigYAML(next)
+	raw, err := config.MarshalConfigYAML(&config.Config{Skills: config.Skills{Dirs: []string{skillsDir}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +62,23 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := mgr.SessionByID(created.SessionID)
+	if err := st.WaitMCPReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	otherCreated, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
 	other := mgr.SessionByID(otherCreated.SessionID)
+	if err := other.WaitMCPReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(st.CloseAll)
 	t.Cleanup(other.CloseAll)
+
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(dir), "hot-mcp", reloadHelperEntry("1")); err != nil {
+		t.Fatal(err)
+	}
 	reloadCtx, cancelReload := context.WithCancel(context.Background())
 	warnings, err := mgr.ReloadConfigForSession(reloadCtx, st)
 	if err != nil {
@@ -87,9 +95,21 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	if len(tools) != 1 || tools[0].Name != "ping" {
 		t.Fatalf("MCP tools were not loaded immediately: %+v", tools)
 	}
+	mgr.ReloadMCPDeclarations(reloadCtx)
 	otherClients := other.GetMCPClients()
 	if len(otherClients) != 1 || otherClients[0].Name() != "hot-mcp" {
 		t.Fatalf("other active session MCP clients = %+v", otherClients)
+	}
+	if got := st.GetMCPClients(); len(got) != 1 || got[0] != clients[0] {
+		t.Fatalf("the reconcile started hot-mcp again in the session that ran it: %+v", got)
+	}
+	// A rewrite that changes nothing reconciles nothing.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(dir), "hot-mcp", reloadHelperEntry("1")); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(reloadCtx)
+	if got := other.GetMCPClients(); len(got) != 1 || got[0] != otherClients[0] {
+		t.Fatalf("an unchanged file restarted the server: %+v", got)
 	}
 	cancelReload()
 	for i := 0; i < 20; i++ {
@@ -104,6 +124,616 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 			t.Fatalf("ping result = %q", got)
 		}
 	}
+
+	// A server removed from the file closes in every session.
+	if _, err := config.DeleteMCPJSONServer(config.GlobalMCPJSONPath(dir), "hot-mcp"); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(context.Background())
+	if len(st.GetMCPClients()) != 0 || len(other.GetMCPClients()) != 0 {
+		t.Fatalf("a server removed from mcp.json kept running: %+v / %+v", st.GetMCPClients(), other.GetMCPClients())
+	}
+}
+
+func TestMCPServerDisabledFromConsoleIsAbsentOnNextTurn(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: cwd}}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "toggle-mcp", config.MCPJSONServer{
+		Command: os.Args[0], Args: []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env: map[string]string{"GO_WANT_CONFIG_RELOAD_MCP": "1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(cfg, nil, nil, slog.Default(), cwd, nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	if err := st.WaitMCPReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer st.CloseAll()
+	if len(st.GetMCPClients()) != 1 {
+		t.Fatal("server did not connect")
+	}
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "toggle-mcp", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.GetMCPClients()) != 0 {
+		t.Fatal("disabled server remained connected")
+	}
+	if st.GetMCPToolFilter()("toggle-mcp", "ping") {
+		t.Fatal("next turn still offers disabled server tool")
+	}
+}
+
+// reloadHelperEntry declares the stdio MCP server TestConfigReloadMCPHelperProcess
+// plays: one tool, ping. mode "hang" starts a server that never answers.
+func reloadHelperEntry(mode string) config.MCPJSONServer {
+	return config.MCPJSONServer{
+		Command: os.Args[0], Args: []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env: map[string]string{"GO_WANT_CONFIG_RELOAD_MCP": mode},
+	}
+}
+
+// configuredClient returns the live client of one server, nil when the
+// session has none.
+func configuredClient(st *State, name string) *mcp.Client {
+	for _, client := range st.GetMCPClients() {
+		if client.Name() == name {
+			return client
+		}
+	}
+	return nil
+}
+
+// newMCPToggleSession starts a session over <home>/mcp.json servers.
+func newMCPToggleSession(t *testing.T, servers map[string]config.MCPJSONServer) (*Manager, *State, string) {
+	t.Helper()
+	home, cwd := t.TempDir(), t.TempDir()
+	for name, entry := range servers {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: cwd},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	runner := func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) { return "", nil }
+	mgr := NewManager(cfg, mcpTurnSender{}, runner, slog.Default(), cwd, nil)
+	mgr.SetMCPConnectTimeoutForTest(mcpStartTimeout)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	if err := st.WaitMCPReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.CloseAll)
+	return mgr, st, cwd
+}
+
+// A switch touches only the server it names. A tool switch reconnects
+// nothing - the per-turn filter reads it - and a server switch dials or closes
+// that one server, so a stateful neighbour (a browser-automation server with
+// its pages open) keeps its process.
+func TestMCPSwitchReconnectsOnlyTheServerThatChanged(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"alpha": reloadHelperEntry("1"), "beta": reloadHelperEntry("1"),
+	})
+	ctx := context.Background()
+	alpha, beta := configuredClient(st, "alpha"), configuredClient(st, "beta")
+	if alpha == nil || beta == nil {
+		t.Fatalf("clients at start = %+v", st.GetMCPClients())
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "ping", false); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != alpha || configuredClient(st, "beta") != beta {
+		t.Fatal("a tool switch reconnected MCP servers")
+	}
+	if st.GetMCPToolFilter()("alpha", "ping") {
+		t.Fatal("the switched-off tool is still offered")
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("the switched-off server is still connected")
+	}
+	if configuredClient(st, "beta") != beta {
+		t.Fatal("switching alpha off reconnected beta")
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("the switched-on server did not connect in the live session")
+	}
+	if configuredClient(st, "beta") != beta {
+		t.Fatal("switching alpha on reconnected beta")
+	}
+}
+
+// Trust granted from a surface connects that project server in live sessions,
+// trust withdrawn closes it, and an approval of a declaration rewritten since
+// it was listed is refused.
+func TestMCPTrustConnectsAndClosesOnlyThatServer(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"beta": reloadHelperEntry("1")})
+	ctx := context.Background()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", reloadHelperEntry("1")); err != nil {
+		t.Fatal(err)
+	}
+	beta := configuredClient(st, "beta")
+	rows, err := mgr.MCPServers(ctx, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := ""
+	for _, row := range rows {
+		if row.Name == "proj" {
+			shown = row.Fingerprint
+		}
+	}
+	if shown == "" {
+		t.Fatalf("project row carries no fingerprint: %+v", rows)
+	}
+
+	if err := mgr.SetMCPTrust(ctx, cwd, "proj", shown, true); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "proj") == nil {
+		t.Fatal("the approved project server did not connect in the live session")
+	}
+	if configuredClient(st, "beta") != beta {
+		t.Fatal("approving proj reconnected beta")
+	}
+
+	if err := mgr.SetMCPTrust(ctx, cwd, "proj", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "proj") != nil {
+		t.Fatal("the project server kept running after its trust was withdrawn")
+	}
+
+	rewritten := reloadHelperEntry("1")
+	rewritten.Args = append(rewritten.Args, "-test.v")
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", rewritten); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetMCPTrust(ctx, cwd, "proj", shown, true); !errors.Is(err, mcp.ErrDeclarationChanged) {
+		t.Fatalf("approving a rewritten declaration: err = %v", err)
+	}
+	if configuredClient(st, "proj") != nil {
+		t.Fatal("the rewritten declaration started")
+	}
+}
+
+// A session in the middle of a turn keeps the tool list that turn handed the
+// model; the switch reaches it when its next turn starts.
+func TestMCPSwitchWaitsForTheTurnInFlight(t *testing.T) {
+	off := reloadHelperEntry("1")
+	off.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"alpha": off})
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("a disabled server connected at session start")
+	}
+	unlock, err := mgr.acquireTurnLockWithReloadDrain(st.GetID(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "alpha", "", true); err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != nil {
+		unlock()
+		t.Fatal("the server connected under a turn in flight")
+	}
+	unlock()
+	if _, err := mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("the switch was not applied when the next turn started")
+	}
+}
+
+// A server that never answers its handshake does not hold the caller: the
+// refresh gives up at its deadline and leaves the switch for the session's
+// next turn to retry.
+func TestMCPRefreshGivesUpAtItsDeadline(t *testing.T) {
+	previous := mcpRefreshTimeout
+	mcpRefreshTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { mcpRefreshTimeout = previous })
+	hang := reloadHelperEntry("hang")
+	hang.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"hang": hang})
+
+	started := time.Now()
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "hang", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("switching a hung server on took %v", elapsed)
+	}
+	if configuredClient(st, "hang") != nil {
+		t.Fatal("a server that never answered was installed")
+	}
+	if !st.hasPendingMCPServers() {
+		t.Fatal("the switch was dropped instead of left for the next turn")
+	}
+}
+
+// mcpTurnSender answers a turn's updates and permissions without a client.
+type mcpTurnSender struct{}
+
+func (mcpTurnSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (mcpTurnSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow"}, nil
+}
+
+func (mcpTurnSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// reloadHelperServer is reloadHelperEntry as a named declaration.
+func reloadHelperServer(name string) config.MCPServerConfig {
+	return config.MCPServerConfig{
+		Name: name, Command: os.Args[0], Args: []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env: []config.EnvVarConfig{{Name: "GO_WANT_CONFIG_RELOAD_MCP", Value: "1"}},
+	}
+}
+
+// newStoredMCPSession leaves a session on disk under a configuration whose
+// <home>/mcp.json declares servers and loads it back, the way a read of it
+// does.
+func newStoredMCPSession(t *testing.T, servers ...config.MCPServerConfig) (*Manager, *State) {
+	t.Helper()
+	home, cwd := t.TempDir(), t.TempDir()
+	writeHomeMCP(t, home, servers...)
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: cwd},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	runner := func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) { return "", nil }
+	mgr := NewManager(cfg, mcpTurnSender{}, runner, slog.Default(), cwd, &FileStore{Root: filepath.Join(home, "sessions")})
+	ctx := context.Background()
+	created, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.ForgetLiveSession(created.SessionID)
+	st, err := mgr.EnsureHTTPSession(ctx, created.SessionID, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mgr.ForgetLiveSession(created.SessionID) })
+	return mgr, st
+}
+
+// Nothing a stored session is loaded for starts its MCP servers - an edit of
+// mcp.json, a server switch, a compaction - and its first turn starts the
+// servers of the configuration of that moment.
+func TestStoredSessionStartsItsMCPServersOnlyForItsFirstTurn(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadHelperServer("alpha"))
+	ctx := context.Background()
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("loading the session started %d MCP servers", len(clients))
+	}
+
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home, reloadHelperServer("alpha"), reloadHelperServer("beta"))
+	mgr.ReloadMCPDeclarations(ctx)
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("an mcp.json edit started %d MCP servers of a session nobody ran", len(clients))
+	}
+	mgr.RefreshMCPServer(ctx, "alpha")
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("a server switch started %d MCP servers of a session nobody ran", len(clients))
+	}
+	_, finish, err := mgr.BeginSessionWork(ctx, st.GetID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish()
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("a compaction started %d MCP servers", len(clients))
+	}
+
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go on"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil || configuredClient(st, "beta") == nil {
+		t.Fatalf("the first turn did not start the servers of the current configuration: %+v", st.GetMCPClients())
+	}
+	// A later turn keeps them rather than starting them again.
+	alpha := configuredClient(st, "alpha")
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "and again"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != alpha || len(st.GetMCPClients()) != 2 {
+		t.Fatalf("a second turn restarted the servers: %+v", st.GetMCPClients())
+	}
+}
+
+// A first-turn dial the deadline cuts short does not leave the session without
+// its servers for good: what it did not reach is parked, and the next turn
+// connects it before the model is handed its tools.
+func TestDeferredMCPDialCutShortIsRetriedByTheNextTurn(t *testing.T) {
+	previous := mcpStartTimeout
+	mcpStartTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { mcpStartTimeout = previous })
+	hang := reloadHelperServer("slow")
+	hang.Env = []config.EnvVarConfig{{Name: "GO_WANT_CONFIG_RELOAD_MCP", Value: "hang"}}
+	mgr, st := newStoredMCPSession(t, hang)
+	ctx := context.Background()
+	prompt := func(text string) {
+		t.Helper()
+		if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: st.GetID(),
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		}, mcpTurnSender{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prompt("first")
+	if configuredClient(st, "slow") != nil {
+		t.Fatal("a server that never answered was installed")
+	}
+	if !st.hasPendingMCPServers() {
+		t.Fatal("the server the first turn could not reach was dropped instead of parked")
+	}
+	// Only the failed dial needs the short deadline. The healthy retry runs
+	// a real subprocess, whose startup can exceed it under race instrumentation.
+	mcpStartTimeout = previous
+
+	// The server answers now; the next turn connects it before it runs.
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home, reloadHelperServer("slow"))
+	var seenByTurn []string
+	mgr.runner = func(_ context.Context, turn *State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		for _, client := range turn.GetMCPClients() {
+			seenByTurn = append(seenByTurn, client.Name())
+		}
+		return "", nil
+	}
+	prompt("second")
+	if len(seenByTurn) != 1 || seenByTurn[0] != "slow" {
+		t.Fatalf("the second turn ran with MCP clients %v, want [slow]", seenByTurn)
+	}
+}
+
+// A switch whose dial the refresh deadline cut short is not left until some
+// turn ends: the session's next turn connects the server before it runs.
+func TestParkedMCPSwitchIsAppliedWhenTheNextTurnStarts(t *testing.T) {
+	previous := mcpRefreshTimeout
+	mcpRefreshTimeout = time.Nanosecond
+	t.Cleanup(func() { mcpRefreshTimeout = previous })
+	off := reloadHelperEntry("1")
+	off.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"alpha": off})
+	ctx := context.Background()
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("the dial was not cut short; the test needs a refresh that runs out of time")
+	}
+	var seenByTurn []string
+	mgr.runner = func(_ context.Context, turn *State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		for _, client := range turn.GetMCPClients() {
+			seenByTurn = append(seenByTurn, client.Name())
+		}
+		return "", nil
+	}
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(seenByTurn) != 1 || seenByTurn[0] != "alpha" {
+		t.Fatalf("the turn ran with MCP clients %v, want [alpha]", seenByTurn)
+	}
+}
+
+// A server switched off while a turn runs is closed when that turn lets go of
+// the session, not left running until some later turn: an idle session would
+// otherwise keep the process for the life of the server.
+func TestMCPSwitchedOffDuringATurnClosesWhenTheTurnEnds(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"alpha": reloadHelperEntry("1")})
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("alpha did not connect at session start")
+	}
+	unlock, err := mgr.acquireTurnLockWithReloadDrain(st.GetID(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "alpha", "", false); err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil {
+		unlock()
+		t.Fatal("the server was closed under the turn in flight")
+	}
+	unlock()
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("the switched-off server kept running after the turn ended")
+	}
+}
+
+// A server whose declaration was edited is started again from the new one by
+// its refresh, where a check of the name alone would keep the old process.
+func TestMCPRefreshRestartsAServerWhoseDeclarationChanged(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"alpha": reloadHelperEntry("1"), "beta": reloadHelperEntry("1"),
+	})
+	alpha, beta := configuredClient(st, "alpha"), configuredClient(st, "beta")
+	edited := reloadHelperEntry("1")
+	edited.Args = append(edited.Args, "-test.v")
+	home := mgr.activeCfg().Paths.Home
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "alpha", edited); err != nil {
+		t.Fatal(err)
+	}
+	mgr.RefreshMCPServer(context.Background(), "alpha")
+	if got := configuredClient(st, "alpha"); got == nil || got == alpha {
+		t.Fatalf("alpha was not started again from its edited declaration: %v", got)
+	}
+	if configuredClient(st, "beta") != beta {
+		t.Fatal("refreshing alpha restarted beta")
+	}
+	_ = cwd
+}
+
+// A long-running surface (StartGlobalMCPServers) watches <home>/mcp.json: a
+// server written into the file by hand reaches a live session without anybody
+// calling the manager.
+func TestStartedManagerPicksUpAHandEditOfTheHomeMCPJSON(t *testing.T) {
+	mgr, st, _ := newMCPToggleSession(t, nil)
+	mgr.StartGlobalMCPServers()
+	t.Cleanup(mgr.CloseMCP)
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(mgr.activeCfg().Paths.Home), "edited", reloadHelperEntry("1")); err != nil {
+		t.Fatal(err)
+	}
+	if !waitUntil(t, 15*time.Second, func() bool { return configuredClient(st, "edited") != nil }) {
+		t.Fatal("a server written into <home>/mcp.json never reached the live session")
+	}
+}
+
+// A server switched from the console or a chat reaches live sessions alone,
+// and the reconcile the watcher of <home>/mcp.json runs after that write
+// finds the sessions in line and restarts nothing.
+func TestMCPSwitchThenFileReconcileRestartsNothing(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"alpha": reloadHelperEntry("1"), "beta": reloadHelperEntry("1"),
+	})
+	ctx := context.Background()
+	alpha := configuredClient(st, "alpha")
+	if alpha == nil || configuredClient(st, "beta") == nil {
+		t.Fatalf("clients at start = %+v", st.GetMCPClients())
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, cwd, "beta", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "beta") != nil {
+		t.Fatal("the server switched off is still connected")
+	}
+	mgr.ReloadMCPDeclarations(ctx)
+	if configuredClient(st, "alpha") != alpha {
+		t.Fatal("the reconcile after a switch restarted another server")
+	}
+	if configuredClient(st, "beta") != nil {
+		t.Fatal("the reconcile after a switch started the switched-off server")
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "ping", false); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(ctx)
+	if configuredClient(st, "alpha") != alpha {
+		t.Fatal("a tool switch restarted its server")
+	}
+	if st.GetMCPToolFilter()("alpha", "ping") {
+		t.Fatal("the tool switched off is still offered")
+	}
+}
+
+// A switch that lands while a settings reload is dialing is not swallowed by
+// that reload. The reload dials the configuration of the moment it started,
+// so the server the switch parked is reconciled once the reload lets go of
+// the session: a server switched off, or whose approval was withdrawn, while
+// the reload was starting it does not keep running.
+func TestMCPSwitchDuringAFullReloadIsNotLost(t *testing.T) {
+	gate := t.TempDir()
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(gate, "open"), nil, 0o600) })
+	slow := reloadHelperEntry("gate:" + gate)
+	slow.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"slow": slow})
+	home := mgr.activeCfg().Paths.Home
+	// The change a settings save brings: slow is switched on in its file.
+	if err := config.SetMCPJSONServerDisabled(config.GlobalMCPJSONPath(home), "slow", false); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := make(chan struct{})
+	go func() {
+		defer close(reloaded)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		mgr.reloadConfiguredMCPServers(ctx)
+	}()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(gate, "started")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the reload never dialed the server")
+		}
+	}
+
+	// The operator switches slow off while the reload is dialing it: the
+	// refresh finds the session held by the reload and parks the server.
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "slow", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gate, "open"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reloaded:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the reload did not finish")
+	}
+	if configuredClient(st, "slow") != nil {
+		t.Fatal("the server switched off during the reload kept running")
+	}
+}
+
+// A new session no longer waits for a server that never answers its
+// handshake: its creation returns at the deadline and the server is parked
+// for the session's first turn.
+func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
+	previous := mcpStartTimeout
+	// Leave room for the healthy subprocess handshake under race instrumentation;
+	// only the peer that never answers should exhaust this deadline.
+	mcpStartTimeout = 3 * time.Second
+	t.Cleanup(func() { mcpStartTimeout = previous })
+	started := time.Now()
+	mgr, st, _ := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"hang": reloadHelperEntry("hang"), "alpha": reloadHelperEntry("1"),
+	})
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("creating the session took %v", elapsed)
+	}
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("a hung neighbour kept the healthy server from starting")
+	}
+	st.moveMCPRetriesToPending()
+	if configuredClient(st, "hang") != nil || !st.hasPendingMCPServers() {
+		t.Fatalf("the hung server was not parked for the first turn: clients %+v", st.GetMCPClients())
+	}
+	_ = mgr
 }
 
 func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {
@@ -175,7 +805,24 @@ func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing
 }
 
 func TestConfigReloadMCPHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_CONFIG_RELOAD_MCP") != "1" {
+	mode := os.Getenv("GO_WANT_CONFIG_RELOAD_MCP")
+	switch {
+	case mode == "1":
+	case mode == "hang":
+		// Reads the handshake and never answers it.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	case strings.HasPrefix(mode, "gate:"):
+		// Says it started and holds its handshake until the test opens the
+		// gate, so a test can act while a dial of it is in flight.
+		dir := strings.TrimPrefix(mode, "gate:")
+		_ = os.WriteFile(filepath.Join(dir, "started"), nil, 0o600)
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(dir, "open")); err == nil {
+				break
+			}
+		}
+	default:
 		return
 	}
 	enc := json.NewEncoder(os.Stdout)

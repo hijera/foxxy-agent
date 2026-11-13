@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="Лицензия MIT" /></a>
   <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="Среда ACP" /></a>
@@ -12,6 +12,13 @@
 </p>
 
 <h1 align="center">FoxxyCode Agent</h1>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/foxxy-agent-logo-dark.svg" />
+    <img src=".github/foxxy-agent-logo.svg" alt="FoxxyCode Agent" width="240" />
+  </picture>
+</p>
 
 <p align="center">
   <strong>Полноценный универсальный агент в одном статическом исполняемом файле на Go.</strong><br />
@@ -23,11 +30,11 @@
   <a href="https://hijera.github.io/foxxy-agent/?lang=ru"><strong>Сайт</strong></a> - загрузки, скриншоты, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=ru">сравнение</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=ru">изменения</a>
 </p>
 
-> **Foxxy Agent основан на [foxxy-agent](https://github.com/hijera/foxxy-agent)** проекта FoxxyCode (MIT).
+> **FoxxyCode (репозиторий `foxxy-agent`) основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 
-**Что FoxxyCode добавляет к foxxy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
+**Что FoxxyCode добавляет к coddy-agent** (см. [полный список](docs/getting-started/foxxycode-and-coddy.md)):
 
 - **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
 - **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта, метаданные проекта из `.vscode`/`.idea` и нативные встроенные diff в IntelliJ
@@ -70,11 +77,12 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Среда выполнения — прежде всего** — ACP-сервер, жизненный цикл сессий, промпты, LLM-бэкенды, объединение MCP и готовый для distroless исполняемый файл
 - **Цикл ReAct** — LLM чередует рассуждение, действие (вызов инструментов) и наблюдение за результатами; профиль кодинг-агента доступен из коробки
 - **Пять режимов работы** — `agent` (полный доступ к инструментам), `plan` (планирование без реализации), `docs` (защищённое редактирование Markdown-документации), `ask` (ответы и исследование без изменений) и `debug` (системная диагностика первопричины до исправления)
-- **Правила** — автоматически находит **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`** и **`.codex/rules/`** в рабочем каталоге сессии, а вложенные **`AGENTS.md`** (соглашение [agents.md](https://agents.md/)) читает по требованию — для тех каталогов, куда зашёл инструмент; ваши собственные **`~/.foxxycode/AGENTS.md`**, **`~/.foxxycode/DESIGN.md`** и **`~/.foxxycode/rules/`** действуют в каждом рабочем каталоге; подробнее в разделе [Правила и инструкции](docs/features/rules.md)
-- **Навыки** — slash-команды и пакеты **`SKILL.md`** из **`skills.dirs`** (по умолчанию: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; более поздний каталог имеет приоритет); ставятся из любого репозитория или маркетплейса (**`skills.sources`**, **`/plugin`**, Настройки → Навыки) с учётом версий; подробнее в разделе [Навыки](docs/features/skills.md)
+- **Правила** — читает первый каталог проекта с файлами правил: FoxxyCode, его устаревшие пути, **`.agents/rules/`**, Cursor, Claude Code или Codex. Вложенные **`AGENTS.md`** (соглашение [agents.md](https://agents.md/)) читает по требованию — для тех каталогов, куда зашёл инструмент; ваши собственные **`~/.foxxycode/AGENTS.md`**, **`~/.foxxycode/DESIGN.md`** и **`~/.foxxycode/rules/`** действуют в каждом рабочем каталоге; подробнее в разделе [Правила и инструкции](docs/features/rules.md)
+- **Обязательные инструкции** — `AGENTS.md` и `DESIGN.md` из домашнего каталога агента, корня проекта и вложенных папок действуют независимо от настроек правил и шаблона промпта; `instructions.files` добавляет другие документы — см. [Правила и инструкции](docs/features/rules.md)
+- **Навыки** — slash-команды и пакеты **`SKILL.md`** из четырёх обязательных каталогов (**`~/.agents/skills`**, **`${CWD}/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**) и дополнительных **`skills.dirs`** (более поздний каталог имеет приоритет); ставятся из любого репозитория или маркетплейса (**`marketplaces.json`**, доверие проекту, **`/plugin`**, Настройки → Навыки) с учётом версий; подробнее в разделе [Навыки](docs/features/skills.md)
 - **Фоновые задачи** — `run_command` умеет работать отдельно от хода (`background: true` плюс собственная оценка модели `expected_seconds`); `background_list` / `background_output` / `background_wait` / `background_stop` забирают результат позже, панель **Фоновые задачи** в UI показывает, что ещё выполняется, а диалог разрешений умеет расширить грант до целой программы (`curl`, `git status`), чтобы серия похожих вызовов спрашивала один раз; подробнее в разделе [Фоновые задачи](docs/features/background-tasks.md)
-- **Очередь сообщений** — уточнение, написанное, пока агент работает, не отклоняется: оно встаёт в очередь, и идущий ход читает его на следующем шаге, между вызовами инструментов, а не после ответа; сообщение из очереди можно забрать, а общая сессия показывает одну очередь во всех браузерах, панелях редакторов и консолях (`/queue`); подробнее в разделе [Очередь сообщений](docs/features/message-queue.md)
-- **Субагенты** — модель делегирует ограниченную самодостаточную задачу дочернему агенту со своим контекстным окном и сессией (`spawn_agent`, в foreground или отсоединённо); определения — markdown-файлы с YAML-frontmatter в **`~/.foxxycode/agents`** и **`.foxxycode/agents`** (файлы Claude Code из **`.claude/agents`** тоже загружаются), два встроенных (**`general`**, **`explore`**) вшиты в бинарь, проектные файлы требуют разового одобрения (**`foxxycode agents trust <name>`**), инструменты и режим разрешений можно только сужать, а каждый запуск — фоновая задача с read-only транскриптом ребёнка, доступным из панели **Задачи** — см. [Субагенты](docs/features/subagents.md)
+- **Очередь сообщений** — уточняйте текущий ход или отправляйте отдельное сообщение после ответа, в том числе с изображениями. При первом использовании выберите основной режим; Tab переключает режим разовой отправки. Очередь синхронизируется между браузерами, панелями редакторов и консолями (`/queue`); подробнее в разделе [Очередь сообщений](docs/features/message-queue.md)
+- **Субагенты** — модель делегирует ограниченную самодостаточную задачу дочернему агенту со своим контекстным окном и сессией (`spawn_agent`, в foreground или отсоединённо); определения — markdown-файлы с YAML-frontmatter в **`~/.agents/agents`**, **`.agents/agents`**, **`~/.foxxycode/agents`** и **`.foxxycode/agents`**, а также в дополнительных **`subagents.dirs`** (**`.claude/agents`** читается только при явном добавлении туда), два встроенных (**`general`**, **`explore`**) вшиты в бинарь, проектные файлы требуют разового одобрения (**`foxxycode agents trust <name>`**), инструменты и режим разрешений можно только сужать, а каждый запуск — фоновая задача с read-only транскриптом ребёнка, доступным из панели **Задачи** — см. [Субагенты](docs/features/subagents.md)
 - **Хуки** — ваши собственные команды в точках жизненного цикла сессии: хук `PreToolUse` может запретить вызов инструмента при любом режиме разрешений, одобрить его в обход диалога, переписать аргументы или добавить контекст; `PostToolUse` / `PostToolUseFailure` видят результат; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` и `Notification` покрывают остальной ход. Определения — JSON-файлы формата Claude Code (**`~/.foxxycode/hooks.json`**, **`.foxxycode/hooks.json`** и **`.claude/settings*.json`** в рабочей папке); файл, найденный внутри рабочей папки, ничего не запускает, пока не одобрен там (**`foxxycode hooks trust <файл>`**) — см. [Хуки](docs/features/hooks.md)
 - **Экспорт сессии** — встроенная команда `/export [md|html|json|jsonl|pdf|docx] [путь]` пишет беседу в файл рабочей папки, а кнопка скачивания в панели отдаёт тот же документ; `--no-tools` / `--no-thinking` его подрезают (панель по умолчанию выгружает только диалог, команда сохраняет вызовы инструментов) — см. [Экспорт сессии](docs/features/session-export.md)
 - **Интеграция MCP-серверов** — подключение любого MCP-сервера для доступа к дополнительным инструментам
@@ -85,7 +93,7 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Мультимодальность и вложения** — изображения и файлы можно прикреплять через поле ввода (📎), если в настройках модели указано `multimodal: true`; файлы сохраняются в `~/.foxxycode/sessions/<id>/assets/`, передаются в контекст агента и отображаются в сообщении пользователя
 - **Экспорт диалога** — любую сессию можно выгрузить в **PDF**, **DOCX**, **HTML** или **JSON**. Markdown в сообщениях отрисовывается по-настоящему: таблицы, подсветка синтаксиса, вложенные списки и чек-листы, цитаты, ссылки с рабочими аннотациями и картинки из `assets/` сессии; удалённые `http(s)`-картинки при экспорте намеренно не загружаются. Панелям IDE, которые не умеют принимать загрузку, служит отдельный маршрут, записывающий документ на диск и подсвечивающий его в файловом менеджере; подробнее в [HTTP API](docs/reference/http-api.md)
 - **Уровень рассуждения** — для моделей с рассуждением (gpt-5, серия o, gpt-oss, qwen3, модели Claude с thinking) выпадающий список в поле ввода задаёт уровень (`minimal`/`low`/`medium`/`high`), который преобразуется в OpenAI `reasoning_effort` или Anthropic extended-thinking `budget_tokens`; поддержка определяется автоматически по идентификатору модели и настраивается для каждой модели — см. [Настройку](docs/getting-started/configuration.md)
-- **Самонастройка агента** — агент умеет менять собственную конфигурацию по вашей просьбе, но не втихую: `config_get` читает значение по точечному пути (секреты возвращаются как `<redacted>`), `config_set` **накапливает** команды в стиле uci из OpenWrt (`set`, `add_list`, `del_list`, `delete`) без записи в файл, `config_changes` показывает накопленное, `config_commit` применяет пакет одной транзакцией — с проверкой по схеме, снимком в `config.yaml.prev`, горячей перезагрузкой навыков, правил, инструментов и MCP-серверов и обязательным диалогом разрешения, а `config_revert` и `config_rollback` откатывают накопленное или уже применённое. Синтаксису учит встроенный навык `/configure-foxxycode`; подробнее в [Справочнике по конфигурации](docs/reference/config.md#agent-self-configuration)
+- **Самонастройка агента** — агент умеет менять собственную конфигурацию по вашей просьбе, но не втихую: `config_get` читает значение по точечному пути (секреты возвращаются как `<redacted>`), `config_set` **накапливает** команды в стиле uci из OpenWrt (`set`, `add_list`, `del_list`, `delete`) без записи в файл, `config_changes` показывает накопленное, `config_commit` применяет пакет одной транзакцией — с проверкой по схеме, снимком в `config.yaml.prev`, горячей перезагрузкой навыков, правил, инструментов и политики MCP и обязательным диалогом разрешения, а `config_revert` и `config_rollback` откатывают накопленное или уже применённое. Синтаксису учит встроенный навык `/configure-foxxycode`; подробнее в [Справочнике по конфигурации](docs/reference/config.md#agent-self-configuration)
 - **Улучшение промпта** — кнопка с волшебной палочкой в строке контекста поля ввода переписывает черновик через модель (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** возвращает исходный текст, а неудача оставляет черновик нетронутым — см. [Встроенный интерфейс](docs/surfaces/web-ui.md)
 - **Протокол ACP** — FoxxyCode работает как **ACP-сервер** (`foxxycode acp`); его можно подключить к редактору или скрипту с ACP-клиентом (см. [Интеграцию с редакторами и IDE](#интеграция-с-редакторами-и-ide))
 - **Удалённое выполнение по SSH** — встроенный инструмент `ssh_run_command` выполняет команды на удалённых узлах через реализацию SSH на чистом Go, без внешнего исполняемого файла; аутентификация использует SSH-агент (`SSH_AUTH_SOCK`) или ключи из `~/.ssh` — см. [Настройку](docs/getting-started/configuration.md#ssh-remote-execution)
@@ -260,9 +268,9 @@ mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 
 **Провайдеры и модели**
 
-- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Вход из терминала также добавляет провайдера, модели подписки и **`agent.model`** в **`config.yaml`**, если их там нет (**`--no-config`** это пропускает). Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** печатает короткий код и страницу хаба для подтверждения (device flow, RFC 8628: браузер может быть на любой машине — именно это нужно серверу по SSH; **`--browser`** просит loopback-callback, который завершается только в браузере на этой машине; **`--api-base`** выбирает эндпоинт и переносит на него существующую строку), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In the ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Вход из терминала также добавляет провайдера, модели подписки и **`agent.model`** в **`config.yaml`**, если их там нет (**`--no-config`** это пропускает). Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** печатает короткий код и страницу хаба для подтверждения (device flow, RFC 8628: браузер может быть на любой машине — именно это нужно серверу по SSH; **`--browser`** просит loopback-callback, который завершается только в браузере на этой машине; **`--api-base`** выбирает эндпоинт и переносит на него существующую строку), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
 - **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
-- **`agent`** — опциональное поле **`model`** выбирает стандартную модель ReAct; если задано, оно должно совпадать с одной из записей **`models[].model`**. Без него интерактивные поверхности выбирают модель на сессию сами, а `foxxycode -p`, `foxxycode acp` и API-вызовы без явной модели сообщают об отсутствии настроенной модели. Параметр **`max_turns`** ограничивает один пользовательский запрос (0, по умолчанию — без лимита; повторы без ответа и продолжения оборванного ответа бюджет не расходуют). Поверх этого ограничения работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**), а целая последовательность вызовов, которую модель крутит по кругу, — тоже (**`loop_tool_cycle_repeats`**: именно это ловит ротацию вроде «читаю A, читаю B, читаю A…», которую счётчик подряд идущих повторов не видит). Сначала модель подталкивают вернуться к задаче; что делать с циклом, пережившим **`loop_nudge_max`** подсказок, решает **`loop_stuck_action`**: по умолчанию **`quarantine`** — зациклившиеся вызовы перестают исполняться до конца хода, а сам ход продолжается и доходит до ответа (если кроме цикла ничего не осталось, у модели забирают инструменты и просят ответить тем, что уже собрано); **`stop`** возвращает прежнее поведение и завершает ход уведомлением.
+- **`agent`** — опциональное поле **`model`** выбирает стандартную модель ReAct; если задано, оно должно совпадать с одной из записей **`models[].model`**. Без него интерактивные поверхности выбирают модель на сессию сами, а `foxxycode -p`, `foxxycode acp` и API-вызовы без явной модели сообщают об отсутствии настроенной модели. Параметр **`max_turns`** ограничивает один пользовательский запрос (по умолчанию 165 шагов; явный 0 отключает лимит; повторы без ответа и продолжения оборванного ответа бюджет не расходуют). Поверх этого ограничения работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**), а целая последовательность вызовов, которую модель крутит по кругу, — тоже (**`loop_tool_cycle_repeats`**: именно это ловит ротацию вроде «читаю A, читаю B, читаю A…», которую счётчик подряд идущих повторов не видит). Сначала модель подталкивают вернуться к задаче; что делать с циклом, пережившим **`loop_nudge_max`** подсказок, решает **`loop_stuck_action`**: по умолчанию **`quarantine`** — зациклившиеся вызовы перестают исполняться до конца хода, а сам ход продолжается и доходит до ответа (если кроме цикла ничего не осталось, у модели забирают инструменты и просят ответить тем, что уже собрано); **`stop`** возвращает прежнее поведение и завершает ход уведомлением.
 
 Пример с провайдером **`openai`** и моделью **`gpt-5.4-mini`**; храните секреты в переменных среды, а не в Git:
 
@@ -407,9 +415,9 @@ Markdown-инструменты запрещают выход за предел�
 
 ## Правила
 
-Если **`rules.auto_discover`** включён, правила проекта, передаваемые через **`{{.Rules}}`**, автоматически находятся внутри рабочего каталога сессии в **`.foxxycode/rules`**, в общем для всех агентов **`.agents/rules`** (сосед `.agents/skills`), **`.cursor/rules`**, **`.claude/rules`** и **`.codex/rules`**. Вложенные **`AGENTS.md`** (соглашение [agents.md](https://agents.md/)) никто не ищет обходом дерева: они читаются в тот момент, когда файловый инструмент заходит в их каталог (корневой `AGENTS.md` передаётся отдельно как вводная документация проекта). Подробнее в **[`docs/features/rules.md`](docs/features/rules.md)**.
+Если **`rules.auto_discover`** включён, правила проекта, передаваемые через **`{{.Rules}}`**, загружаются из первого каталога с файлами правил внутри рабочего каталога сессии: **`.foxxycode/rules`**, устаревших **`.foxxyrules`** / **`.foxyrules`**, общем для всех агентов **`.agents/rules`** (сосед `.agents/skills`), **`.cursor/rules`**, **`.claude/rules`** и **`.codex/rules`**. Вложенные **`AGENTS.md`** (соглашение [agents.md](https://agents.md/)) никто не ищет обходом дерева: они читаются в тот момент, когда файловый инструмент заходит в их каталог (корневой `AGENTS.md` передаётся отдельно как вводная документация проекта). Подробнее в **[`docs/features/rules.md`](docs/features/rules.md)**.
 
-Диалект выбирается по расширению файла, поэтому в одной папке могут лежать оба вида. Файл **`.mdc`** — это правило Cursor (`description`, `globs` через запятую, `alwaysApply`; без них — только по `@упоминанию`); файл **`.md`** — правило Claude Code (`paths`, а без них правило загружается безусловно):
+Постоянные правила сохраняют системный промпт до обновления поколения контекста. Правила, активированные путём или упоминанием, передаются один раз в сообщении или результате инструмента. Диалект выбирается по расширению файла, поэтому в одной папке могут лежать оба вида. Файл **`.mdc`** — это правило Cursor (`description`, `globs` через запятую, `alwaysApply`; без них — только по `@упоминанию`); файл **`.md`** — правило Claude Code (`paths`, а без них правило загружается безусловно):
 
 ```markdown
 ---
@@ -451,7 +459,7 @@ Slash-команды и пакеты **`SKILL.md`**, передаваемые ч
 
 - **[skills.sh](https://skills.sh)** — реестр сообщества; установка: `npx skills add <owner/repo@skill>`
 - **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — реестр skillsbd, отобранный для FoxxyCode; установка: `npx skillsbd install <name>`
-- **Маркетплейсы** — FoxxyCode сам ставит навыки из GitHub-репозитория (`owner/repo[@ref]`), git URL или `marketplace.json` по стандарту agents (подходят и маркетплейсы плагинов Claude Code), без Node.js. Источники перечисляются в **`skills.sources`**, устанавливаются по запросу: в **Настройки → Навыки** (веб-интерфейс и панели IntelliJ и VS Code), командой **`/plugin`** в чате или **`foxxycode plugin …`**; версии и обновления отслеживаются
+- **Маркетплейсы** — FoxxyCode сам ставит навыки из GitHub-репозитория (`owner/repo[@ref]`), git URL или `marketplace.json` по стандарту agents (подходят и маркетплейсы плагинов Claude Code), без Node.js. Источники перечисляются в глобальном и проектном **`marketplaces.json`**, проектные записи требуют доверия, устанавливаются по запросу: в **Настройки → Навыки** (веб-интерфейс и панели IntelliJ и VS Code), командой **`/plugin`** в чате или **`foxxycode plugin …`**; версии и обновления отслеживаются
 
 **CLI:**
 
@@ -470,32 +478,25 @@ foxxycode plugin install <owner/repo>              # установить или
 
 Подключайте внешние инструменты через MCP по `stdio` (локальная команда),
 `http` (Streamable HTTP с автоматическим откатом на legacy SSE) или `sse`.
-Серверы можно задать глобально в `config.yaml` (`mcp_servers`) либо в
-совместимом с Cursor файле `~/.foxxycode/mcp.json`, локально для проекта в
-`./.foxxycode/mcp.json` (более поздний уровень переопределяет сервер по имени)
-или передать для конкретной сессии через ACP-клиент. Серверы целиком и отдельные
-инструменты можно отключать в конфигурации, через REST API `/foxxycode/mcp*` или
-в веб-интерфейсе **Настройки → MCP-серверы**.
+Серверы задаются в совместимых с Cursor файлах: глобальном
+`~/.foxxycode/mcp.json` и проектном `./.foxxycode/mcp.json`. Проектная запись
+переопределяет глобальную по имени и требует доверия для рабочего каталога.
+ACP-клиент также может передать сервер для отдельной сессии. Серверы целиком и
+отдельные инструменты управляются через REST API `/foxxycode/mcp*` и
+**Настройки → MCP-серверы**. Старые записи из `config.yaml` автоматически
+переносятся в глобальный файл с резервной копией `config.yaml.bak-<time>`.
 
-Пример добавления GitHub MCP-сервера в конфигурацию:
-
-```yaml
-mcp_servers:
-  - name: "github"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
-        value: "${GITHUB_TOKEN}"
-```
-
-Тот же сервер в `.foxxycode/mcp.json` вместе с удалённым:
+Пример `mcp.json` с GitHub MCP-сервером и удалённым сервером:
 
 ```json
 {
   "mcpServers": {
-    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
-    "remote-tools": { "url": "https://mcp.example.com/mcp" }
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+    },
+    "remote-tools": {"url": "https://mcp.example.com/mcp"}
   }
 }
 ```
@@ -587,6 +588,22 @@ tools:
   require_permission_for_commands: true
 ```
 
+## Upstream 1.2.36–1.2.45 capabilities
+
+- `/crossreview` coordinates external code-agent CLIs and internal reviewers; trusted built-in and user definitions may declare bounded `spawns`.
+- `worktree_create` fetches origin, creates a feature worktree and moves the session into it. History groups it under the main project. See [Git worktrees](docs/features/worktrees.md).
+- MCP connections are shared across sessions, with workspace isolation, idle release and asynchronous startup.
+- The Context popover supports manual compaction and an independent automatic threshold switch. Remote environments support configured tokens and relay settings.
+- `make security` runs the same Trivy and Semgrep package locally and in CI. See [Application security](docs/contributing/security-scanning.md).
+
+## Upstream 1.2.46–1.2.54 capabilities
+
+- Immutable downloadable files and inline image previews through `share_file`.
+- History state dots, persistent collapsed groups, richer subagent cards and workspace controls.
+- Session-scoped MCP management, explicit background activation and recovery from removed worktrees.
+- Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
+- Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
+
 ## Архитектура
 
 ```text
@@ -608,7 +625,7 @@ LLM  Инструменты Навыки  MCP
 ## Документация
 
 - [Встроенная документация](docs/features/built-in-docs.md) — страницы внутри бинарника, поиск и чтение через веб-интерфейс, консоль, CLI и инструменты агента
-- [Отличия FoxxyCode от foxxy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
+- [Отличия FoxxyCode от coddy-agent](docs/getting-started/foxxycode-and-coddy.md) — функции форка в сравнении с исходным проектом
 - [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x–0.6.x и что из них уже вышло
 - [Сборка из исходников](docs/contributing/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
 - [Обновление FoxxyCode](docs/getting-started/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**

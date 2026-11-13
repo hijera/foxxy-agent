@@ -13,6 +13,9 @@ export type SectionKind =
   | "general"
   | "sessions";
 
+/** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
+export const MCP_SECTION_ID = "mcp_servers";
+
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance", "general", "sessions_manager"). */
   id: string;
@@ -36,6 +39,12 @@ export type SectionDescriptor = {
  * the footer Save because the whole config doc is PUT back unchanged.
  */
 const HIDDEN_KEYS = ["ui"];
+
+/** Label for a route while its schema is loading. */
+export function knownSectionLabel(id: string): string | null {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? t(key) : null;
+}
 
 /**
  * Config keys folded into the single "Prompts" tab (rarely edited), which
@@ -83,6 +92,7 @@ const SECTION_DESC_IDS = new Set([
   "logger",
   "gateways",
   "system",
+  "swarm",
 ]);
 
 /**
@@ -114,6 +124,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   logger: "settings.section.logger.label",
   gateways: "settings.section.gateways.label",
   system: "settings.section.system.label",
+  swarm: "settings.section.swarm.label",
 };
 
 /** Resolve a tile blurb: curated i18n summary first, then the schema description. */
@@ -141,6 +152,13 @@ function labelFor(id: string, sub?: JsonSchema): string {
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
+  opts: {
+    /**
+     * The page is on a swarm relay. A relay has no sessions, so the Sessions
+     * tab is left out even before (or without) a schema that says so.
+     */
+    relay?: boolean;
+  } = {},
 ): SectionDescriptor[] {
   const general: SectionDescriptor = {
     id: "general",
@@ -167,8 +185,12 @@ export function deriveSettingsSections(
     schemaKey: SESSIONS_CONFIG_KEY,
   };
 
+  // A relay's form (config.RelayUISchemaMap) says it is one; the stored
+  // sessions the Sessions tab manages exist only on an agent.
+  const relay = opts.relay === true || schema?.["x-foxxycode-relay"] === true;
+  const head = relay ? [appearance] : [general, appearance, sessionsManager];
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [general, appearance, sessionsManager];
+    return head;
   }
 
   const props = schema.properties;
@@ -210,16 +232,6 @@ export function deriveSettingsSections(
       });
       return;
     }
-    if (key === "mcp_servers") {
-      out.push({
-        id: key,
-        label: labelFor(key, sub),
-        description: descFor(key, sub),
-        kind: "mcp",
-        schemaKey: key,
-      });
-      return;
-    }
     // Subagents is a hybrid tab: the generated form for the config section,
     // plus the definition catalog with the per-workspace approvals, which are
     // receipts rather than configuration.
@@ -251,6 +263,18 @@ export function deriveSettingsSections(
       kind: "object",
       schemaKey: key,
     });
+    // The MCP servers tab follows Tools. It edits no key of the settings
+    // document: the servers live in <home>/mcp.json and the project's
+    // .foxxycode/mcp.json and the tab drives /foxxycode/mcp*, so no schema property
+    // brings it in (the old mcp_servers key is gone from config.yaml).
+    if (key === "tools") {
+      out.push({
+        id: MCP_SECTION_ID,
+        label: labelFor(MCP_SECTION_ID),
+        description: descFor(MCP_SECTION_ID),
+        kind: "mcp",
+      });
+    }
   };
 
   for (const key of order) {
@@ -264,5 +288,5 @@ export function deriveSettingsSections(
   if (system) {
     out.push(system);
   }
-  return [general, appearance, sessionsManager, ...out];
+  return [...head, ...out];
 }

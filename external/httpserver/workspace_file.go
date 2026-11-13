@@ -63,7 +63,7 @@ func (s *Server) foxxycodeWorkspaceFileGet(w http.ResponseWriter, r *http.Reques
 		maxLines = n
 	}
 
-	cwdAbs, ok := s.resolveSessionCWD(w, r)
+	cwdAbs, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}

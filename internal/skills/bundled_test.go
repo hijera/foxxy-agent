@@ -17,6 +17,7 @@ import (
 // vendored from their own repositories by scripts/vendor-bundled-skills.sh.
 var deliveredSkills = []string{
 	"configure-foxxycode",
+	"crossreview",
 	"rpa-bugfix",
 	"rpa-feat",
 	"rpa-gen-rules",
@@ -128,7 +129,7 @@ func TestConfigureFoxxyCodeNamesOnlyRealKeys(t *testing.T) {
 	for _, span := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(body, -1) {
 		code := span[1]
 		// A command the agent copies into config_set: its whole path resolves,
-		// a one-segment key and a selected entry (mcp_servers[name=x]) included.
+		// a one-segment key and a selected entry (providers[name=x]) included.
 		if m := command.FindStringSubmatch(code); m != nil {
 			path := selector.ReplaceAllString(m[1], ".N")
 			if !schemaPathExists(schema, strings.Split(path, ".")) {

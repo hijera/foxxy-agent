@@ -225,6 +225,7 @@ func (a *Agent) waitForStalledProvider(ctx context.Context, s *stallRetry, sessi
 	if !ok {
 		return false, false
 	}
+	a.reportProviderRecovery(errors.New(reason), d, s.attempts(), a.cfg.Agent.EffectiveLLMRetryMax())
 	a.log.Warn("provider produced no output; waiting before retry",
 		"reason", reason, "attempt", s.attempts(), "delay", d, "waited", s.spent())
 	_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{

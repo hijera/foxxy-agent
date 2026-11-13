@@ -3,11 +3,15 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// Defaults for the ReAct loop when YAML omits zero values.
+// Defaults for the ReAct loop when YAML omits a value.
 const (
-	AgentDefaultMaxTurns = 0
+	// AgentDefaultMaxTurns caps ReAct steps in one turn. An explicit
+	// agent.max_turns of 0 disables the cap.
+	AgentDefaultMaxTurns = 165
 	// fork(retry-max-default): keep prolonged no-answer recovery available by default.
 	AgentDefaultLLMRetryMax    = 10
 	AgentDefaultLLMRetryBaseMS = 1000
@@ -37,7 +41,8 @@ const (
 	// answer the provider cut short (agent.llm_continue_max). A measured hub
 	// stalls roughly half of long generations, so one answer can plausibly
 	// stall twice.
-	AgentDefaultLLMContinueMax = 3
+	AgentDefaultLLMContinueMax           = 3
+	AgentDefaultLLMContinueBackgroundMax = 5
 	// AgentDefaultLLMContinueRetryAfterMaxMS caps the pause a provider may ask
 	// for (Retry-After) before a cut answer is carried on: upstream 1.2.9 caps
 	// its provider recovery at two minutes.
@@ -47,7 +52,7 @@ const (
 	AgentDefaultLLMStallRetryMaxWaitMS = 3600000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
-	AgentDefaultLoopToolRepeatLimit = 3
+	AgentDefaultLoopToolRepeatLimit = 2
 	// AgentDefaultLoopStreamRepeatCycles is how many identical back-to-back output
 	// cycles inside one streamed response trip the loop guard.
 	AgentDefaultLoopStreamRepeatCycles = 5
@@ -56,7 +61,7 @@ const (
 	AgentDefaultLoopToolCycleRepeats = 3
 	// AgentDefaultLoopNudgeMax is how many times a turn may be nudged back on track
 	// before the loop guard stops it.
-	AgentDefaultLoopNudgeMax = 2
+	AgentDefaultLoopNudgeMax = 1
 )
 
 // agentDefaultLLMStallRetryDelaysMS is the pause before each retry of a silent LLM
@@ -75,6 +80,8 @@ var agentDefaultLLMContinueStallDelaysMS = []int{0}
 // the schedule upstream 1.2.9 derives from the default llm_retry_base_ms. The
 // wrapper's own quick retries have already given up by then.
 var agentDefaultLLMContinueErrorDelaysMS = []int{5000, 20000}
+
+var agentDefaultLLMContinueBackgroundDelaysMS = []int{5000, 20000, 80000, 120000, 120000}
 
 // Loop-guard terminal actions (agent.loop_stuck_action): what the guard does once
 // a tool loop has survived every nudge.
@@ -98,9 +105,15 @@ const (
 type Agent struct {
 	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
 	Model string `yaml:"model"`
-	// MaxTurns caps the ReAct steps of one prompt turn; 0 (the default) sets
-	// no cap.
+	// QueueMode is the preferred action of Enter while a turn runs. Empty asks
+	// the operator on first use; steer and after_turn are explicit choices.
+	QueueMode string `yaml:"queue_mode"`
+	// MaxTurns caps the ReAct steps of one prompt turn; an explicit 0 disables
+	// the default cap.
 	MaxTurns int `yaml:"max_turns"`
+	// maxTurnsSet keeps an explicit YAML zero distinct from an absent key. It
+	// stays private so callers keep using the integer MaxTurns API.
+	maxTurnsSet bool `yaml:"-"`
 	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
 	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
 	// Nil means 10; explicit 0 disables these retries. Loop guards, Stop hooks,
@@ -139,6 +152,10 @@ type Agent struct {
 	// A nil pointer means the default (3); an explicit 0 ends the turn at the
 	// first cut, as llm_continue: false does.
 	LLMContinueMax *int `yaml:"llm_continue_max"`
+	// Background continuations have a separate per-turn budget and delay ladder.
+	// Memory children retain the interactive policy. Explicit zero disables them.
+	LLMContinueBackgroundMax      *int  `yaml:"llm_continue_background_max"`
+	LLMContinueBackgroundDelaysMS []int `yaml:"llm_continue_background_delays_ms"`
 	// LLMContinueStallDelaysMS is the pause before each continuation after a
 	// stall; the last entry repeats. Empty means the default ([0]).
 	LLMContinueStallDelaysMS []int `yaml:"llm_continue_stall_delays_ms"`
@@ -156,7 +173,7 @@ type Agent struct {
 	// over and over. A nil pointer means the default (true).
 	LoopGuard *bool `yaml:"loop_guard"`
 	// LoopToolRepeatLimit is how many consecutive identical tool calls trip the guard.
-	// A nil pointer means the default (3); an explicit 0 disables the tool-repeat check.
+	// A nil pointer means the default (2); an explicit 0 disables the tool-repeat check.
 	LoopToolRepeatLimit *int `yaml:"loop_tool_repeat_limit"`
 	// LoopStreamRepeatCycles is how many identical back-to-back output cycles inside one
 	// streamed response trip the guard. A nil pointer means the default (5); an explicit
@@ -174,7 +191,7 @@ type Agent struct {
 	// there is nothing to quarantine when the output itself is degenerate.
 	LoopStuckAction string `yaml:"loop_stuck_action"`
 	// LoopNudgeMax is how many times one turn may be nudged back on track before the
-	// guard stops it with a notice. A nil pointer means the default (2); an explicit 0
+	// guard stops it with a notice. A nil pointer means the default (1); an explicit 0
 	// stops the turn on the first detected loop.
 	LoopNudgeMax *int `yaml:"loop_nudge_max"`
 	// WaitForLimitReset makes a top-level turn wait for a hit usage limit to
@@ -187,6 +204,27 @@ type Agent struct {
 	// means the default (four hours); a pause longer than this ends the turn
 	// at once, and an explicit 0 never waits.
 	WaitForLimitResetMaxMS *int `yaml:"wait_for_limit_reset_max_ms"`
+}
+
+// UnmarshalYAML records whether max_turns appeared in the document. YAML
+// otherwise decodes an absent integer and an explicit zero identically.
+func (c *Agent) UnmarshalYAML(value *yaml.Node) error {
+	type plain Agent
+	var decoded plain
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	// Decode presence through YAML as well: max_turns may come from a merge
+	// mapping or anchor rather than a direct child of this node.
+	var presence struct {
+		MaxTurns *int `yaml:"max_turns"`
+	}
+	if err := value.Decode(&presence); err != nil {
+		return err
+	}
+	*c = Agent(decoded)
+	c.maxTurnsSet = presence.MaxTurns != nil
+	return nil
 }
 
 // EffectiveLLMRetryMax returns llm_retry_max with the default applied.
@@ -228,6 +266,17 @@ func (c *Agent) EffectiveLLMContinueMax() int {
 		return AgentDefaultLLMContinueMax
 	}
 	return *c.LLMContinueMax
+}
+
+func (c *Agent) EffectiveLLMContinueBackgroundMax() int {
+	if c.LLMContinueBackgroundMax == nil {
+		return AgentDefaultLLMContinueBackgroundMax
+	}
+	return *c.LLMContinueBackgroundMax
+}
+
+func (c *Agent) EffectiveLLMContinueBackgroundDelays() []time.Duration {
+	return msDurations(c.LLMContinueBackgroundDelaysMS, agentDefaultLLMContinueBackgroundDelaysMS)
 }
 
 // EffectiveLLMContinueStallDelays returns llm_continue_stall_delays_ms as
@@ -348,9 +397,12 @@ func (c *Agent) EffectiveWaitForLimitResetMax() time.Duration {
 	return time.Duration(*c.WaitForLimitResetMaxMS) * time.Millisecond
 }
 
-// ApplyDefaults sets LLMRetryBaseMS when it is zero. MaxTurns stays as
-// written: zero is the default, no step limit.
+// ApplyDefaults sets defaults for absent values while preserving an explicit
+// max_turns: 0 opt-out.
 func (c *Agent) ApplyDefaults() {
+	if !c.maxTurnsSet && c.MaxTurns == 0 {
+		c.MaxTurns = AgentDefaultMaxTurns
+	}
 	if c.LLMRetryBaseMS == 0 {
 		c.LLMRetryBaseMS = AgentDefaultLLMRetryBaseMS
 	}
@@ -358,6 +410,9 @@ func (c *Agent) ApplyDefaults() {
 
 // Validate checks bounds after defaults.
 func (c *Agent) Validate() error {
+	if c.QueueMode != "" && c.QueueMode != "steer" && c.QueueMode != "after_turn" {
+		return fmt.Errorf("agent.queue_mode: must be steer or after_turn")
+	}
 	if c.MaxTurns < 0 {
 		return fmt.Errorf("agent.max_turns: must be >= 0")
 	}
@@ -381,6 +436,14 @@ func (c *Agent) Validate() error {
 	}
 	if c.LLMContinueMax != nil && *c.LLMContinueMax < 0 {
 		return fmt.Errorf("agent.llm_continue_max: must be >= 0")
+	}
+	if c.LLMContinueBackgroundMax != nil && *c.LLMContinueBackgroundMax < 0 {
+		return fmt.Errorf("agent.llm_continue_background_max: must be >= 0")
+	}
+	for i, ms := range c.LLMContinueBackgroundDelaysMS {
+		if ms < 0 {
+			return fmt.Errorf("agent.llm_continue_background_delays_ms[%d]: must be >= 0", i)
+		}
 	}
 	for i, ms := range c.LLMContinueStallDelaysMS {
 		if ms < 0 {

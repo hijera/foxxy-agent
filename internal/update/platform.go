@@ -17,6 +17,13 @@ func AssetFileName(version, goos, goarch string) (string, error) {
 		if goarch == "amd64" {
 			return fmt.Sprintf("foxxycode_%s_windows_amd64.zip", version), nil
 		}
+	case "android":
+		// Linked by the NDK against Bionic for the two 64-bit Android
+		// architectures; no 32-bit build is published.
+		switch goarch {
+		case "amd64", "arm64":
+			return fmt.Sprintf("foxxycode_%s_android_%s.tar.gz", version, goarch), nil
+		}
 	}
 	return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
 }

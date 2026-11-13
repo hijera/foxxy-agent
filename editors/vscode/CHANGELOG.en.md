@@ -8,9 +8,130 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-10-17
+## Unreleased — 2026-11-14
 
 **Chat notifications.** Permissions, questions, ready plans and finished tasks appear in VS Code notifications with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. Radio options switch between the Windows system notification sound (ding) and a custom file.
+
+## 0.3.47 — 2026-11-12
+
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.
+
+## 0.3.46 — 2026-11-12
+
+**Choose the compatible provider client identity.**
+OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
+
+## 0.3.45 — 2026-11-12
+
+**MCP startup diagnostics.** Connection errors mask configured credentials in backend logs and session notices, including tokens echoed in another letter case. HTTP status codes remain readable, and timeout/retry handling is preserved.
+
+**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors. Aliases of the `skills` section preserve its sources; quoted `<<` keys do not activate nested servers or sources.
+
+**Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
+
+**History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
+
+**Agent loop protection.** Turns default to 165 steps; explicit `max_turns: 0` disables the cap. Repeated calls are detected sooner while identical calls within one response still execute. AGENTS.md and DESIGN.md from the agent home, project and nested folders are read independently of template settings.
+
+**Review fixes.** MCP servers and skill sources inherited through YAML merges and anchors now migrate to JSON instead of being dropped. The project MCP TLS control preserves secrets and checks the declaration shown. Installed skills stay scoped to the chat while its folder loads, and project sources cannot be approved or removed against the wrong workspace before a session exists.
+
+## 0.3.44 — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
+
+## 0.3.41 — 2026-11-01
+
+**File actions and filters.** Reveal on server uses the Windows Shell API instead of launching a hidden Explorer process, including paths with spaces and Unicode. Copying names and paths also works when the embedded browser denies Clipboard API access. File-card actions are no longer clipped by the card and close with Escape or a second click. The project-only choice and collapsed groups survive IDE restarts that change the panel's port. Reopening a loaded chat also recovers a removed worktree without restarting the IDE.
+
+**Chat history.** A saved archive filter is visible above the list and can be reset with Show active chats. An empty archive no longer looks like lost history. The filter button stays beside search in a narrow panel again. A temporary metadata lock on Windows reports a read error and preserves the previous rows.
+
+**Shared files and chat state.** The agent can publish completed files inline with its answer, with downloads, image previews and source-file actions. History distinguishes unseen errors, acknowledged errors and waits for user input; collapsed groups retain their state. Internal file placement markers stay out of exported text.
+
+**Workspaces and independent review.** MCP Settings follows the selected chat's workspace, connections start in the background when the chat opens, and sessions from removed worktrees recover to the main checkout. Folder and branch search, subagent cards and Tasks are improved. Crossreview 2.0 supports independent reviewers and trusted project rosters. Provider proxy authentication, Anthropic history and permission-resumed tool-call pairing are fixed.
+
+## 0.3.39 — 2026-10-30
+
+- Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
+
+- Ported coddy-agent 1.2.36–1.2.45: `/crossreview`, feature worktrees, shared MCP servers and relay settings.
+- Added manual compaction and its automatic threshold control to the Context popover; estimates now include tool schemas, reasoning and images and retain provider token anchors.
+- Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
+- User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
+- Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
+
+
+## 0.3.38 — 2026-10-26
+
+**Android and Termux.**
+Native builds are available for Android arm64 and x86_64. The console and web UI run in Termux, with command execution, certificates and temporary files adapted to Android.
+
+**Pictures in exports from the download button.** HTML, PDF and DOCX retain uploaded images and pictures returned by tools while keeping tool arguments and output text hidden. JSON retains picture paths.
+
+**Images read directly from project files.**
+The agent can read a picture with the read tool and show a preview beneath its call. The picture stays with the chat, survives a restart and appears in exports that include tools.
+
+**Continuing background subagents.**
+Subagents and scheduled jobs have a separate connection recovery budget: five continuations with increasing pauses. A finished subagent can resume with its existing transcript.
+
+**Faster startup with MCP.**
+Servers connect concurrently in the background. The interface stays available, a prompt shows when it is waiting for tools, and an initialization timeout gets one retry.
+
+**HTTP headers, skill marketplaces and Codex models.**
+HTTP request settings can provide default headers. Adding a marketplace no longer installs all its skills: choose the plugin to install separately. The Codex catalog supplies available models and their context windows. Composer suggestions and the environment menu work more reliably in a narrow panel.
+
+**Export, skill installation and remote environment fixes.**
+HTML, PDF and DOCX files created by /export retain pictures from tool results. Installing a selected plugin respects its skills list, including plugins sharing a repository root. Brief Windows directory locks no longer immediately abort installation. Remote environment probes work in older embedded browsers.
+
+## 0.3.36 — 2026-10-25
+
+**Safer preparation of Coddy updates.**
+Maintainers can preview upstream changes against FoxxyCode, split the port into consecutive waves and apply changes that merge cleanly. The helper preserves local edits and ignored files, checks for leftover Coddy naming and runs guards for retained FoxxyCode behavior on explicit request. Reviewed porting decisions can be recorded in one batch.
+
+## 0.3.35 — 2026-10-25
+
+**Preparing the interface for Coddy updates.**
+Styles for SVN cards, onboarding, provider import and export, and the VS Code panel now live in separate files. This makes future Coddy ports easier while preserving the interface's appearance.
+
+## 0.3.34 — 2026-10-23
+
+**Attachments returned by the remote console.**
+Taking a queued message back with /queue drop restores the attachment contents together with its text, so sending it again keeps the files.
+
+**Reading position when resizing the panel.**
+Narrowing or widening the panel keeps the running command visible when following output and preserves the visible row when reading history.
+
+**Safe repeated settings saves.**
+Edits typed while saving are carried onto the merged server result. Saving again preserves changes from another window, even if the background refresh fails.
+
+**Separate clocks in a narrow panel.**
+The command timer stays beside the status phrase, and the turn time and token count appear on the next line. Long-running commands no longer show two joined durations.
+
+**Deferred prompts continue after the output cap.**
+When a model reaches its answer token limit, unread Steer messages are delivered first in their original order, followed by After turn prompts. The cut answer and its notice remain visible. Provider errors, context overflow and Stop keep deferred prompts waiting.
+
+**Stop closes a pending permission request.**
+Stopping a turn dismisses its tool approval card, including after reloading the chat. The tool is persisted as cancelled; if Stop fails, the permission request remains available.
+
+**Two queue modes and images.**
+While a reply is running, steer that turn or queue a separate prompt after it. Choose the default on first use; Tab switches the mode for one submission. Queued images stay attached and return with a recovered draft.
+
+**MCP controls in chat.**
+Manage servers and individual tools in web settings, the console and Telegram. Project overrides live outside the checkout, and local servers pass the trust check before connecting.
+
+**Stable context and preserved settings.**
+Project rules use the first populated root, and standing prompt content stays stable between steps. Settings account for concurrent edits and preserve unchanged YAML values and comments. Open session settings from chat and dismiss panels with Escape.
+
+## 0.3.33 — 2026-10-20
+
+**Sign in to NeuralDeep right from onboarding.**
+The first-run NeuralDeep card offers signing in to the hub account instead of pasting a key: the hub issues a personal key and the saved configuration stays keyless. The default model is qwen3.6-35b-a3b (available on the free tier) with a 46,112-token context cap, so chatting works right after saving. The domain selector comes first: choose neuraldeep.ru or neuraldeep.tech, and sign-in, the model catalog and saved settings use that domain.
+
+## 0.3.32 — 2026-10-20
+
+**Keep whole characters in editor context.**
+Long code selections and terminal output are shortened at character boundaries before being sent to chat. Cyrillic text, CJK characters and emoji are no longer corrupted at the beginning of the retained fragment.
 
 ## 0.3.31 — 2026-10-16
 

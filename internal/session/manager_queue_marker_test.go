@@ -20,12 +20,18 @@ func TestTurnBoundaryRecordsAndAnnouncesTheFollowUpItAnswers(t *testing.T) {
 	var mgr *session.Manager
 	var sid string
 	runs := 0
-	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
 		var text strings.Builder
 		for _, b := range prompt {
 			text.WriteString(b.Text)
 		}
 		// What Agent.Run does with its prompt.
+		if session.PromptEcho(ctx, st.GetID()) {
+			_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeUserMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text.String()},
+			})
+		}
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text.String()})
 		if runs == 0 {
 			if _, _, err := mgr.EnqueueTurnMessage(sid, "one more thing"); err != nil {

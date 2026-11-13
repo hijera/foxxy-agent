@@ -3,6 +3,7 @@ package prompts
 import (
 	"embed"
 	"strings"
+	"sync"
 )
 
 // Prompt section fragments (data-driven variant assembly).
@@ -60,18 +61,31 @@ func sectionExists(name string) bool {
 	return ok
 }
 
+// assembledEmbedded holds the assembly of each (mode, variants) pair the
+// embedded fragments describe. The fragments are in the binary and never
+// change, while the assembly is asked for in front of every tool call - to know
+// whether the template prints {{.Rules}} (prompts.RendersRules) - so it is
+// built once and kept rather than read out of the embed again each time.
+var assembledEmbedded sync.Map // mode + "\x00" + variants -> string
+
 // assembleEmbeddedSource concatenates the section fragments resolved for
 // (mode, variants) into a single template source string. Fragments are trimmed
 // and joined with a blank line so the rendered output matches a hand-written
 // monolithic template.
 func assembleEmbeddedSource(mode string, variants []string) string {
+	key := mode + "\x00" + strings.Join(variants, "\x00")
+	if src, ok := assembledEmbedded.Load(key); ok {
+		return src.(string)
+	}
 	fragments := resolveFragments(mode, variants)
 	parts := make([]string, 0, len(fragments))
 	for _, f := range fragments {
 		s, _ := sectionSource(f)
 		parts = append(parts, s)
 	}
-	return strings.Join(parts, "\n\n")
+	src := strings.Join(parts, "\n\n")
+	assembledEmbedded.Store(key, src)
+	return src
 }
 
 // resolveFragments returns the ordered fragment paths (within sections/) for

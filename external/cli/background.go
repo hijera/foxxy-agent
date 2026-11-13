@@ -81,7 +81,7 @@ func (a *App) startWakeTurn(w wakeTurn) {
 	default:
 		// A wake held for this session runs now, so it is no longer held.
 		a.forgetHeldWakes(w.wake.SessionID)
-		a.startTurnWorker(w.wake.PromptParams(), w.wake.RunOpts(), w.done, "", nil)
+		a.startTurnWorker(w.wake.PromptParams(), w.wake.RunOpts(), w.done, "", nil, nil)
 	}
 }
 

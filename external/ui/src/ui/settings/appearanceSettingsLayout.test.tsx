@@ -1,12 +1,17 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Settings } from "./Settings";
+import { resetSettingsConfigForTests } from "./settingsConfigStore";
+import { initLocale } from "../i18n/i18n";
 
 afterEach(() => {
   cleanup();
   // Only clear stubbed globals (fetch); restoreAllMocks would also reset the
   // shared window.matchMedia mock from vitest.setup.ts and break later renders.
   vi.unstubAllGlobals();
+  initLocale("en");
+  // The app keeps the config Settings read; every test starts without it.
+  resetSettingsConfigForTests();
 });
 
 // Regression: while the config schema is still loading (fetch pending, no error),

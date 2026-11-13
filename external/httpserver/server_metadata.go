@@ -34,8 +34,8 @@ func metadataResponse(cfg *config.Config, yamlSel string) map[string]string {
 // session's settings - the mode its model field names, metadata.model and
 // metadata.reasoning - through the manager's setter, so every surface
 // watching the session mirrors it. Only what differs from the session is
-// changed, and quietly: a browser re-sends its selection with every message,
-// which is not a change worth a line in the transcript.
+// changed: a browser re-sends its selection with every message. Like every
+// change the operator makes, it leaves no line in the transcript.
 //
 // metadata.settingsVersion is the version of the last settings snapshot the
 // client applied. When a newer one has been published since - the model was
@@ -66,7 +66,7 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 		}
 	}
 	cfg := mgr.Cfg()
-	ch := session.SettingsChange{Source: "web", Quiet: true}
+	ch := session.SettingsChange{Source: "web"}
 	if mode = strings.TrimSpace(mode); mode != "" && mode != st.GetMode() {
 		ch.Mode = &mode
 	}
@@ -183,13 +183,10 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 }
 
 // configuredModelMultimodal reports whether the selected YAML model explicitly
-// opts in to image/file inputs. Missing and unknown entries fail closed.
+// opts in to image/file inputs. Missing and unknown entries fail closed - the
+// one gate every delivery path applies (config.ModelMultimodal).
 func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
-	if cfg == nil {
-		return false
-	}
-	entry := cfg.FindModelEntry(modelID)
-	return entry != nil && entry.Multimodal
+	return cfg.ModelMultimodal(modelID)
 }
 
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).

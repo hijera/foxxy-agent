@@ -64,13 +64,18 @@ type subagentTaskRef struct {
 }
 
 type subagentsHTTPState struct {
-	root      string
-	sessRoot  string
-	home      string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	sessionID string
+	// userHome restores HOME after a scenario that pointed it at a folder of
+	// its own (nil when it did not); extraDirs are removed with the scenario.
+	userHome    *string
+	userProfile *string
+	extraDirs   []string
+	root        string
+	sessRoot    string
+	home        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	sessionID   string
 	// tasks maps a child session id to the task representing its run.
 	tasks map[string]subagentTaskRef
 	// children lists every child session the scenario created, for cleanup.
@@ -111,6 +116,18 @@ func (s *subagentsHTTPState) reset() error {
 }
 
 func (s *subagentsHTTPState) close() {
+	if s.userProfile != nil {
+		_ = os.Setenv("USERPROFILE", *s.userProfile)
+		s.userProfile = nil
+	}
+	if s.userHome != nil {
+		_ = os.Setenv("HOME", *s.userHome)
+		s.userHome = nil
+	}
+	for _, d := range s.extraDirs {
+		_ = os.RemoveAll(d)
+	}
+	s.extraDirs = nil
 	for _, stop := range s.detachedStops {
 		stop()
 	}
@@ -152,9 +169,10 @@ func (s *subagentsHTTPState) startServerWithSession() error {
 		Paths:  config.Paths{Home: s.home, CWD: s.root},
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
-		// The default directories keep their ${CWD} placeholder, so the
-		// catalog reads the server workspace's .foxxycode/agents.
-		Subagents: config.Subagents{Dirs: config.DefaultSubagentDirs()},
+		// No subagents.dirs: the default folders are read beside it, so the
+		// catalog reads the server workspace's .agents/agents and
+		// .foxxycode/agents and the user's ~/.agents/agents.
+		Subagents: config.Subagents{},
 	}
 	store := &session.FileStore{Root: s.sessRoot}
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
@@ -288,6 +306,55 @@ func (s *subagentsHTTPState) liveChildWithTask(childID string) error {
 
 func (s *subagentsHTTPState) liveChildOfWithTask(childID, parentID string) error {
 	return s.launchAgentTask(parentID, "worker", childID)
+}
+
+// userHomeDefinition points HOME at a folder of the scenario and writes a
+// definition into its ~/.agents/agents, a user-scope default folder.
+func (s *subagentsHTTPState) userHomeDefinition(name string) error {
+	// Outside the workspace: a home under it would be project scope.
+	userHome, err := os.MkdirTemp("", "foxxycode-bdd-user-home-*")
+	if err != nil {
+		return err
+	}
+	s.extraDirs = append(s.extraDirs, userHome)
+	old := os.Getenv("HOME")
+	s.userHome = &old
+	oldProfile := os.Getenv("USERPROFILE")
+	s.userProfile = &oldProfile
+	if err := os.Setenv("HOME", userHome); err != nil {
+		return err
+	}
+	if err := os.Setenv("USERPROFILE", userHome); err != nil {
+		return err
+	}
+	dir := filepath.Join(userHome, ".agents", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s from the user's home.\n---\nYou are %s.\n", name, name, name)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+// workspaceAgentsDefinition writes a definition into the workspace's shared
+// .agents/agents, a project-scope default folder.
+func (s *subagentsHTTPState) workspaceAgentsDefinition(name string) error {
+	dir := filepath.Join(s.root, ".agents", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s from the project's agents folder.\n---\nYou are %s.\n", name, name, name)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+func (s *subagentsHTTPState) catalogNamesTrustedWithScope(name, scope string) error {
+	item, err := s.catalogItem(name)
+	if err != nil {
+		return err
+	}
+	if item["scope"] != scope {
+		return fmt.Errorf("%q has scope %v, want %q", name, item["scope"], scope)
+	}
+	return s.catalogNamesTrusted(name)
 }
 
 func (s *subagentsHTTPState) workspaceDefinition(name string) error {
@@ -827,6 +894,9 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a live child session "([^"]*)" of that session backed by a running subagent task$`, s.liveChildWithTask)
 	sc.Step(`^a live child session "([^"]*)" of "([^"]*)" backed by a running subagent task$`, s.liveChildOfWithTask)
 	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceDefinition)
+	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.agents/agents$`, s.workspaceAgentsDefinition)
+	sc.Step(`^the user's home has a subagent definition "([^"]*)" under \.agents/agents$`, s.userHomeDefinition)
+	sc.Step(`^the catalog names "([^"]*)" with scope "([^"]*)" as trusted$`, s.catalogNamesTrustedWithScope)
 	sc.Step(`^the server workspace has a bounded subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceBoundedDefinition)
 	sc.Step(`^the subagent in "([^"]*)" waits for permission to run a command after its parent turn ended$`, s.detachedPromptWaiting)
 	sc.Step(`^a client is subscribed to the server events$`, s.subscribeToEvents)

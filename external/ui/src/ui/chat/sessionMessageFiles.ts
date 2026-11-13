@@ -1,17 +1,13 @@
-import type { TranscriptItem } from "./types";
+import type { TranscriptFile } from "./types";
 import { parseSessionAssetFiles } from "../skills/stripFoxxyCodeAttachments";
-
-type UserMessageFile = NonNullable<
-  Extract<TranscriptItem, { type: "user_message" }>["files"]
->[number];
 
 /** Normalize persisted attachment metadata, with XML parsing for old sessions. */
 export function sessionMessageFiles(
   rawFiles: unknown,
   rawContent: string,
-): UserMessageFile[] {
+): TranscriptFile[] {
   if (Array.isArray(rawFiles)) {
-    const files: UserMessageFile[] = [];
+    const files: TranscriptFile[] = [];
     for (const raw of rawFiles) {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
       const row = raw as Record<string, unknown>;

@@ -143,6 +143,9 @@ type mcpE2EState struct {
 	beta     *fakeBetaMCPHandler
 	betaTS   *httptest.Server
 	provider *mcpScriptedProvider
+	// kinds is the state of the scenario with one server of every kind
+	// (bdd_mcp_kinds_test.go).
+	kinds    *mcpKindsState
 	mgr      *session.Manager
 	srv      *Server
 	ts       *httptest.Server
@@ -176,6 +179,10 @@ func (s *mcpE2EState) close() {
 		s.betaTS.Close()
 		s.betaTS = nil
 	}
+	if s.kinds != nil {
+		s.kinds.close()
+		s.kinds = nil
+	}
 	// Only a home this scenario saved is put back: TestMain always sets one,
 	// so an empty value means the scenario never changed it.
 	if s.prevHOME != "" {
@@ -187,10 +194,8 @@ func (s *mcpE2EState) close() {
 	}
 }
 
-// startServer boots the OpenAI-compatible gateway with a REAL agent runner:
-// the same agent.NewAgent(...).Run closure production uses, with only the LLM
-// swapped for the scripted provider.
-func (s *mcpE2EState) startServer() error {
+// makeHome gives the scenario its own FoxxyCode home and workspace.
+func (s *mcpE2EState) makeHome() error {
 	s.home = filepath.Join(s.root, "home")
 	s.cwd = filepath.Join(s.root, "workspace")
 	for _, dir := range []string{s.home, s.cwd} {
@@ -199,16 +204,46 @@ func (s *mcpE2EState) startServer() error {
 		}
 	}
 	s.prevHOME = os.Getenv("FOXXYCODE_HOME")
-	if err := os.Setenv("FOXXYCODE_HOME", s.home); err != nil {
+	return os.Setenv("FOXXYCODE_HOME", s.home)
+}
+
+// serve boots the OpenAI-compatible gateway over cfg with a REAL agent
+// runner: the same agent.NewAgent(...).Run closure production uses, with only
+// the LLM swapped for provider.
+func (s *mcpE2EState) serve(cfg *config.Config, provider llm.Provider) {
+	log := slog.Default()
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		loop := agent.NewAgent(cfg, st, snd, log)
+		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return provider, nil })
+		return loop.Run(ctx, prompt)
+	}
+	store := &session.FileStore{Root: filepath.Join(s.root, "sessions")}
+	s.mgr = session.NewManager(cfg, noopSender{}, runner, log, s.cwd, store)
+	s.srv = New(cfg, s.mgr, log, s.cwd)
+	s.ts = httptest.NewServer(s.srv.Handler())
+}
+
+// startServer boots the gateway with the scripted provider and two MCP
+// servers, "alpha" over stdio and "beta" over streamable HTTP.
+func (s *mcpE2EState) startServer() error {
+	if err := s.makeHome(); err != nil {
 		return err
 	}
 
 	s.beta = &fakeBetaMCPHandler{token: e2eBetaToken}
 	s.betaTS = httptest.NewServer(s.beta)
 
-	// alpha comes from config.yaml (its token travels via per-server env, not
-	// the process env, proving the Env plumbing); beta lives in the project
-	// .foxxycode/mcp.json so the management API can toggle its tools mid-session.
+	// alpha comes from <home>/mcp.json (its token travels via per-server env,
+	// not the process env, proving the Env plumbing); beta lives in the
+	// project .foxxycode/mcp.json so the management API can toggle its tools
+	// mid-session.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), "alpha", config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestHelperMCPServerHTTP"},
+		Env:     map[string]string{"GO_WANT_MCP_HELPER": "1", "MCP_HELPER_TOKEN": e2eAlphaToken},
+	}); err != nil {
+		return err
+	}
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), "beta",
 		config.MCPJSONServer{Type: "http", URL: s.betaTS.URL}); err != nil {
 		return err
@@ -222,17 +257,6 @@ func (s *mcpE2EState) startServer() error {
 		// FoxxyCode's background title pass reuses the scripted provider and would
 		// look like a second MCP tool call. This feature isolates the user turn.
 		Title: config.TitleConfig{Enabled: &titleEnabled},
-		MCPServers: []config.MCPServerConfig{
-			{
-				Name:    "alpha",
-				Command: os.Args[0],
-				Args:    []string{"-test.run=TestHelperMCPServerHTTP"},
-				Env: []config.EnvVarConfig{
-					{Name: "GO_WANT_MCP_HELPER", Value: "1"},
-					{Name: "MCP_HELPER_TOKEN", Value: e2eAlphaToken},
-				},
-			},
-		},
 	}
 
 	// This scenario is about tool routing, not workspace trust: stand in for
@@ -246,16 +270,7 @@ func (s *mcpE2EState) startServer() error {
 		return err
 	}
 
-	log := slog.Default()
-	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
-		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil })
-		return loop.Run(ctx, prompt)
-	}
-	store := &session.FileStore{Root: filepath.Join(s.root, "sessions")}
-	s.mgr = session.NewManager(cfg, noopSender{}, runner, log, s.cwd, store)
-	s.srv = New(cfg, s.mgr, log, s.cwd)
-	s.ts = httptest.NewServer(s.srv.Handler())
+	s.serve(cfg, s.provider)
 	return nil
 }
 
@@ -343,15 +358,16 @@ func (s *mcpE2EState) modelOfferedTools(a, b string) error {
 	return nil
 }
 
-func (s *mcpE2EState) finalAnswerContains(token string) error {
+// finalAssistantMessage reads the session's last non-empty assistant message.
+func (s *mcpE2EState) finalAssistantMessage() (string, error) {
 	res, err := http.Get(s.ts.URL + "/foxxycode/sessions/" + s.sid + "/messages")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("messages status %d: %s", res.StatusCode, raw)
+		return "", fmt.Errorf("messages status %d: %s", res.StatusCode, raw)
 	}
 	var body struct {
 		Messages []struct {
@@ -360,14 +376,20 @@ func (s *mcpE2EState) finalAnswerContains(token string) error {
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return err
+		return "", err
 	}
-	final := ""
 	for i := len(body.Messages) - 1; i >= 0; i-- {
 		if body.Messages[i].Role == "assistant" && strings.TrimSpace(body.Messages[i].Content) != "" {
-			final = body.Messages[i].Content
-			break
+			return body.Messages[i].Content, nil
 		}
+	}
+	return "", nil
+}
+
+func (s *mcpE2EState) finalAnswerContains(token string) error {
+	final, err := s.finalAssistantMessage()
+	if err != nil {
+		return err
 	}
 	if !strings.Contains(final, token) {
 		return fmt.Errorf("final assistant message %q does not contain %q", final, token)
@@ -417,6 +439,7 @@ func initializeMCPE2EScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the final assistant message contains the beta token$`, s.finalAnswerContainsBeta)
 	sc.Step(`^the final assistant message contains the alpha token$`, s.finalAnswerContainsAlpha)
 	sc.Step(`^the "beta" server received exactly one tool call$`, s.betaReceivedExactlyOneCall)
+	s.registerKindsSteps(sc)
 }
 
 func TestMCPToolCallsOpenAIE2E(t *testing.T) {

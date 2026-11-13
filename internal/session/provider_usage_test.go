@@ -734,6 +734,24 @@ func usageConfigWithKey(cfg *config.Config, key string) *config.Config {
 	return next
 }
 
+// A codex row reads its usage with its ChatGPT sign-in, never with an API
+// key, so an api_key_command left on a row retyped to codex does not turn a
+// rejected sign-in into a read every minute: the rejection stays until the
+// row signs in again, as for any row whose credential no helper produces.
+func TestProviderUsageCodexRejectionIgnoresAnAPIKeyCommand(t *testing.T) {
+	m := &Manager{}
+	e := &providerUsageEntry{unauthorizedAt: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	later := e.unauthorizedAt.Add(time.Hour)
+	helper := &config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", APIKeyCommand: "echo sk-from-helper"}
+	if !m.usageRejectionExpiredLocked(helper, e, later) {
+		t.Fatal("a row whose key a helper produces retries a rejection after a while")
+	}
+	codex := &config.ProviderConfig{Name: "codex", Type: "codex", APIKeyCommand: "echo sk-from-helper"}
+	if m.usageRejectionExpiredLocked(codex, e, later) {
+		t.Fatal("a codex row's rejection must stay: its api_key_command is never its credential")
+	}
+}
+
 func TestProviderUsageLiteralKeyKeepsARejectionStickyDespiteACommand(t *testing.T) {
 	stand := newUsageStand(t)
 	stand.set(http.StatusUnauthorized, `{"detail":"unknown key"}`, nil)

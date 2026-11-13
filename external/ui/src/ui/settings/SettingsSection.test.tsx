@@ -40,6 +40,7 @@ const rootSchema: JsonSchema = {
             enum: ["openai", "anthropic", "neuraldeep", "codex"],
           },
           api_base: { type: "string", title: "API base URL" },
+          user_agent: { type: "string", title: "User-Agent", enum: ["", "openai", "anthropic", "foxxycode"], default: "" },
           api_key: { type: "string", title: "API key" },
           api_key_command: { type: "string", title: "API key command" },
           proxy: { type: "string", title: "Proxy URL" },
@@ -48,6 +49,7 @@ const rootSchema: JsonSchema = {
           "name",
           "type",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",
@@ -347,4 +349,65 @@ test("the Telegram proxy has the Ignore system proxy switch too", () => {
 
   fireEvent.click(direct);
   expect(telegramProxy(doc)).toBe("socks5h://127.0.0.1:1080");
+});
+// The queue mode answers what Enter does with a message written during a
+// turn: it belongs with the model and the turn cap, never loose between the
+// fieldsets of the tab.
+test("the agent tab keeps the queue mode inside its model and turns fieldset", () => {
+  const agentSection: SectionDescriptor = { id: "agent", label: "ReAct loop", kind: "object", schemaKey: "agent" };
+  const schema = {
+    type: "object",
+    properties: {
+      agent: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Default model" },
+          queue_mode: { type: "string", title: "Queue mode", enum: ["steer", "after_turn"] },
+          max_turns: { type: "integer", title: "Max turns" },
+          llm_retry_max: { type: "integer", title: "LLM retry max" },
+        },
+        "x-foxxycode-property-order": ["model", "queue_mode", "max_turns", "llm_retry_max"],
+      },
+    },
+  } as JsonSchema;
+  render(<SettingsSection section={agentSection} schema={schema} doc={{ agent: { queue_mode: "after_turn" } }} setDoc={() => {}} />);
+  const turn = screen.getByTestId("settings-group-turn");
+  expect(turn.textContent).toContain("Queue mode");
+  expect(screen.getByRole("combobox", { name: "Queue mode" }).closest("fieldset")).toBe(turn);
+});
+
+test.each([
+  ["openai", "OpenAI/Go", ""],
+  ["anthropic", "Anthropic/Go", ""],
+  ["anthropic", "Anthropic/Go", "openai"],
+  ["openai", "OpenAI/Go", "anthropic"],
+])("%s provider defaults to its SDK and saves Foxxycode", (type, label, userAgent) => {
+  let doc: Record<string, unknown> = {};
+  render(
+    <Harness
+      provider={{ name: "test", type, user_agent: userAgent }}
+      onDoc={(next) => {
+        doc = next;
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+  const field = screen.getByLabelText("User-Agent");
+  expect(field.closest("fieldset")?.textContent).toContain("Advanced settings");
+  expect(field).toHaveValue(`${label} (default)`);
+  fireEvent.focus(field);
+  fireEvent.mouseDown(
+    screen.getByRole("option", { name: "Foxxycode/version" }),
+  );
+  expect((doc.providers as Record<string, unknown>[])[0]?.user_agent).toBe(
+    "foxxycode",
+  );
+});
+
+test("managed providers hide the compatible identity selector", () => {
+  render(<Harness provider={{ name: "test", type: "neuraldeep" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+  expect(screen.queryByLabelText("User-Agent")).toBeNull();
 });

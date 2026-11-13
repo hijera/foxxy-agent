@@ -163,7 +163,7 @@ func (s *mcpFeatureState) startServer() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		return err
 	}
 	cfg, err := config.Load(cfgPath)
@@ -239,6 +239,77 @@ func (s *mcpFeatureState) givenProjectServer(name string) error {
 
 func (s *mcpFeatureState) givenGlobalServer(name string) error {
 	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, fakeMCPEntry())
+}
+
+func (s *mcpFeatureState) givenGlobalServerWithEnv(name, key, value string) error {
+	entry := fakeMCPEntry()
+	entry.Env[key] = value
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, entry)
+}
+
+func (s *mcpFeatureState) listNamesEnvWithoutValue(key, server, value string) error {
+	row, err := s.serverRow(server)
+	if err != nil {
+		return err
+	}
+	env, _ := row["env"].(map[string]interface{})
+	if got, _ := env[key].(string); got != config.RedactedValue {
+		return fmt.Errorf("server %q env %s = %q, want the name with %q in place of its value", server, key, got, config.RedactedValue)
+	}
+	raw, _ := json.Marshal(s.body)
+	if bytes.Contains(raw, []byte(value)) {
+		return fmt.Errorf("the MCP list carries the value %q: %s", value, raw)
+	}
+	return nil
+}
+
+// editAsListed saves an entry the way the settings editor does: built from
+// the listed row, placeholders and all, with one variable added, and sent
+// with the fingerprint of the declaration listed.
+func (s *mcpFeatureState) editAsListed(server, key, value string) error {
+	row, err := s.serverRow(server)
+	if err != nil {
+		return err
+	}
+	entry := config.MCPJSONServer{Env: map[string]string{key: value}}
+	entry.Command, _ = row["command"].(string)
+	for _, a := range anySlice(row["args"]) {
+		arg, _ := a.(string)
+		entry.Args = append(entry.Args, arg)
+	}
+	env, _ := row["env"].(map[string]interface{})
+	for k, v := range env {
+		entry.Env[k], _ = v.(string)
+	}
+	scope := mcp.ScopeLocal
+	if origin, _ := row["origin"].(string); origin == mcp.OriginHome {
+		scope = mcp.ScopeGlobal
+	}
+	fingerprint, _ := row["fingerprint"].(string)
+	path := "/foxxycode/mcp/" + url.PathEscape(server) + "?scope=" + scope + "&fingerprint=" + url.QueryEscape(fingerprint)
+	if err := s.do(http.MethodPut, path, entry); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("edit server status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func anySlice(v interface{}) []interface{} {
+	out, _ := v.([]interface{})
+	return out
+}
+
+func (s *mcpFeatureState) globalFileKeepsEnv(value, key, server string) error {
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(s.home))
+	if err != nil {
+		return err
+	}
+	if got := entries[server].Env[key]; got != value {
+		return fmt.Errorf("global mcp.json env %s of %q = %q, want %q kept", key, server, got, value)
+	}
+	return nil
 }
 
 func (s *mcpFeatureState) listServers() error {
@@ -450,12 +521,24 @@ func (s *mcpFeatureState) fileRecordsDisabledTool(tool, server string) error {
 	if err != nil {
 		return err
 	}
-	for _, t := range entries[server].DisabledTools {
-		if t == tool {
-			return nil
+	if len(entries[server].DisabledTools) != 0 {
+		return fmt.Errorf("project mcp.json was modified: %+v", entries[server])
+	}
+	managed, err := mcp.ListManagedServers(s.mgr.Cfg(), s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, row := range managed {
+		if row.Config.Name != server {
+			continue
+		}
+		for _, name := range row.Config.DisabledTools {
+			if name == tool {
+				return nil
+			}
 		}
 	}
-	return fmt.Errorf("mcp.json %q disabledTools = %v, want %q", server, entries[server].DisabledTools, tool)
+	return fmt.Errorf("operator state did not disable %s on %s", tool, server)
 }
 
 func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
@@ -463,10 +546,19 @@ func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
 	if err != nil {
 		return err
 	}
-	if !entries[server].Disabled {
-		return fmt.Errorf("mcp.json %q not disabled: %+v", server, entries[server])
+	if entries[server].Disabled {
+		return fmt.Errorf("project mcp.json was modified: %+v", entries[server])
 	}
-	return nil
+	managed, err := mcp.ListManagedServers(s.mgr.Cfg(), s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, row := range managed {
+		if row.Config.Name == server && row.Config.Disabled {
+			return nil
+		}
+	}
+	return fmt.Errorf("operator state did not disable %s", server)
 }
 
 func (s *mcpFeatureState) fileContainsServer(server string) error {
@@ -504,6 +596,10 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
 	sc.Step(`^a project mcp\.json defining the stdio server "([^"]*)"$`, s.givenProjectServer)
 	sc.Step(`^a global mcp\.json defining the stdio server "([^"]*)"$`, s.givenGlobalServer)
+	sc.Step(`^a global mcp\.json defining the stdio server "([^"]*)" with the env "([^"]*)" set to "([^"]*)"$`, s.givenGlobalServerWithEnv)
+	sc.Step(`^the MCP list names the env "([^"]*)" of server "([^"]*)" but not "([^"]*)"$`, s.listNamesEnvWithoutValue)
+	sc.Step(`^I edit the MCP server "([^"]*)" as listed, adding the env "([^"]*)" set to "([^"]*)"$`, s.editAsListed)
+	sc.Step(`^the global mcp\.json keeps "([^"]*)" as the env "([^"]*)" of server "([^"]*)"$`, s.globalFileKeepsEnv)
 	sc.Step(`^I list the MCP servers$`, s.listServers)
 	sc.Step(`^I disable the tool "([^"]*)" of MCP server "([^"]*)"$`, s.disableTool)
 	sc.Step(`^I disable the MCP server "([^"]*)"$`, s.disableServer)
@@ -526,8 +622,8 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^server "([^"]*)" exposes the tool "([^"]*)" as disabled$`, func(server, tool string) error {
 		return s.toolDisabled(server, tool)
 	})
-	sc.Step(`^the project mcp\.json records "([^"]*)" as a disabled tool of "([^"]*)"$`, s.fileRecordsDisabledTool)
-	sc.Step(`^the project mcp\.json records server "([^"]*)" as disabled$`, s.fileRecordsServerDisabled)
+	sc.Step(`^operator state records "([^"]*)" as a disabled tool of "([^"]*)"$`, s.fileRecordsDisabledTool)
+	sc.Step(`^operator state records server "([^"]*)" as disabled$`, s.fileRecordsServerDisabled)
 	sc.Step(`^the project mcp\.json contains server "([^"]*)"$`, s.fileContainsServer)
 	sc.Step(`^the project mcp\.json does not contain server "([^"]*)"$`, s.fileDoesNotContainServer)
 }

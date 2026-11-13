@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -205,6 +207,7 @@ func TestLlmMsgsToFoxxyCodeOpenAIForSessionIncludesFullSizeAssetURL(t *testing.T
 	if err := os.WriteFile(saved, pngBytes(t), 0o444); err != nil {
 		t.Fatal(err)
 	}
+	writeThumbnail(t, dir, "photo one.png")
 	out := llmMsgsToFoxxyCodeOpenAIForSession("sess_files", dir, []llm.Message{
 		{
 			Role:    llm.RoleUser,
@@ -227,6 +230,67 @@ func TestLlmMsgsToFoxxyCodeOpenAIForSessionIncludesFullSizeAssetURL(t *testing.T
 	}
 	if got, ok := files[1]["url"]; ok {
 		t.Fatalf("an asset that is no longer on disk must carry no url, got %#v", got)
+	}
+}
+
+// A picture a read showed the model stays on that call's result, and the
+// transcript names it there the way it names a prompt attachment, so the web
+// UI previews it on the read row after a reload. The bytes themselves never
+// travel in the transcript.
+func TestLlmMsgsToFoxxyCodeOpenAIForSessionNamesThePicturesOfAToolResult(t *testing.T) {
+	dir := t.TempDir()
+	saved := filepath.Join(dir, "shot-1a2b.png")
+	if err := os.WriteFile(saved, pngBytes(t), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	writeThumbnail(t, dir, "shot-1a2b.png")
+	out := llmMsgsToFoxxyCodeOpenAIForSession("sess_files", dir, []llm.Message{{
+		Role:       llm.RoleTool,
+		ToolCallID: "r1",
+		Content:    "shot.png: PNG image, 4x3",
+		ImageParts: []llm.ImagePart{{DataURL: "data:image/png;base64,abc", Name: "shot.png", FilePath: saved, ThumbnailPath: saved + ".png"}},
+	}})
+	files, ok := out[0]["files"].([]map[string]interface{})
+	if !ok || len(files) != 1 {
+		t.Fatalf("files: %#v", out[0]["files"])
+	}
+	if files[0]["name"] != "shot.png" || files[0]["mime_type"] != "image/png" {
+		t.Errorf("file = %#v, want shot.png as image/png", files[0])
+	}
+	if got := files[0]["url"]; got != "/foxxycode/sessions/sess_files/assets/shot-1a2b.png" {
+		t.Errorf("url = %#v", got)
+	}
+	if got := files[0]["preview_url"]; got != "/foxxycode/sessions/sess_files/assets/shot-1a2b.png/thumbnail" {
+		t.Errorf("preview_url = %#v", got)
+	}
+	if raw, _ := json.Marshal(out); strings.Contains(string(raw), "base64,abc") {
+		t.Errorf("the transcript carries the picture's bytes: %s", raw)
+	}
+}
+
+// A session bundle that moved keeps the paths its parts recorded where it was
+// before; the copies are in its assets directory now, under the same names,
+// and the transcript addresses them there - the way the agent finds a tool
+// picture's copy to send - so a WebP without a thumbnail still has a card.
+func TestLlmMsgsToFoxxyCodeOpenAIForSessionAddressesTheCopiesOfAMovedBundle(t *testing.T) {
+	assetsDir := filepath.Join(t.TempDir(), "sess_moved", "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const asset = "shot-0123456789abcdef.webp"
+	if err := os.WriteFile(filepath.Join(assetsDir, asset), []byte("RIFF"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	recorded := filepath.Join(t.TempDir(), "sess_moved", "assets", asset)
+	out := llmMsgsToFoxxyCodeOpenAIForSession("sess_moved", assetsDir, []llm.Message{{
+		Role:       llm.RoleTool,
+		ToolCallID: "r1",
+		Content:    "shot.webp: WebP image, 4x3",
+		ImageParts: []llm.ImagePart{{Name: "shot.webp", MIMEType: "image/webp", FilePath: recorded}},
+	}})
+	files := out[0]["files"].([]map[string]interface{})
+	if got := files[0]["url"]; got != "/foxxycode/sessions/sess_moved/assets/"+asset {
+		t.Errorf("url = %#v, want the copy in the bundle's assets now", got)
 	}
 }
 
@@ -254,5 +318,18 @@ func TestOpenAPIDescribesTheSessionAssetRoute(t *testing.T) {
 		if !bytes.Contains(bytes.ToLower([]byte(desc)), []byte(want)) {
 			t.Fatalf("description does not mention %q: %s", want, desc)
 		}
+	}
+}
+
+// writeThumbnail puts the bounded preview of an asset where the server looks
+// for it.
+func writeThumbnail(t *testing.T, assetsDir, assetName string) {
+	t.Helper()
+	thumb := session.ThumbnailPathInAssets(assetsDir, assetName)
+	if err := os.MkdirAll(filepath.Dir(thumb), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(thumb, pngBytes(t), 0o444); err != nil {
+		t.Fatal(err)
 	}
 }

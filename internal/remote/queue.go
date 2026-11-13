@@ -136,6 +136,20 @@ func (h *Handler) EnqueueTurnMessage(sessionID, text string) (session.QueuedMess
 	return *out.Message, out.Messages, nil
 }
 
+func (h *Handler) SetQueuedTurnMessageMode(sessionID, messageID string, mode session.QueueMode) ([]session.QueuedMessage, error) {
+	fence := h.queueRequestFence(sessionID)
+	path := queuePath(sessionID) + "/" + url.PathEscape(messageID)
+	if err := h.patchJSON(h.controlCtx, path, map[string]string{"mode": string(mode)}); err != nil {
+		return nil, translateQueueError(err)
+	}
+	var out queueResponse
+	if err := h.getJSON(h.controlCtx, queuePath(sessionID), &out); err != nil {
+		return nil, translateQueueError(err)
+	}
+	h.publishQueue(sessionID, out, fence)
+	return out.Messages, nil
+}
+
 // QueuedTurnMessages lists what the remote session is holding.
 func (h *Handler) QueuedTurnMessages(sessionID string) ([]session.QueuedMessage, error) {
 	fence := h.queueRequestFence(sessionID)
@@ -157,6 +171,31 @@ func (h *Handler) CancelQueuedTurnMessage(sessionID, messageID string) ([]sessio
 	}
 	h.publishQueue(sessionID, out, fence)
 	return out.Messages, nil
+}
+
+// TakeBackQueuedTurnMessage is CancelQueuedTurnMessage that also hands back the
+// message it removed, whole. The bytes of its images travel only in the
+// answer's inline_files - the list every client is sent names them without
+// them - so they replace the names the decoded message carries.
+func (h *Handler) TakeBackQueuedTurnMessage(sessionID, messageID string) (session.QueuedMessage, []session.QueuedMessage, error) {
+	fence := h.queueRequestFence(sessionID)
+	var out struct {
+		queueResponse
+		Message *struct {
+			session.QueuedMessage
+			InlineFiles []acp.ImagePartRef `json:"inline_files"`
+		} `json:"message"`
+	}
+	if err := h.deleteJSON(h.controlCtx, queuePath(sessionID)+"/"+url.PathEscape(messageID), &out); err != nil {
+		return session.QueuedMessage{}, nil, translateQueueError(err)
+	}
+	h.publishQueue(sessionID, out.queueResponse, fence)
+	if out.Message == nil {
+		return session.QueuedMessage{}, out.Messages, fmt.Errorf("remote foxxycode: the queue answered without a message")
+	}
+	taken := out.Message.QueuedMessage
+	taken.ImageParts = out.Message.InlineFiles
+	return taken, out.Messages, nil
 }
 
 // ClearQueuedTurnMessages empties the remote session's queue.

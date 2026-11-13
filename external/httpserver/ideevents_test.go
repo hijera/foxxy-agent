@@ -24,13 +24,13 @@ func recvIdeEvent(t *testing.T, ch chan ideEvent) ideEvent {
 }
 
 func TestIdeEventHubBroadcast(t *testing.T) {
-	ch := ideEvents.subscribe()
-	defer ideEvents.unsubscribe(ch)
+	ch := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(ch)
 
-	if !ideEvents.hasSubscribers() {
+	if !ideEvents.HasSubscribers() {
 		t.Fatal("hasSubscribers = false after subscribe")
 	}
-	ideEvents.broadcast(ideEvent{Type: "edit_applied", Path: "/x"})
+	ideEvents.Broadcast(ideEvent{Type: "edit_applied", Path: "/x"})
 	if ev := recvIdeEvent(t, ch); ev.Type != "edit_applied" || ev.Path != "/x" {
 		t.Fatalf("got %+v", ev)
 	}
@@ -43,8 +43,8 @@ func TestBroadcastEditProposed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ch := ideEvents.subscribe()
-	defer ideEvents.unsubscribe(ch)
+	ch := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(ch)
 
 	s := NewSender(&config.Config{}, nil, false, "m")
 	s.SetCWD(dir)
@@ -67,8 +67,8 @@ func TestBroadcastEditProposed(t *testing.T) {
 }
 
 func TestBroadcastEditProposedSkipsNonWriteTools(t *testing.T) {
-	ch := ideEvents.subscribe()
-	defer ideEvents.unsubscribe(ch)
+	ch := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(ch)
 
 	s := NewSender(&config.Config{}, nil, false, "m")
 	s.broadcastEditProposed("s", "c", "run_command", `{"command":"ls"}`)
@@ -81,8 +81,8 @@ func TestBroadcastEditProposedSkipsNonWriteTools(t *testing.T) {
 }
 
 func TestSendSessionUpdateFileEditBroadcasts(t *testing.T) {
-	ch := ideEvents.subscribe()
-	defer ideEvents.unsubscribe(ch)
+	ch := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(ch)
 
 	// stream=false: file_edit must still broadcast on the side channel.
 	s := NewSender(&config.Config{}, nil, false, "m")

@@ -30,6 +30,28 @@ features: `:has()`, `oklch()`/`oklab()`, `@container`, native CSS nesting,
 `dvh`/`svh` units are allowed only with a preceding `vh` fallback
 declaration for the same property.
 
+Runtime APIs also need to work on the plugin's build-222 floor (the sandbox uses IDEA 2022.2.1).
+Remote reachability probes use `AbortController` with a cleared timer rather than assuming
+`AbortSignal.timeout` exists: otherwise a working remote can be reported as unreachable in JCEF.
+Both the active-environment banner and the environment menu use the same bounded probe.
+
+The Remote Robot theme helper queues its Look and Feel change with `invokeLater` and
+`ModalityState.NON_MODAL`. Being on the EDT alone is not write-safe: changing the editor scheme
+directly in Robot's callback causes `TransactionGuard: Write-unsafe context`. The permanent
+UI suite checks that switching both themes adds no such errors to `idea.log`.
+
+The `uiTest` task passes its resolved sandbox backend home through
+`foxxycode.uitest.home`. Session fixtures use that path instead of assuming
+`build/uitest-foxxycode-home`, so moving Gradle's build directory to an ASCII
+path on Windows does not silently seed a different session store. The history
+scenario checks that legacy chats in a plain folder remain listed across
+session switches and a page reload, and that a saved archive-only filter stays
+visible and can be reset to restore those chats. Transcript fixtures include persisted tool
+timestamps so duration containment is checked against an actual duration.
+
+`ArtifactMenuUiTest` checks file actions outside thumbnail clipping at narrow
+and wide panel widths, including Escape and resizing while the menu is open.
+
 ## Depending on JCEF (IDE 2026.2 and later)
 
 From build 262 (IDE 2026.2) `com.intellij.ui.jcef.*` is no longer part of the
@@ -303,6 +325,23 @@ cd external/ui && npm run build:go
 npm i playwright@1.24 && npx playwright install chromium
 # drive http://127.0.0.1:<port>/ served by `foxxycode http` (build tag "http ui")
 ```
+
+## Windows desktop reveal regression
+
+`internal/platform` has an opt-in desktop integration scenario for **Reveal on
+server**. On an unlocked interactive Windows desktop, run:
+
+```powershell
+$env:FOXXYCODE_TEST_REVEAL_DESKTOP = '1'
+go test ./internal/platform -run '^TestRevealDesktopFeature$' -count=1 -v
+```
+
+The scenario re-executes a backend with `CREATE_NO_WINDOW`, reveals a source whose
+path contains spaces, Unicode and a comma, and waits for a visible Explorer
+window naming its unique source folder. An HTTP 204 or a successful process
+start cannot satisfy it. The observer only reads window visibility/title and
+does not inject input or alter existing Explorer windows. Ordinary tests skip
+this scenario because a CI worker may have no interactive desktop.
 
 ## Embedding the UI in a VS Code extension (webview)
 

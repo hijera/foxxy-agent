@@ -23,17 +23,32 @@ type SettingsChange struct {
 	// Turns > 0 changes the named settings for that many operator turns
 	// instead of for the session (--once is 1, --count=N is N).
 	Turns int
-	// Source names who asked, for the log line and the notice: console, web,
-	// acp, telegram, remote, command, permission_dialog, model, skill:<name>.
+	// Source names who asked, for the log line: console, web, acp, telegram,
+	// remote, command, permission_dialog, or for a change the agent made
+	// itself SettingsSourceModel or SettingsSourceSkill followed by the
+	// skill's name.
 	Source string
-	// Quiet leaves no notice in the transcript's log: a browser re-sending
-	// its selection with a message is not a change anybody asked to see.
-	Quiet bool
 }
+
+// The sources of a change the agent made itself: the model's switch_model
+// call and the frontmatter of a skill ("skill:<name>").
+const (
+	SettingsSourceModel = "model"
+	SettingsSourceSkill = "skill:"
+)
 
 // Empty reports whether the change names no setting at all.
 func (c SettingsChange) Empty() bool {
 	return c.Model == nil && c.Reasoning == nil && c.Mode == nil && c.PermissionMode == nil
+}
+
+// ByAgent reports whether the agent made the change itself rather than the
+// operator. Only such a change is noted in the transcript: what the operator
+// picks - a selector, a command, the permission dialog, the options a console
+// or `foxxycode -p` starts a session with - is on the selectors and the footer of
+// every surface already, and a line saying it again is noise.
+func (c SettingsChange) ByAgent() bool {
+	return c.Source == SettingsSourceModel || strings.HasPrefix(c.Source, SettingsSourceSkill)
 }
 
 // settingsVersionSeq numbers settings snapshots across the process, the way
@@ -115,7 +130,8 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 
 // PublishSessionSettings tells everyone watching the session what its
 // settings are now: the running turn's sender (or the manager's own between
-// turns), and every observer. notice says what changed; empty for a resend.
+// turns), and every observer. notice says what the agent changed; empty for a
+// resend and for a change the operator made.
 func (m *Manager) PublishSessionSettings(sessionID string, st *State, notice, source string) acp.SessionSettings {
 	snap := m.settingsSnapshot(sessionID, st)
 	update := acp.SessionSettingsUpdate{
@@ -125,9 +141,10 @@ func (m *Manager) PublishSessionSettings(sessionID string, st *State, notice, so
 		Source:        source,
 	}
 	st.publishedSettings.Store(snap.Version)
+	m.readSettingsWindows(st, snap)
 	sender := st.TurnSender()
 	if sender == nil {
-		sender = m.server
+		sender = m.currentSender()
 	}
 	if sender != nil {
 		_ = sender.SendSessionUpdate(sessionID, update)
@@ -145,12 +162,34 @@ func (m *Manager) PublishSessionSettings(sessionID string, st *State, notice, so
 	return snap
 }
 
+// readSettingsWindows starts reading the context windows of the models a
+// published snapshot names: the session's own, the running turn's and the ones
+// armed for the next turns. Every change of a model is published, so this is
+// where a switch is seen, and the window it brings is read at once instead of
+// at the next turn: the running turn's next step and the next prompt compact
+// against it (#362). Nothing here waits; a listing that is cached, fresh or
+// not reported at all costs a map lookup.
+func (m *Manager) readSettingsWindows(st *State, snap acp.SessionSettings) {
+	cfg := m.activeCfg()
+	if cfg == nil {
+		return
+	}
+	models := []string{snap.Model, st.EffectiveModelID(cfg)}
+	for _, o := range snap.Overrides {
+		if o.Setting == SettingModel {
+			models = append(models, o.Value)
+		}
+	}
+	m.AwaitContextWindows(context.Background(), cfg, models, 0)
+}
+
 // ApplySessionSettings is the one way a session's settings change: the ACP
 // config options, PATCH /foxxycode/sessions/{id}, the metadata of a prompt, a
 // settings command, the permission dialog, the model's own switch. It
 // validates the whole change before writing any of it, writes it, tells the
-// ACP client (config_option_update, current_mode_update), logs it, leaves a
-// notice in the transcript's log and publishes the new snapshot.
+// ACP client (config_option_update, current_mode_update), logs it, notes a
+// change the agent made itself in the transcript's log (noteSettingsChange)
+// and publishes the new snapshot.
 func (m *Manager) ApplySessionSettings(ctx context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, error) {
 	snap, _, err := m.applySessionSettings(ctx, sessionID, ch)
 	return snap, err
@@ -175,17 +214,27 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 		return acp.SessionSettings{}, "", err
 	}
 	notice := m.writeSettings(sessionID, st, ch, values)
+	m.keepIfLetGo(sessionID, st)
 	source := strings.TrimSpace(ch.Source)
 	if source == "" {
 		source = "unknown"
 	}
-	if ch.Quiet {
-		m.log.Debug("session settings changed", "session", sessionID, "source", source, "change", notice)
-	} else {
-		m.log.Info("session settings changed", "session", sessionID, "source", source, "change", notice)
-		st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
+	m.log.Info("session settings changed", "session", sessionID, "source", source, "change", notice)
+	return m.PublishSessionSettings(sessionID, st, noteSettingsChange(st, ch, notice), source), notice, nil
+}
+
+// noteSettingsChange leaves the notice of a change the agent made itself in
+// the transcript's log, with its source, and returns it for the published
+// update. A change the operator made is noted nowhere but the agent log: its
+// update carries no notice, so no surface prints a line for it. The notice
+// still answers a prompt of commands only (TakeSettingsCommands), which an
+// editor or a chat has no selector to show.
+func noteSettingsChange(st *State, ch SettingsChange, notice string) string {
+	if !ch.ByAgent() {
+		return ""
 	}
-	return m.PublishSessionSettings(sessionID, st, notice, source), notice, nil
+	st.appendSettingsNotice(CountUserTurns(st.GetMessages()), notice, ch.Source)
+	return notice
 }
 
 // validateSettingsChange checks every named value against the configuration
@@ -298,8 +347,8 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		}
 		st.ClearTurnOverride(name)
 	}
-	if modeChanged && m.server != nil {
-		if err := m.server.SendSessionUpdate(sessionID, acp.ModeUpdate{
+	if sender := m.currentSender(); modeChanged && sender != nil {
+		if err := sender.SendSessionUpdate(sessionID, acp.ModeUpdate{
 			SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
 			CurrentModeID: values[SettingMode],
 		}); err != nil {
@@ -584,6 +633,5 @@ func (m *Manager) ApplyTurnSettings(_ context.Context, sessionID string, ch Sett
 		source = "unknown"
 	}
 	m.log.Info("turn settings changed", "session", sessionID, "source", source, "change", notice)
-	st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
-	return m.PublishSessionSettings(sessionID, st, notice, source), nil
+	return m.PublishSessionSettings(sessionID, st, noteSettingsChange(st, ch, notice), source), nil
 }

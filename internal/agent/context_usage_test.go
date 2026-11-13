@@ -79,17 +79,17 @@ func TestLLMVisibleMessagesMatchesEngineWindow(t *testing.T) {
 // folded messages carry no flag — the ring never dropped after compaction.
 func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
 	a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
-	_ = a.buildSystemPrompt("agent", nil, nil, nil)
+	_ = a.buildSystemPrompt("agent", nil, nil)
 
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected a context breakdown")
 	}
-	wantConversation := session.EstimateTokens(conversationText(a.llmVisibleMessages()))
+	wantConversation := conversationTokens(a.llmVisibleMessages(), a.modelReadsImages())
 	if b.Conversation != wantConversation {
 		t.Fatalf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
 	}
-	full := session.EstimateTokens(conversationText(st.GetMessages()))
+	full := conversationTokens(st.GetMessages(), a.modelReadsImages())
 	if b.Conversation >= full {
 		t.Fatalf("conversation tokens %d still count the folded turns (full transcript = %d)", b.Conversation, full)
 	}
@@ -135,7 +135,7 @@ func TestTurnOpensWithTheEstimateItsFirstRequestCosts(t *testing.T) {
 	for _, mode := range []string{"agent", "plan"} {
 		t.Run(mode, func(t *testing.T) {
 			a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
-			build := a.buildSystemPromptParts(mode, nil, nil, nil)
+			build := a.buildSystemPromptParts(mode, nil, nil)
 			opened := st.GetLastContextBreakdown()
 			if opened == nil {
 				t.Fatal("expected a context breakdown")

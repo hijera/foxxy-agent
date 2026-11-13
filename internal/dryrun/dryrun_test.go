@@ -19,7 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
-const modeline = "# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\n"
+const modeline = "# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json\n"
 
 // prepare writes body as <home>/config.yaml and runs the static stage.
 func prepare(t *testing.T, body string) (*Prepared, string) {
@@ -214,6 +214,17 @@ func TestTelegramTokenProbe(t *testing.T) {
 	}
 }
 
+// runWithMCP prepares body, writes mcpJSON as <home>/mcp.json - where the MCP
+// servers are declared - and runs the probes.
+func runWithMCP(t *testing.T, body, mcpJSON string) *Report {
+	t.Helper()
+	prep, home := prepare(t, body)
+	if err := os.WriteFile(config.GlobalMCPJSONPath(home), []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+}
+
 func TestMCPCommandLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PATH lookup of a shell script is a POSIX fixture")
@@ -223,16 +234,25 @@ func TestMCPCommandLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	rep := run(t, "mcp_servers:\n  - name: found\n    command: foxxycode-dry-run-tool\n  - name: missing\n    command: definitely-not-installed-foxxycode-mcp\n  - name: off\n    command: definitely-not-installed-foxxycode-mcp\n    disabled: true\n", nil)
-	if c := find(t, rep, "mcp_servers[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": {
+  "found": {"command": "foxxycode-dry-run-tool"},
+  "missing": {"command": "definitely-not-installed-foxxycode-mcp"},
+  "off": {"command": "definitely-not-installed-foxxycode-mcp", "disabled": true}
+}}`)
+	if c := find(t, rep, "mcp.json[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
 		t.Errorf("found %+v", c)
 	}
-	m := find(t, rep, "mcp_servers[missing]")
-	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || m.Line != 6 {
+	m := find(t, rep, "mcp.json[missing]")
+	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || !strings.Contains(m.Fix, "mcp.json") {
 		t.Errorf("missing %+v", m)
 	}
-	if c := find(t, rep, "mcp_servers[off]"); c.Status != StatusSkipped {
+	if c := find(t, rep, "mcp.json[off]"); c.Status != StatusSkipped {
 		t.Errorf("disabled %+v", c)
+	}
+
+	broken := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": [`)
+	if c := find(t, broken, "mcp.json"); c.Status != StatusError || !strings.Contains(c.Fix, "mcpServers") {
+		t.Errorf("an mcp.json that does not read %+v", c)
 	}
 }
 
@@ -248,11 +268,17 @@ func TestMCPRemoteReachability(t *testing.T) {
 	down := httptest.NewServer(http.NotFoundHandler())
 	downURL := down.URL
 	down.Close()
-	rep := run(t, fmt.Sprintf("mcp_servers:\n  - name: up\n    url: %s/mcp\n    headers:\n      - name: X-Token\n        value: secret\n  - name: down\n    url: %s/mcp\n", srv.URL, downURL), nil)
-	if c := find(t, rep, "mcp_servers[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
+	// A header that names an environment variable is sent with its value, as
+	// the server would be started.
+	t.Setenv("FOXXYCODE_DRY_RUN_MCP_TOKEN", "secret")
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", fmt.Sprintf(`{"mcpServers": {
+  "up": {"url": %q, "headers": {"X-Token": "${FOXXYCODE_DRY_RUN_MCP_TOKEN}"}},
+  "down": {"url": %q}
+}}`, srv.URL+"/mcp", downURL+"/mcp"))
+	if c := find(t, rep, "mcp.json[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
 		t.Errorf("up %+v", c)
 	}
-	if c := find(t, rep, "mcp_servers[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
+	if c := find(t, rep, "mcp.json[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
 		t.Errorf("down %+v", c)
 	}
 }
@@ -284,6 +310,86 @@ func TestConfiguredRemotesDownAreWarnings(t *testing.T) {
 	c := find(t, rep, "httpserver.remotes[nas]")
 	if c.Status != StatusWarning || !strings.Contains(c.Message, "cannot reach") || c.Line != 5 {
 		t.Errorf("remote %+v (line 5 is the url)", c)
+	}
+}
+
+// fakeRelay answers the way a swarm relay does: no /v1 at all, a public
+// /swarm/info, and the node list behind its client token.
+func fakeRelay(t *testing.T, clientToken string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/swarm/info":
+			_, _ = fmt.Fprint(w, `{"swarm":true,"name":"office","node_count":2}`)
+		case "/swarm/nodes":
+			if r.Header.Get("Authorization") != "Bearer "+clientToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"nodes":[{"name":"worker-a","kind":"agent","online":true},{"name":"worker-b","kind":"agent","online":false},{"name":"inner","kind":"relay","online":true}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A relay serves no /v1, so --remote at a relay's root cannot drive anything:
+// the dry run says it is a relay and names the node mounts to use instead
+// (issue #401), rather than "answered HTTP 404".
+func TestRemoteTargetThatIsARelayNamesItsNodes(t *testing.T) {
+	relay := fakeRelay(t, "client")
+	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) { r.Remote = &remote.Options{BaseURL: relay.URL, Token: "client"} })
+	c := find(t, rep, "--remote")
+	if c.Status != StatusError || !strings.Contains(c.Message, "swarm relay") {
+		t.Fatalf("relay target %+v", c)
+	}
+	if !strings.Contains(c.Fix, relay.URL+"/swarm/nodes/worker-a") || !strings.Contains(c.Fix, "worker-b") || strings.Contains(c.Fix, "inner") {
+		t.Errorf("the fix should name the agents' mounts: %+v", c)
+	}
+	refused := run(t, "agent:\n  max_turns: 3\n", func(r *Request) { r.Remote = &remote.Options{BaseURL: relay.URL, Token: "wrong"} })
+	if c := find(t, refused, "--remote"); c.Status != StatusError || !strings.Contains(c.Message, "rejected the token") || !strings.Contains(c.Fix, "swarm.auth_token") {
+		t.Errorf("relay refusing the token %+v", c)
+	}
+}
+
+// A configured remote is probed with the token its entry carries, and a relay
+// among them is recognised as one.
+func TestConfiguredRemotesUseTheirTokenAndKnowARelay(t *testing.T) {
+	relay := fakeRelay(t, "client")
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer box-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"data":[]}`)
+	}))
+	t.Cleanup(agent.Close)
+	cfg := fmt.Sprintf("httpserver:\n  remotes:\n"+
+		"    - name: office\n      url: %s\n      token: client\n"+
+		"    - name: office-wrong\n      url: %s\n      token: nope\n"+
+		"    - name: office-bare\n      url: %s\n"+
+		"    - name: box\n      url: %s\n      token: box-token\n"+
+		"    - name: box-wrong\n      url: %s\n      token: nope\n",
+		relay.URL, relay.URL, relay.URL, agent.URL, agent.URL)
+	rep := run(t, cfg, nil)
+	if c := find(t, rep, "httpserver.remotes[office]"); c.Status != StatusOK || !strings.Contains(c.Message, "swarm relay") || !strings.Contains(c.Message, "accepts the token") {
+		t.Errorf("relay with its token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[office-wrong]"); c.Status != StatusWarning || !strings.Contains(c.Message, "rejected the token") {
+		t.Errorf("relay refusing the entry's token %+v", c)
+	}
+	// Without a token in the entry the token is the browser's or the flag's
+	// business, so the relay is simply there.
+	if c := find(t, rep, "httpserver.remotes[office-bare]"); c.Status != StatusOK || !strings.Contains(c.Message, "swarm relay") {
+		t.Errorf("relay without a token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[box]"); c.Status != StatusOK || !strings.Contains(c.Message, "accepts the token") {
+		t.Errorf("agent with its token %+v", c)
+	}
+	if c := find(t, rep, "httpserver.remotes[box-wrong]"); c.Status != StatusWarning || !strings.Contains(c.Message, "rejected the token") {
+		t.Errorf("agent refusing the entry's token %+v", c)
 	}
 }
 
@@ -338,6 +444,26 @@ func TestExplicitSkillsDirMissingIsAWarningDefaultsAreSilent(t *testing.T) {
 	for _, c := range rep.Checks {
 		if strings.HasPrefix(c.Path, "skills.dirs") && c.Status != StatusOK {
 			t.Errorf("a default dir that is absent must stay quiet: %+v", c)
+		}
+	}
+}
+
+// A relative skills.dirs or subagents.dirs entry names a folder of the
+// workspace, as the loaders read it, not of the directory the check runs in.
+func TestRelativeDirsAreProbedInTheWorkspace(t *testing.T) {
+	prep, home := prepare(t, "skills:\n  dirs: [\"team-skills\"]\nsubagents:\n  dirs: [\"team-agents\"]\n")
+	for _, d := range []string{"team-agents", "team-skills"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wd, _ := os.Getwd(); wd == prep.Paths.CWD {
+		t.Fatalf("the workspace must differ from the process cwd for this test (%s)", wd)
+	}
+	rep := Run(t.Context(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+	for _, path := range []string{"skills.dirs[0]", "subagents.dirs[0]"} {
+		if c := find(t, rep, path); c.Status != StatusOK {
+			t.Errorf("%s = %+v, want the workspace folder found", path, c)
 		}
 	}
 }

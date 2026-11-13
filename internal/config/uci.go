@@ -14,7 +14,7 @@ import (
 )
 
 // UCI-style staged configuration editing. Paths are dotted like OpenWrt's uci
-// CLI ("agent.max_turns", "mcp_servers[name=context7].command") and edits are
+// CLI ("agent.max_turns", "providers[name=local].api_base") and edits are
 // expressed as commands (set / add_list / del_list / delete) that are staged by
 // the session and only applied together by CommitUCICommands.
 
@@ -58,7 +58,7 @@ func (c UCICommand) RedactedString() string {
 		keys = configPathKeys(tokens)
 	}
 	if configSecretPath(keys) && !publicConfigValue(keys, strings.Trim(c.Value, `"'`)) {
-		return c.Op + " " + c.Path + "=" + redactedConfigValue
+		return c.Op + " " + c.Path + "=" + RedactedValue
 	}
 	var decoded interface{}
 	if json.Unmarshal([]byte(c.Value), &decoded) == nil && redactSecretJSON(&decoded, keys) {
@@ -84,7 +84,7 @@ func redactSecretJSON(v *interface{}, path []string) bool {
 				if v, ok := child.(string); ok && publicConfigValue(next, v) {
 					continue
 				}
-				node[key] = redactedConfigValue
+				node[key] = RedactedValue
 				changed = true
 				continue
 			}
@@ -196,7 +196,7 @@ func unquoteUCIValue(value string) string {
 }
 
 // parseDottedConfigPath tokenizes a uci-like dotted path. Selector segments
-// ("mcp_servers[name=context7]") reuse the slash-path selector grammar, and
+// ("providers[name=local]") reuse the slash-path selector grammar, and
 // dots inside a selector belong to the selector value.
 func parseDottedConfigPath(input string) ([]configPathToken, error) {
 	path := strings.TrimSpace(input)
@@ -259,6 +259,9 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 	if len(tokens) == 0 {
 		return fmt.Errorf("config root cannot be edited; address a specific path")
 	}
+	if err := refuseRedactedSelector(tokens); err != nil {
+		return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
+	}
 	switch cmd.Op {
 	case UCIOpSet:
 		target, err := configSchemaType(tokens)
@@ -267,6 +270,9 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		replacement, err := decodeUCIValue(cmd.Value, target)
 		if err != nil {
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
+		}
+		if err := refuseRedactedPlaceholder(replacement, configPathKeys(tokens)); err != nil {
 			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if _, err := mutateConfigNode(root, tokens, replacement, false); err != nil {
@@ -293,6 +299,9 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		replacement, err := decodeUCIValue(cmd.Value, target)
 		if err != nil {
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
+		}
+		if err := refuseRedactedPlaceholder(replacement, configPathKeys(appendTokens)); err != nil {
 			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if _, err := mutateConfigNode(root, appendTokens, replacement, false); err != nil {
@@ -327,6 +336,49 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 	default:
 		return fmt.Errorf("config command verb %q is not supported", cmd.Op)
 	}
+}
+
+// refuseRedactedPlaceholder refuses a value that would write, over a secret,
+// the word config_get shows in its place: a model that reads a section and
+// stages it back would replace every secret in it - a key, a header of
+// tools.http_request.default_headers - with that word.
+func refuseRedactedPlaceholder(node *yaml.Node, path []string) error {
+	switch node.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range node.Content {
+			if err := refuseRedactedPlaceholder(child, path); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if err := refuseRedactedPlaceholder(node.Content[i+1], appendPath(path, node.Content[i].Value)); err != nil {
+				return err
+			}
+		}
+	case yaml.ScalarNode:
+		// A map whose every value is a secret (default_headers) takes the
+		// placeholder no better as a whole than entry by entry.
+		if node.Value == RedactedValue && (configSecretPath(path) || configSecretPath(appendPath(path, ""))) {
+			return fmt.Errorf("%s is what config_get shows in place of a secret, not its value: stage the real value, or leave the key out of the command", RedactedValue)
+		}
+	}
+	return nil
+}
+
+// refuseRedactedSelector refuses a selector that matches a secret field on the
+// placeholder config_get shows for it (providers[api_key=<redacted>]): a set
+// writes the selector's value into the entry it creates.
+func refuseRedactedSelector(tokens []configPathToken) error {
+	for i, token := range tokens {
+		if token.selector == nil || token.selector.value != RedactedValue {
+			continue
+		}
+		if configSecretPath(append(configPathKeys(tokens[:i+1]), token.selector.field)) {
+			return fmt.Errorf("%s is what config_get shows in place of a secret, not its value: select the entry by another field", RedactedValue)
+		}
+	}
+	return nil
 }
 
 // decodeUCIValue turns raw command text into a YAML node for the target field.

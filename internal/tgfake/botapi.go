@@ -1,8 +1,15 @@
 package tgfake
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,6 +53,10 @@ func (s *Server) serveBotAPI(w http.ResponseWriter, r *http.Request) {
 		s.writeResult(w, method, params, s.Commands())
 	case "sendmessage":
 		s.sendMessage(w, method, params)
+	case "sendphoto":
+		s.sendMedia(w, r, method, params, "photo")
+	case "senddocument":
+		s.sendMedia(w, r, method, params, "document")
 	case "editmessagetext", "editmessagereplymarkup":
 		s.editMessage(w, method, params)
 	case "deletemessage":
@@ -69,9 +80,15 @@ func (s *Server) serveBotAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseParams reads the request the way the Bot API does: query string and
-// urlencoded form, or a JSON object whose nested values stay JSON text - the
-// form a library encodes reply_markup and rich_message in anyway.
+// urlencoded form, a JSON object whose nested values stay JSON text - the
+// form a library encodes reply_markup and rich_message in anyway - or a
+// multipart form, whose file parts stay on the request for the method to
+// read while the fields land in the same values.
 func parseParams(r *http.Request) url.Values {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		_ = r.ParseMultipartForm(32 << 20)
+		return r.Form
+	}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		out := url.Values{}
 		for k, v := range r.URL.Query() {
@@ -195,8 +212,11 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message is too long", 0)
 		return
 	}
-	markup := parseKeyboard(params.Get("reply_markup"))
-	if problem := validateKeyboard(markup); problem != "" {
+	markup, problem := parseKeyboard(params.Get("reply_markup"))
+	if problem == "" {
+		problem = validateKeyboard(markup)
+	}
+	if problem != "" {
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
 		return
 	}
@@ -217,6 +237,97 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 	}
 	msg.ReplyMarkup = markup
 	stored := chat.appendLocked(msg, true, params.Get("parse_mode"), false)
+	result := stored.clone()
+	s.mu.Unlock()
+	s.writeResult(w, method, params, result)
+}
+
+// mediaCaptionMax is Telegram's limit on the caption of a media message, in
+// characters.
+const mediaCaptionMax = 1024
+
+// photoMaxSize and documentMaxSize are the upload limits of sendPhoto and
+// sendDocument, matching what api.telegram.org accepts from a bot.
+const (
+	photoMaxSize    = 10 << 20
+	documentMaxSize = 50 << 20
+)
+
+// sendMedia answers sendPhoto and sendDocument: the file arrives as the
+// first multipart part named by field, the chat and caption as ordinary
+// form fields. Only the upload variant exists: a file_id or a URL string in
+// place of the upload is refused as a request with no file in it.
+func (s *Server) sendMedia(w http.ResponseWriter, r *http.Request, method string, params url.Values, field string) {
+	chatID, ok := chatIDOf(params)
+	if !ok {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: chat_id is empty", 0)
+		return
+	}
+	var header *multipart.FileHeader
+	if r.MultipartForm != nil {
+		if headers := r.MultipartForm.File[field]; len(headers) > 0 {
+			header = headers[0]
+		}
+	}
+	if header == nil {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: there is no "+field+" in the request", 0)
+		return
+	}
+	limit := int64(documentMaxSize)
+	if field == "photo" {
+		limit = photoMaxSize
+	}
+	part, err := header.Open()
+	if err != nil {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: there is no "+field+" in the request", 0)
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(part, limit+1))
+	_ = part.Close()
+	if err != nil {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: can't read the "+field, 0)
+		return
+	}
+	if int64(len(data)) > limit {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: file is too big", 0)
+		return
+	}
+	caption := params.Get("caption")
+	if utf8.RuneCountInString(caption) > mediaCaptionMax {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message caption is too long", 0)
+		return
+	}
+	var cfg image.Config
+	if field == "photo" {
+		var err error
+		cfg, _, err = image.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: IMAGE_PROCESS_FAILED", 0)
+			return
+		}
+	}
+	mimeType, _, _ := strings.Cut(http.DetectContentType(data), ";")
+	params.Set(field, fmt.Sprintf("%s (%d bytes)", header.Filename, len(data)))
+	s.mu.Lock()
+	chat := s.ensureChatLocked(chatID, "", "", nil)
+	quoted, problem := replyTargetLocked(chat, params)
+	if problem != "" {
+		s.mu.Unlock()
+		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
+		return
+	}
+	s.nextFileID++
+	id := "file_" + strconv.Itoa(s.nextFileID)
+	f := &storedFile{id: id, name: header.Filename, mimeType: mimeType, data: data, width: cfg.Width, height: cfg.Height}
+	s.files[id] = f
+	msg := &Message{From: s.botUser(), Chat: chat.wire(), Date: s.now().Unix(), Caption: caption, ReplyToMessage: quoted}
+	if field == "photo" {
+		msg.Photo = []PhotoSize{{FileID: id, FileUniqueID: "u" + id, Width: cfg.Width, Height: cfg.Height, FileSize: len(data)}}
+	} else {
+		msg.Document = &Document{FileID: id, FileUniqueID: "u" + id, FileName: header.Filename, MimeType: mimeType, FileSize: len(data)}
+	}
+	stored := chat.appendLocked(msg, true, params.Get("parse_mode"), false)
+	stored.file = f
 	result := stored.clone()
 	s.mu.Unlock()
 	s.writeResult(w, method, params, result)
@@ -259,8 +370,11 @@ func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Va
 			return
 		}
 	}
-	newMarkup := parseKeyboard(params.Get("reply_markup"))
-	if problem := validateKeyboard(newMarkup); problem != "" {
+	newMarkup, problem := parseKeyboard(params.Get("reply_markup"))
+	if problem == "" {
+		problem = validateKeyboard(newMarkup)
+	}
+	if problem != "" {
 		s.mu.Unlock()
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
 		return
@@ -328,8 +442,8 @@ func (s *Server) answerCallbackQuery(w http.ResponseWriter, method string, param
 	answer := CallbackAnswer{ID: id, Text: params.Get("text"), ShowAlert: params.Get("show_alert") == "true"}
 	s.mu.Lock()
 	// The query names no chat; the tap that minted it does. A query the fake
-	// never issued (or one minted before a Reset) is refused the way Telegram
-	// refuses an answer to a query it does not know.
+	// never issued, one minted before a Reset and one already answered are
+	// refused the way Telegram refuses an answer to a query it does not know.
 	chatID, known := s.cbqChat[id]
 	if !known {
 		s.mu.Unlock()
@@ -340,6 +454,10 @@ func (s *Server) answerCallbackQuery(w http.ResponseWriter, method string, param
 	if chat := s.chats[chatID]; chat != nil {
 		chat.callbacks = append(chat.callbacks, answer)
 	}
+	// A query takes one answer, so it is forgotten once answered: a bot that
+	// acknowledges a tap at once and sends an alert about a later failure
+	// loses that alert on Telegram, and the stand has to lose it too.
+	delete(s.cbqChat, id)
 	s.mu.Unlock()
 	s.writeResult(w, method, params, true)
 }
@@ -486,17 +604,36 @@ func replyTargetLocked(chat *chatState, params url.Values) (*Message, string) {
 	return target.quoted(), ""
 }
 
+// inlineKeyboardNotArray is what Telegram answers when reply_markup names
+// inline_keyboard with a value that is not an array.
+const inlineKeyboardNotArray = `Bad Request: Field "inline_keyboard" must be of type Array`
+
 // parseKeyboard reads reply_markup; a markup of another kind (a reply
-// keyboard, a remove) is not an inline keyboard and reads as none.
-func parseKeyboard(raw string) *InlineKeyboardMarkup {
+// keyboard, a remove) is not an inline keyboard and reads as none, and so does
+// an empty array. An inline_keyboard of any other type, null included, is
+// refused the way the Bot API server refuses it: that null is what a library
+// sends for a keyboard built from no rows, and a real chat never shows the
+// message it came with. It returns the keyboard, or the error description.
+func parseKeyboard(raw string) (*InlineKeyboardMarkup, string) {
 	if strings.TrimSpace(raw) == "" {
-		return nil
+		return nil, ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return nil, ""
+	}
+	value, ok := fields["inline_keyboard"]
+	if !ok {
+		return nil, ""
+	}
+	if trimmed := strings.TrimSpace(string(value)); !strings.HasPrefix(trimmed, "[") {
+		return nil, inlineKeyboardNotArray
 	}
 	var kb InlineKeyboardMarkup
 	if err := json.Unmarshal([]byte(raw), &kb); err != nil || len(kb.InlineKeyboard) == 0 {
-		return nil
+		return nil, ""
 	}
-	return &kb
+	return &kb, ""
 }
 
 // callbackDataMax is Telegram's limit on a button's callback_data, in bytes.

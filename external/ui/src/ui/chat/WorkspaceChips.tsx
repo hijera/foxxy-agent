@@ -27,6 +27,7 @@ import {
 } from "../shellBreakpoint";
 import { isEditorEmbed } from "../embedShell";
 import { useT } from "../i18n/I18nProvider";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 
 type Props = {
   context: WorkspaceContext | null;
@@ -54,6 +55,7 @@ export function WorkspaceChips(props: Props) {
   const { t } = useT();
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
+  const [menuFilter, setMenuFilter] = useState("");
   const [recents, setRecents] = useState<WorkspaceRecent[]>([]);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const isMobileShell = useSyncExternalStore(
@@ -65,6 +67,12 @@ export function WorkspaceChips(props: Props) {
   // Editor plugins (VS Code / IntelliJ) fix the working directory to the open
   // IDE project, so folder switching is hidden there; branch/worktree stay.
   const hideFolderChip = isEditorEmbed();
+  // Escape closes the folder or branch menu that is open.
+  useEscapeCloses(menuOpen !== null, () => {
+    setMenuOpen(null);
+    setMenuAnchorRect(null);
+    setMenuFilter("");
+  });
 
   const ctx = props.context;
   if (!ctx) {
@@ -81,6 +89,7 @@ export function WorkspaceChips(props: Props) {
   const closeMenu = () => {
     setMenuOpen(null);
     setMenuAnchorRect(null);
+    setMenuFilter("");
   };
 
   const toggleMenu = (kind: Exclude<MenuKind, null>, trigger: HTMLElement) => {
@@ -93,6 +102,7 @@ export function WorkspaceChips(props: Props) {
     }
     setMenuOpen(kind);
     setMenuAnchorRect(trigger.getBoundingClientRect());
+    setMenuFilter("");
     if (kind === "folder") {
       setRecents(readWorkspaceRecents());
     }
@@ -109,6 +119,14 @@ export function WorkspaceChips(props: Props) {
   const recentRows: WorkspaceRecent[] = recents.some((r) => r.path === ctx.path)
     ? recents
     : [{ path: ctx.path, name: folderChipLabel(ctx) }, ...recents];
+  const filter = menuFilter.trim().toLocaleLowerCase();
+  const filteredRecents = filter
+    ? recentRows.filter((row) => row.name.toLocaleLowerCase().includes(filter))
+    : recentRows;
+  const branches = sortedBranches(ctx);
+  const filteredBranches = filter
+    ? branches.filter((branch) => branch.toLocaleLowerCase().includes(filter))
+    : branches;
 
   const dirClass = props.opensUp ? "opens-up" : "opens-down";
   const menuStyle =
@@ -122,7 +140,7 @@ export function WorkspaceChips(props: Props) {
         : { left: menuAnchorRect.left, top: menuAnchorRect.bottom + 8 };
 
   const showBranch = branchChipVisible(ctx);
-  const worktreeActive = isWorktreeBadgeActive(ctx, props.worktreePref);
+  const worktreeActive = isWorktreeBadgeActive(ctx, !locked && props.worktreePref);
   const showSvn = svnChipVisible(ctx);
   const svnFolderActive = isSvnFolderCheckoutActive(ctx, props.svnFolderPref);
   const svnLabel = svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy"));
@@ -145,7 +163,7 @@ export function WorkspaceChips(props: Props) {
           type="button"
           className="workspace-chip"
           data-testid="composer-workspace-chip"
-          title={ctx.path}
+          title={ctx.is_worktree && ctx.repo_root ? ctx.repo_root : ctx.path}
           aria-haspopup="menu"
           disabled={locked}
           onClick={(e) => toggleMenu("folder", e.currentTarget)}
@@ -273,8 +291,17 @@ export function WorkspaceChips(props: Props) {
                     <div className="mode-menu-group-label">
                       {t("composer.workspace.recent")}
                     </div>
+                    <input
+                      className="mode-menu-filter"
+                      data-testid="workspace-recent-filter"
+                      value={menuFilter}
+                      placeholder={t("workspace.filterRecent")}
+                      aria-label={t("workspace.filterRecent")}
+                      autoFocus
+                      onChange={(event) => setMenuFilter(event.target.value)}
+                    />
                     <div className="mode-menu-scroll">
-                      {recentRows.map((r) => (
+                      {filteredRecents.map((r) => (
                         <button
                           key={r.path}
                           type="button"
@@ -298,6 +325,14 @@ export function WorkspaceChips(props: Props) {
                           ) : null}
                         </button>
                       ))}
+                      {filteredRecents.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="workspace-recent-empty"
+                        >
+                          {t("workspace.noRecentMatch")}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="workspace-menu-sep" aria-hidden="true" />
                     <button
@@ -315,31 +350,51 @@ export function WorkspaceChips(props: Props) {
                   </>
                 ) : null}
                 {menuOpen === "branch" ? (
-                  <div className="mode-menu-scroll">
-                    {sortedBranches(ctx).map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        role="menuitem"
-                        title={b}
-                        className={`mode-item ${b === ctx.branch ? "is-selected" : ""}`}
-                        data-testid={`workspace-branch-row-${b}`}
-                        onClick={() => {
-                          if (b !== ctx.branch) {
-                            props.onPickBranch(b, props.worktreePref);
-                          }
-                          closeMenu();
-                        }}
-                      >
-                        {b}
-                      </button>
-                    ))}
-                    {(ctx.branches || []).length === 0 ? (
-                      <div className="mode-menu-empty">
-                        {t("composer.workspace.noBranches")}
-                      </div>
-                    ) : null}
-                  </div>
+                  <>
+                    <input
+                      className="mode-menu-filter"
+                      data-testid="workspace-branch-filter"
+                      value={menuFilter}
+                      placeholder={t("workspace.filterBranches")}
+                      aria-label={t("workspace.filterBranches")}
+                      autoFocus
+                      onChange={(event) => setMenuFilter(event.target.value)}
+                    />
+                    <div className="mode-menu-scroll">
+                      {filteredBranches.map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          role="menuitem"
+                          title={b}
+                          className={`mode-item ${b === ctx.branch ? "is-selected" : ""}`}
+                          data-testid={`workspace-branch-row-${b}`}
+                          onClick={() => {
+                            if (b !== ctx.branch) {
+                              props.onPickBranch(b, props.worktreePref);
+                            }
+                            closeMenu();
+                          }}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                      {(ctx.branches || []).length === 0 ? (
+                        <div className="mode-menu-empty">
+                          {t("workspace.noBranches")}
+                        </div>
+                      ) : null}
+                      {(ctx.branches || []).length > 0 &&
+                      filteredBranches.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="workspace-branch-empty"
+                        >
+                          {t("workspace.noBranchesMatch")}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 ) : null}
                 {menuOpen === "svn" ? (
                   <div className="mode-menu-scroll">

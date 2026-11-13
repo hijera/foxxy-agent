@@ -2,6 +2,7 @@ import { Fragment, useId, useRef, useState, type ChangeEvent, type ReactNode } f
 import { Chevron } from "../components/Chevron";
 
 import { t } from "../i18n/i18n";
+import { useT } from "../i18n/I18nProvider";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
 import { Combobox } from "./Combobox";
 import { FieldLabel, LegendWithHint } from "./FieldHint";
@@ -60,6 +61,8 @@ export type JsonSchema = {
   description?: string;
   default?: unknown;
   properties?: Record<string, JsonSchema>;
+  /** false closes an object to its properties; a schema describes every value of a map. */
+  additionalProperties?: boolean | JsonSchema;
   items?: JsonSchema;
   enum?: unknown[];
   minimum?: number;
@@ -76,7 +79,34 @@ export type JsonSchema = {
   /** The serving binary was compiled WITHOUT the tag above, so nothing in this
    * section can take effect here. Set by the process serving the schema. */
   "x-foxxycode-build-tag-missing"?: boolean;
+  /**
+   * A credential the configuration document serves empty (a relay's tokens):
+   * drawn as a password field, kept on save when left empty, replaced when
+   * filled in.
+   */
+  writeOnly?: boolean;
+  /** The sibling field that says whether a writeOnly value is set. */
+  "x-foxxycode-configured"?: string;
+  /** The document is a relay's settings form (config.RelayUISchemaMap). */
+  "x-foxxycode-relay"?: boolean;
 };
+
+/**
+ * configuredCount reads the sibling flag a write-only field names: true or a
+ * count of values set (a relay's pairing tokens). Zero when nothing is set or
+ * nothing says.
+ */
+function configuredCount(
+  schema: JsonSchema,
+  parentObj: Record<string, unknown> | undefined,
+): number {
+  const flag = schema["x-foxxycode-configured"];
+  const v = flag && parentObj ? parentObj[flag] : undefined;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return Math.max(0, v);
+  }
+  return v === true ? 1 : 0;
+}
 
 function entriesInSchemaOrder(
   props: Record<string, JsonSchema>,
@@ -110,6 +140,22 @@ function placeholderFromDefault(s: JsonSchema): string | undefined {
     return undefined;
   }
   return String(s.default);
+}
+
+/**
+ * A map of plain values: an object with no properties of its own whose every
+ * value is a string, such as tools.http_request.default_headers. Its keys are
+ * the operator's, so the form edits it as rows of a name and a value.
+ */
+export function isStringMapSchema(s: JsonSchema): boolean {
+  const values = s.additionalProperties;
+  return (
+    s.type === "object" &&
+    s.properties === undefined &&
+    typeof values === "object" &&
+    values !== null &&
+    values.type === "string"
+  );
 }
 
 export function defaultForSchema(s: JsonSchema): unknown {
@@ -146,6 +192,9 @@ export function defaultForSchema(s: JsonSchema): unknown {
   }
   if (t === "array") {
     return [];
+  }
+  if (isStringMapSchema(s)) {
+    return {};
   }
   if (t === "boolean") {
     return false;
@@ -192,6 +241,7 @@ function SchemaField(props: {
   const desc = tSchemaText(schema.description);
   // Do not name this `t`: it would shadow the imported i18n t() used below.
   const fieldType = schema.type;
+  const { t: tr, tp } = useT();
   // When this field is the requested focus target (e.g. `api_key` after an
   // import), focus and scroll it into view once on mount via a callback ref.
   const focusedOnce = useRef(false);
@@ -290,10 +340,22 @@ function SchemaField(props: {
     );
   }
 
+  if (isStringMapSchema(schema)) {
+    return (
+      <StringMapField
+        label={label}
+        description={desc}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (fieldType === "array" && schema.items) {
     const arr = Array.isArray(value) ? [...value] : [];
     const itemSchema = schema.items;
     const scalarItems = isScalarItem(itemSchema);
+    const setCount = schema.writeOnly ? configuredCount(schema, parentObj) : 0;
     return (
       <fieldset
         className={
@@ -302,6 +364,11 @@ function SchemaField(props: {
         disabled={disabled || undefined}
       >
         <LegendWithHint label={label} description={desc} />
+        {setCount > 0 ? (
+          <p className="settings-field-desc" data-testid="settings-secret-list-state">
+            {tp("settings.secret.listSet", setCount)}
+          </p>
+        ) : null}
         <ul className="settings-array">
           {arr.map((row, i) => (
             <li key={i} className="settings-array-row">
@@ -309,6 +376,7 @@ function SchemaField(props: {
                 {scalarItems ? (
                   <ArrayItemControl
                     schema={itemSchema}
+                    secret={schema.writeOnly === true}
                     value={row}
                     ariaLabel={`${label} ${i + 1}`}
                     onChange={(nv) => {
@@ -462,6 +530,28 @@ function SchemaField(props: {
         ? String(schema.default)
         : ""
       : String(value);
+  if (schema.writeOnly) {
+    // The document serves it empty; empty keeps what is set, a value replaces
+    // it. The placeholder is what says which of the two an empty field means.
+    const set = configuredCount(schema, parentObj) > 0;
+    return (
+      <div className="settings-row">
+        <FieldLabel label={label} description={desc} />
+        <input
+          className="settings-input"
+          type="password"
+          autoComplete="new-password"
+          value={s}
+          placeholder={set ? tr("settings.secret.keep") : tr("settings.secret.unset")}
+          aria-label={label}
+          data-testid={`settings-secret-${path}`}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            onChange(e.target.value)
+          }
+        />
+      </div>
+    );
+  }
   if (schema["x-foxxycode-proxy-url"] === true) {
     return (
       <div className="settings-row">
@@ -533,11 +623,13 @@ function isScalarItem(sub: JsonSchema): boolean {
  */
 function ArrayItemControl(props: {
   schema: JsonSchema;
+  /** An entry of a write-only list (a relay's pairing tokens). */
+  secret?: boolean;
   value: unknown;
   ariaLabel: string;
   onChange: (v: unknown) => void;
 }) {
-  const { schema, value, ariaLabel, onChange } = props;
+  const { schema, value, ariaLabel, onChange, secret } = props;
   const text = value === undefined || value === null ? "" : String(value);
   if (schema.enum && schema.enum.length > 0) {
     return (
@@ -569,7 +661,8 @@ function ArrayItemControl(props: {
   return (
     <input
       className="settings-input"
-      type="text"
+      type={secret ? "password" : "text"}
+      autoComplete={secret ? "new-password" : undefined}
       value={text}
       aria-label={ariaLabel}
       onChange={(e) => onChange(e.target.value)}
@@ -577,11 +670,147 @@ function ArrayItemControl(props: {
   );
 }
 
-/** A field that renders as a fieldset of its own: a list or a nested object. */
+/** One row of a map being edited: the name as typed, its value, and a key of
+ * its own, so a removed row takes its focus with it instead of handing the next
+ * row's trash to a second key press. */
+type MapRow = { id: number; name: string; value: string };
+
+function mapRowsOf(value: unknown, nextId: () => number): MapRow[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+  return Object.entries(value as Record<string, unknown>).map(([name, v]) => ({
+    id: nextId(),
+    name,
+    value: v === undefined || v === null ? "" : String(v),
+  }));
+}
+
+/** The document the rows stand for: a row without a name is left out, and of
+ * two rows with one name the later one wins, as a later key does in YAML.
+ * Object.fromEntries defines own keys, so a name such as __proto__ is a key
+ * like any other rather than the object's prototype. */
+function mapOfRows(
+  rows: ReadonlyArray<Pick<MapRow, "name" | "value">>,
+): Record<string, string> {
+  return Object.fromEntries(
+    rows.flatMap((row): Array<[string, string]> => {
+      const name = row.name.trim();
+      return name === "" ? [] : [[name, row.value]];
+    }),
+  );
+}
+
+function sameMap(a: Record<string, string>, b: unknown): boolean {
+  const other = mapOfRows(mapRowsOf(b, () => 0));
+  const keys = Object.keys(a);
+  const otherKeys = Object.keys(other);
+  return (
+    keys.length === otherKeys.length &&
+    keys.every((k, i) => otherKeys[i] === k && other[k] === a[k])
+  );
+}
+
+/**
+ * StringMapField edits a map of plain values (isStringMapSchema) as rows of two
+ * bare inputs, the name and then the value, each beside its trash, with Add
+ * under the rows. The rows are the form's own: a row whose name is still empty
+ * stays on screen and out of the document, and so does the earlier of two rows
+ * with one name. A change that leaves the document as it was (Add, a value typed
+ * into a row with no name yet) is no edit of the form. A document that stops
+ * matching the rows came from outside the form - a reload, a save elsewhere -
+ * and replaces them.
+ */
+function StringMapField(props: {
+  label: string;
+  description: string | undefined;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const { label, description, value, onChange } = props;
+  const tr = t;
+  const lastId = useRef(0);
+  const nextId = () => ++lastId.current;
+  const [rows, setRows] = useState<MapRow[]>(() => mapRowsOf(value, nextId));
+  const [shown, setShown] = useState<unknown>(value);
+  if (value !== shown) {
+    // Taken while rendering, like the settings copy itself: an effect would
+    // draw one frame of the stale rows first.
+    setShown(value);
+    if (!sameMap(mapOfRows(rows), value)) {
+      setRows(mapRowsOf(value, nextId));
+    }
+  }
+  const update = (next: MapRow[]) => {
+    setRows(next);
+    const doc = mapOfRows(next);
+    if (!sameMap(doc, value)) {
+      onChange(doc);
+    }
+  };
+  const edit = (id: number, patch: Partial<MapRow>) =>
+    update(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  return (
+    <fieldset className="settings-fieldset">
+      <LegendWithHint label={label} description={description} />
+      <ul className="settings-array settings-map">
+        {rows.map((row, i) => (
+          <li key={row.id} className="settings-array-row">
+            <div className="settings-array-row-field settings-map-entry">
+              <input
+                className="settings-input settings-map-name"
+                type="text"
+                value={row.name}
+                placeholder={tr("settings.map.namePlaceholder")}
+                aria-label={tr("settings.map.nameAria", { label, n: i + 1 })}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  edit(row.id, { name: e.target.value })
+                }
+              />
+              <input
+                className="settings-input settings-map-value"
+                type="text"
+                value={row.value}
+                placeholder={tr("settings.map.valuePlaceholder")}
+                aria-label={tr("settings.map.valueAria", { label, n: i + 1 })}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  edit(row.id, { value: e.target.value })
+                }
+              />
+            </div>
+            <button
+              type="button"
+              className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
+              aria-label={tr("settings.remove")}
+              title={tr("settings.remove")}
+              onClick={() => update(rows.filter((r) => r.id !== row.id))}
+            >
+              <IconTrash />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        className="settings-btn"
+        onClick={() => update([...rows, { id: nextId(), name: "", value: "" }])}
+      >
+        {tr("settings.add")}
+      </button>
+    </fieldset>
+  );
+}
+
+/** A field that renders as a fieldset of its own: a list, a map or a nested object. */
 function isBlockField(sub: JsonSchema): boolean {
   return (
     (sub.type === "object" && sub.properties !== undefined) ||
-    (sub.type === "array" && sub.items !== undefined)
+    (sub.type === "array" && sub.items !== undefined) ||
+    isStringMapSchema(sub)
   );
 }
 

@@ -4,13 +4,13 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
+- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.26**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
+- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
 - **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard
@@ -93,6 +93,41 @@ go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
 
 The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
+## Fork-owned SPA styles
+
+The common stylesheet stays at `external/ui/src/styles.css`, matching the
+upstream path. FoxxyCode's SVN cards, provider onboarding and guided tour,
+provider import/export controls and IDE embed chrome live in
+`external/ui/src/styles/fork/`.
+
+A top-level comment such as `/* foxxycode:styles svn */` marks the original
+cascade position: `foxxycode:styles` plus exactly one name, the file
+`styles/fork/<name>.css`. `external/ui/postcss-fork-styles.mjs` expands that
+feature's CSS before `postcss-resolve-color-mix.mjs` runs. Keep the marker in
+place when porting upstream CSS; edit the feature file for fork-specific
+styling. Move its media queries and state rules together. A longer comment that
+only names the mechanism is documentation and stays in the composed stylesheet
+untouched. Feature files cannot include one another and cannot use `@import`.
+An unknown name, an unreadable file, a nested include and an `@import` all fail
+the build.
+
+The same composition runs in Vite development and production. Included files
+are registered as dependencies for hot reload. The browser receives one
+stylesheet with no include markers or runtime imports, and `scripts-sync-to-go.mjs`
+continues publishing the same embedded `styles.css`. All theme variables remain
+visible to the Chromium 104 color transform. CSS contract tests read the
+composed source through `readStyleSource()` from the same module — fork rules
+count for the phone layout and reduced-effects contracts like for any other —
+and `forkStyles.test.ts` pins that every file under `styles/fork/` has its
+marker in `styles.css`, every marker its file, and every feature the rules its
+surface renders with.
+
+For a mechanical extraction, compare the built CSS before and after the move:
+the bytes and SHA-256 must match. Run `make ui-test`, `npm run test:layout` in
+`external/ui`, the Chromium 104 compatibility guard and the browser checks for
+the affected surfaces. Capture before/after views in narrow/wide and dark/light
+layouts, then rebuild the binary as described above.
+
 ## Install on your PATH
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
@@ -161,6 +196,47 @@ go build -tags=http,ui,scheduler,memory,cli ...
 ```
 
 Order does not matter for these tags.
+
+## Android (Termux)
+
+```bash
+make android TAGS="http ui scheduler memory cli gateway swarm"   # build/foxxycode-android-arm64, -amd64
+make check-android                                              # go vet with GOOS=android, test files included
+```
+
+The Android build is the same sources with **`GOOS=android`** and cgo, linked by the Android NDK
+against Bionic for arm64 and x86_64: a position-independent executable that names
+**`/system/bin/linker64`** as its interpreter and needs only **`libc`**, **`libdl`** and
+**`liblog`**. That is the one shape Termux can start where it runs every program through Android's
+linker, which turns the static **`GOOS=linux`** binary away with **`has unexpected e_type: 2`**, and
+Bionic gives the binary what libc gives any program: its own arguments under the linker and
+Android's resolver. **`GOOS=android`** also keeps Go off the system calls Android's seccomp filter
+forbids. Go links android/amd64 only through a C toolchain anyway, and a build without cgo would
+ask **`127.0.0.1:53`** for every host, so **`internal/platform/android_nocgo.go`** stops it at
+compile time. What users see is on [Android (Termux)](../getting-started/android.md).
+
+**`scripts/android-cc.sh arm64|amd64`** prints the NDK clang both targets use, for API 24 (Android
+7.0, the oldest Termux runs on): it takes the NDK from **`ANDROID_NDK_HOME`**, **`ANDROID_NDK_ROOT`**
+or **`ANDROID_NDK`**, which the GitHub runners set, and otherwise the newest one under the SDK
+(**`sdkmanager "ndk;27.3.13750724"`** installs the version the runners carry).
+
+A binary built outside Termux carries none of the patches Termux applies to its own Go, so
+**`internal/platform`** makes the remaining adjustments at run time. **`android_init.go`** keeps the
+path of the binary when the linker started it, since **`/proc/self/exe`** names the linker then,
+and points **`SSL_CERT_FILE`** and **`TMPDIR`** at the Termux prefix; **`platform.AdaptCommand`**
+starts a child process the way **`termux-exec`** would, through the linker when FoxxyCode itself came up
+that way, with **`/usr/bin/env`** and **`/bin/sh`** in a shebang taken from the prefix. Every place
+that builds an **`exec.Cmd`** calls **`AdaptCommand`** before **`Start`**, and
+**`TestEverySpawnSiteAdaptsTheCommand`** fails on one that does not.
+
+The decisions are plain functions in **`internal/platform/android.go`**, held on any Unix host by
+**`features/android_termux.feature`** and **`internal/platform/android_test.go`**. The files behind
+**`//go:build android`** are compiled only by **`make check-android`** and by the **Android
+cross-build** job of the pull request checks, which also builds both release binaries, checks that
+each is position-independent, names the Android linker and needs no library Android does not ship,
+and uploads them as the **`foxxycode-android-arm64`** and **`foxxycode-android-amd64`** artifacts to try on
+a device before the release.
+
 
 ## Build tags reference
 
@@ -253,6 +329,13 @@ fails until **`packaging/systemd/foxxycode.service`** matches it byte for byte. 
 packages** CI job then checks that both package formats carry that file and the maintainer
 scripts.
 
+The packages suggest **`tmux`** and require nothing. FoxxyCode runs without it, and its console runs
+well inside it, where a session outlives a closed terminal or a dropped SSH connection. A
+suggestion is named and never installed - **`apt`** and **`zypper`** list it during the install,
+**`dnf`** keeps it in the metadata (**`rpm -q --suggests`**) - so the choice stays with the user.
+The **Distribution packages** CI job checks that the deb and the rpm suggest it and neither
+requires nor recommends it.
+
 Version strings are normalised for the two formats by **`scripts/package-version.sh`** - rpm forbids
 **`-`** in a version and dpkg reads the last one as the start of the Debian revision, so
 **`0.2.59-5-gb6b7d31-dirty`** is packaged as **`0.2.59+5.gb6b7d31.dirty`**, which both accept and both
@@ -277,7 +360,9 @@ brew install --cask dist/foxxycode.rb
 ```
 
 The cask links **`foxxycode`**, **`foxxycode.1`** and both completion scripts, which is why the release
-**`darwin`** and **`linux`** archives carry those files beside the binary. Each release publishes
+**`darwin`** and **`linux`** archives carry those files beside the binary. It recommends **`tmux`**
+in its **`caveats`** rather than declaring it: a cask's **`depends_on`** has no optional form, and
+FoxxyCode runs without tmux, so the cask names it and installs nothing. Each release publishes
 **`foxxycode.rb`** as an asset, and **`brew install --cask <url>`** installs from it.
 
 ### Homebrew formula
@@ -338,13 +423,21 @@ root; use `--repo <checkout>` before the subcommand to inspect another checkout.
 
 ```bash
 python scripts/upstream.py scan --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py preview --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD
+python scripts/upstream.py wave --from <upstream-base-sha> --to <upstream-target-sha>
+python scripts/upstream.py overlap --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD
+python scripts/upstream.py apply --from <upstream-base-sha> --to <upstream-target-sha> --fork-base HEAD --dry-run
 python scripts/upstream.py check --base <fork-base-sha>
+python scripts/upstream.py rebrand-check --base <fork-base-sha>
+python scripts/upstream.py verify --base <fork-base-sha>
 python scripts/upstream.py ledger-check
 ```
 
-Fetch upstream explicitly before scanning a remote ref. `scan`, `check` and
-`ledger-check` are read-only apart from an optional output report. The helper
-never fetches, applies patches, commits, pushes or runs tests. `scan`
+Fetch upstream explicitly before scanning a remote ref. `scan`, `wave`,
+`overlap`, `check`, `rebrand-check`, `verify` and `ledger-check` are read-only
+apart from an optional output report. `preview` can also write an explicitly
+requested artifact bundle, `apply` writes the working tree, and `verify --run`
+executes `go test`. The helper never fetches, stages, commits or pushes. `scan`
 requires an explicit ancestor range and records full commit IDs. Its candidate
 list includes merge commits (first-parent diffs), so related entries can overlap.
 It retains paths touched by intermediate commits even if a later commit reverts
@@ -417,6 +510,193 @@ and record structure only: it does not fetch or verify commit existence,
 ancestry, or behavior. Edit the ledger after verifying the port, then run the
 validator. The helper never advances a synchronization checkpoint automatically.
 
+### Preview normalized three-way merges
+
+```bash
+python scripts/upstream.py preview --from 1.2.18 --to 1.3.0 --fork-base HEAD --bundle port-preview
+```
+
+`preview` compares the net upstream range against a committed fork revision
+without creating a branch or worktree, applying results, or updating the ledger.
+Fetch the refs explicitly first; the base must be an ancestor of the target.
+All three refs are pinned to full commit IDs in the report. Uncommitted changes
+are excluded even when `--fork-base` is `HEAD`.
+
+The trial maps upstream path branding, normalizes UTF-8 text from CRLF to LF,
+and mechanically rebrands the upstream base and target. Existing fork text
+receives only line-ending normalization, so fork compatibility values such as
+`engine: coddy` are not rewritten merely because they occur in ours. Content
+mappings distinguish the Go module
+`github.com/hijera/foxxycode-agent` from repository URLs pointing to
+`https://github.com/hijera/foxxy-agent`, for both upstream owners
+`EvilFreelancer` and `coddy-project`. These mappings also appear in scan/check
+JSON and apply to UTF-8 hunk contents in `prepare`'s adapted patch. Other owners,
+raw/download URLs, semantic values, aliases and provenance still need review.
+
+The content of `README` and `README.*` files, including localized and nested
+copies, is excluded from automatic branding replacements in `preview`, `apply`,
+`overlap` and `prepare`. Their upstream attribution, comparison wording and
+repository links must keep naming the actual upstream project. README changes
+still participate in the ordinary three-way merge; review product names and
+command examples manually. This exception does not disable branding of source
+code, module imports or file paths. `rebrand-check` also accepts upstream names
+in all of these README files instead of asking contributors to remove them.
+
+Git's `merge-file --diff3` merges regular text blobs using the explicit upstream
+base. The Markdown and JSON reports distinguish clean merges, text conflicts,
+clean additions/deletions, add/add conflicts, modify/delete conflicts, rename
+destination collisions, file/directory conflicts, binary files, non-UTF-8 content,
+and special Git entries such as symlinks and submodules. Renames use Git's similarity detection; both
+paths, input object IDs and modes are retained. The proposed executable mode is
+recorded for merged candidates. An upstream rename whose old and destination
+paths both exist in the fork requires manual review. No external decoder is
+used for Git blobs; undecodable content is retained as raw bytes.
+
+`path_conflict` rows name the fork files that block a destination in
+`blocking_paths` and have no merged candidate. Clean deletions and renames can
+make room for a file/directory transition; modified or blocked sources remain
+blockers. Branding mappings that turn an upstream file into the parent of
+another upstream file are rejected before any bundle or worktree is created.
+
+Without `--bundle`, the command writes only its report to stdout or an exclusive
+`--output` file. With `--bundle`, it creates a new directory relative to the
+inspected repository (or the absolute path supplied), containing `preview.json`,
+`preview.md` and numbered `files/` directories. Each row names its normalized
+base/ours/theirs artifacts and a merged candidate when available. Unsupported
+content is saved as `.raw`; special entries are never materialized as links.
+Numbered artifact paths avoid interpreting repository filenames as output paths.
+Existing bundle or report paths, Git metadata destinations (for both `--bundle`
+and `--output`) and upstream branding path collisions are rejected before creating
+a bundle. A failed write reports the incomplete bundle's location
+and leaves it for inspection.
+
+Exit 0 means the preview completed, including when conflicts require review;
+Git, input or output errors return 2. Conflict counts measure textual overlap,
+not porting effort or semantic correctness. The net range includes previously
+recorded ports; review the ledger and the scan's divergence/guard report before
+using any candidate. Do not apply both merge-commit patches and their overlapping
+constituent patches. The preview does not fetch, run tests, advance a checkpoint,
+or prove that a fork policy survived.
+
+### Plan waves
+
+```bash
+python scripts/upstream.py wave --from 1.2.27 --to 1.3.0 --max-commits 60 --max-tags 5
+```
+
+A range of several hundred commits is not reviewable as one net patch. `wave`
+cuts `--from..--to` into consecutive waves that end at upstream release tag
+boundaries, so each wave can be reported as one checkpoint. A wave closes at a
+tag once it has reached `--max-commits` or covered `--max-tags`; a stretch
+without tags is cut past twice the commit budget and the report says so. The
+`to` of one wave is the `from` of the next, so the plan tiles the range exactly
+once. Cut points stay on the target's first-parent history, after the range base,
+and merged branch commits stay with their merge checkpoint. Side-branch tags do
+not split that group, so every reported range can be passed directly to `preview`.
+
+Each wave reports its tags, commit and merge counts, changed-file count,
+divergence registry entries it contacts and how many commits the ledger has not
+reviewed yet. `pull_requests` groups `Merge pull request #N` commits with their
+constituent commits, which makes the overlap between a merge and its branch
+explicit: do not port both. The plan is a scheduling aid only; it does not
+fetch, apply, record or verify anything.
+
+### Compare against the fork
+
+```bash
+python scripts/upstream.py overlap --from 1.2.27 --to 1.3.0 --fork-base HEAD
+```
+
+`overlap` answers one question per changed file: does the fork already match
+the normalized upstream target? It compares content only, without merging, and
+reports `identical` (already ported), `mode_only`, `differs`, `absent` (no fork
+counterpart), `remains_in_fork` (upstream deleted, fork kept), `already_absent`,
+and the undecided `binary`, `non_utf8` and `special_entry` dispositions. Paths
+are mapped with the same branding rules as `preview`, and upstream text is
+rebranded while fork text is only normalized for line endings.
+
+`identical` means the bytes match after mechanical normalization, not that the
+port was reviewed. Use it to drop already absorbed files from the review list,
+not as evidence.
+
+### Apply clean merges
+
+```bash
+python scripts/upstream.py apply --from 1.2.27 --to 1.3.0 --fork-base HEAD --dry-run
+```
+
+`apply` runs the same three-way trial as `preview` and writes only the clean
+dispositions into the working tree: `clean`, `add_clean`, `delete_clean` and
+`add_add_equal`. A rename is written to its destination path and the old fork
+path is removed. Nothing is staged, committed or pushed; `git status` shows the
+result for review, and `--dry-run` reports the same plan without touching the
+checkout. `--fork-base` must resolve to the current checkout's `HEAD`; use a
+separate worktree to apply against a different fork revision. Deletions and
+rename sources are removed before destinations are written, allowing clean
+file/directory transitions.
+
+Conflicted and structural rows are never written — not even with conflict
+markers. They stay in the report as `skipped` with their disposition, so they
+can be resolved by hand from the preview bundle. Paths with uncommitted local
+edits, including ignored files, are skipped as `local_edits` rather than
+overwritten. Redirected paths (symlinks or junctions) are skipped as `unsafe_path`.
+A skipped removal keeps its source as a blocker for dependent writes. The full
+plan is checked before any writes, and every applied row records the proposed
+executable mode. Report destinations are checked before modifying the checkout.
+
+Applying is still a mechanical step: review semantic values, compatibility
+aliases and provenance afterwards, and run `rebrand-check`, `verify` and the
+regression gates before recording the port.
+
+### Gate leftover branding
+
+```bash
+python scripts/upstream.py rebrand-check --base <fork-base-sha>
+python scripts/upstream.py rebrand-check --all --strict
+python scripts/upstream.py rebrand-check <path>...
+```
+
+`rebrand-check` scans text for upstream branding. Scope is either explicit
+paths, `--base` (files changed since that fork revision, plus non-ignored
+untracked paths) or `--all` (every tracked file). Findings carry a kind and a
+severity:
+
+- **errors** — `path` (the path keeps a branding token), `link` (a URL) and
+  `reference` (an import path, module name or repository owner of the upstream
+  project). These break links, imports and paths, so they gate: the exit status
+  is 1 whenever any remains.
+- **notes** — bare mentions of the upstream name in copy, identifiers and
+  prose. The fork keeps these on purpose: the compatibility value
+  `engine: coddy`, the compaction engine, the hub client id and provenance
+  citations of upstream issues. They are listed for review and gate only with
+  `--strict`.
+
+Other projects of the same owners are not upstream branding; `EvilFreelancer`
+and the `rpa-skills` marketplace stay. Paths that must keep naming the upstream
+project are skipped entirely: the ledger and journal, the divergence registry
+under `.cursor/rules/` and `.claude/rules/`, the helper's own scripts, `docs/`,
+`README*` attribution and `CHANGELOG*` history. This is a mechanical gate only;
+semantic values and aliases still need review.
+
+### Plan guard tests
+
+```bash
+python scripts/upstream.py verify --base <fork-base-sha>
+python scripts/upstream.py verify --base <fork-base-sha> --run
+```
+
+`verify` turns the divergence review into an executable checklist: one
+`go test ./internal/forkguard -count=1` for registry integrity, plus one command
+per contacted divergence that runs its named guard tests in the packages of its
+registry sites. A divergence that names no guard tests gets its package suite
+instead. Without `--run` the report is a plan and `tests_executed` stays false.
+
+`--run` executes each command and classifies it as `passed`, `failed`,
+`no_tests` or `unavailable`; the exit status is 0 only when every command
+passed. A successful run that matched no tests is `no_tests`, which is not
+validation. The command does not fetch, and it never accepts a port on its own:
+run the full regression and the lint gates before recording.
+
 ### Prepare a worktree and patches
 
 ```bash
@@ -431,12 +711,16 @@ creation. The source checkout can be dirty: only the committed `--fork-base`
 
 The returned `bundle` path is inside the new worktree's private Git directory,
 so reports do not appear as source changes. It contains `original.patch`,
-`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs.
+`adapted.patch`, `scan.json`, `scan.md` and `manifest.json` with pinned SHAs,
+plus a `preview/` directory with the three-way inputs, candidates and reports
+described above. The manifest includes preview disposition and conflict counts.
+`--dry-run` does not compute or write the three-way trial.
 The patches describe the net upstream range, including recorded ports; choose
 the needed hunks after reviewing partial/completed entries. The adapted patch
 mechanically rebrands paths and UTF-8 text, leaving binary and non-UTF-8 payloads
 unchanged with warnings. It is a review candidate, not a semantic port: correct
-compatibility values, provenance and repository owners before applying it.
+compatibility values, provenance and any repository addresses outside the explicit
+owner mappings before applying it.
 
 Run `git apply --check <bundle>/adapted.patch` in the new worktree after review.
 Adapted text patches omit obsolete blob IDs and must not use `--3way`. Neither
@@ -449,6 +733,7 @@ before removing the worktree.
 
 ```bash
 python scripts/upstream.py record --upstream-commit <source> --status adapted --fork-commit <result> --reason "Kept fork continuation behavior" --dry-run
+python scripts/upstream.py record --batch reviewed.json --dry-run
 ```
 
 Remove `--dry-run` to update the existing ledger. Refs are resolved to full SHAs;
@@ -457,6 +742,13 @@ Repeat `--fork-commit` for several result commits and `--remaining` for individu
 unfinished items. `--update` is required to replace a different existing record
 and supplies the entire replacement decision. An identical record is a no-op.
 Commit existence and ancestry do not prove semantic correctness.
+
+`--batch` takes a JSON array of the same entries (`upstream_sha`, `status`,
+`fork_commits`, `reason`, `remaining`) and records them in one atomic write,
+which is what a several-hundred-commit range needs. The batch is all-or-nothing:
+a malformed entry, a duplicate `upstream_sha`, or a decision that contradicts an
+existing record (without `--update`) rejects the whole file and leaves the ledger
+untouched.
 
 The ledger must be a regular file within the inspected repository. Recording
 uses an exclusive `<ledger>.lock`, a same-directory temporary file and atomic
@@ -480,6 +772,11 @@ offline integration suite with:
 python -m unittest discover -s scripts -p "test_upstream*.py"
 ```
 
+The [Upstream helper workflow](../../.github/workflows/upstream-helper.yaml) runs
+this suite on Linux and Windows with Python 3.10 when helper sources change.
+
+Prompt-cache regressions run separately with `make test-cache`; context and timing benchmarks run with `make test-perf`.
+
 ## Release binaries (CI)
 
 On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:
@@ -488,6 +785,7 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 |---------|----------|
 | **`foxxycode_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
 | **`foxxycode_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
+| **`foxxycode_X.Y.Z_android_arm64.tar.gz`**, **`foxxycode_X.Y.Z_android_amd64.tar.gz`** | Android arm64 and x86_64, under Termux (see [above](#android-termux)) |
 | **`foxxycode_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`foxxycode.exe`**) |
 | **`foxxycode_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`foxxycode_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
@@ -498,6 +796,16 @@ Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memor
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ```
+
+## AppSec scan
+
+**`make security`** runs the project's security gate over the checkout — trivy
+(dependency vulnerabilities, secrets; misconfig report-only) and semgrep (SAST)
+— with the same versions and thresholds the
+[**Security scan**](../../.github/workflows/security.yaml) workflow uses on
+pull requests. **`make sec-report`** scans without failing on findings. Reports
+land in **`dist/security/`**. Runner, gate knobs and triage:
+[AppSec scanning](security-scanning.md).
 
 ## **`go install` from upstream**
 

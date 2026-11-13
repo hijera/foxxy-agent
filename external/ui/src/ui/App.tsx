@@ -1,4 +1,9 @@
 import {
+  chatWorkspacePath,
+  withWorkspaceQuery,
+  workspaceScope,
+} from "./chat/workspaceScope";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,8 +15,13 @@ import {
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
-import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
-import type { QueuedMessage } from "./chat/Composer";
+import type { QueuedMessage, QueueMode } from "./chat/Composer";
+import { normalizeClipboardImageFile } from "./chat/clipboardImageFile";
+import { fileFromDataUrl } from "./chat/dataUrlFile";
+import {
+  contextUsagePercent,
+  withContextUsedTokens,
+} from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setLlmRetrying } from "./chat/llmRetryState";
@@ -125,6 +135,7 @@ import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   loadQuestionPromptRecords,
+  hasUnresolvedQuestionPrompt,
   mergeStoredQuestionPromptsIntoTranscript,
   patchQuestionToolArgsFromPromptRecords,
   upsertQuestionPromptRecord,
@@ -133,18 +144,34 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
+import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import {
   connectLocal,
-  connectRemote,
   connectSwarmNode,
   getEnv,
-  getRemoteToken,
+  connectSwarmRelay,
+  environmentKey,
   localFetch,
   notifyLocalApiUnauthorized,
-  returnToSwarm,
   snapshotEnv,
   subscribeEnv,
+  swarmMountPath,
+  swarmRootRelay,
 } from "./env/remoteEnv";
+import {
+  configuredRemoteFor,
+  connectConfiguredRemote,
+  refreshConfiguredRemotes,
+  useConfiguredRemotes,
+} from "./env/configuredRemotes";
+import {
+  isKnownRelayHome,
+  knownPageServer,
+  rememberPageServer,
+  rememberRelayHome,
+  rememberSchedulerLinked,
+  schedulerLinkedGuess,
+} from "./env/pageMemory";
 import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
 import {
   newChatWorkspaceIsReady,
@@ -183,6 +210,7 @@ import { permissionPromptDetail } from "./chat/permissionPromptDisplay";
 import { buildPermissionToolPreview } from "./chat/permissionToolPreview";
 import { submitPermissionChoice } from "./chat/permissionSubmit";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
+import { useRailScreenEscape } from "./nav/railEscape";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
@@ -195,6 +223,10 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
+import {
+  reconcilePermissionPendingSessionIds,
+  reconcileQuestionPendingSessionIds,
+} from "./sessions/sessionRowActivity";
 import { useConfirm } from "./components/useConfirm";
 import { composerAutoFocusAllowed } from "./chat/composerFocus";
 import type { SessionRow } from "./sessions/types";
@@ -309,9 +341,11 @@ import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { downloadBlob } from "./settings/transferIO";
-import { t } from "./i18n/i18n";
+import { t, tp } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
+import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
+import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
@@ -426,6 +460,7 @@ type SessionsPage = {
   sessions: SessionRow[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  active_count?: number;
 };
 
 function newId(prefix: string): string {
@@ -450,6 +485,13 @@ function filenameFromDisposition(header: string | null): string | null {
   } catch {
     return m[1];
   }
+}
+
+function isStackedShell(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(shellStackMaxWidthMediaQuery).matches
+  );
 }
 
 export function App() {
@@ -482,6 +524,7 @@ export function App() {
     Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
   );
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [historyActiveCount, setHistoryActiveCount] = useState(0);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -527,6 +570,31 @@ export function App() {
     worktree?: boolean;
     vcs?: "git" | "svn";
   } | null>(null);
+  // The folder of pendingWorkspaceRef as state, set the moment it is picked:
+  // what a new chat lists and highlights (skills, mentions, subagents) follows
+  // the pick at once, never a preview answer that may still be in flight.
+  const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
+  const setPendingWorkspace = useCallback(
+    (next: {
+      path?: string;
+      branch?: string;
+      worktree?: boolean;
+      vcs?: "git" | "svn";
+    } | null) => {
+      pendingWorkspaceRef.current = next;
+      setPendingWorkspacePath(next?.path ?? "");
+    },
+    [],
+  );
+  // Every answer that sets workspaceCtx takes a ticket; only the latest one
+  // applies, so a slow preview of a folder picked earlier never paints over
+  // the folder picked after it.
+  const workspaceCtxGenRef = useRef(0);
+  const chatWorkspace = chatWorkspacePath(
+    sessionId,
+    pendingWorkspacePath,
+    workspaceCtx?.path,
+  );
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -565,6 +633,7 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  const [compactionSettings, setCompactionSettings] = useState({ enabled: true, autoEnabled: true, threshold: 80 });
   // A provider listing can arrive after /v1/models returned its fallback.
   // Keep the live window per session, scoped to its model and config version;
   // stats refreshes must not replace it with the earlier model-list value.
@@ -585,7 +654,11 @@ export function App() {
       }
       setSessionContextWindows((prev) => ({
         ...prev,
-        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+        [key]: {
+          model: w.model,
+          epoch: configEpochRef.current,
+          size: w.tokens,
+        },
       }));
     },
   );
@@ -714,6 +787,8 @@ export function App() {
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
+
+  const activatedMCPSelectionsRef = useRef(new Set<string>());
   const relayAttachPendingRef = useRef(new Set<string>());
   const stopPendingBySidRef = useRef(
     new Map<string, { superseded: boolean }>(),
@@ -772,6 +847,7 @@ export function App() {
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
+    questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
     ready: () => void;
   }>({
@@ -782,6 +858,7 @@ export function App() {
     messageQueue: () => {},
     sessionSettings: () => {},
     subagentPermission: () => {},
+    questionPending: () => {},
     sessionRewound: () => {},
     ready: () => {},
   });
@@ -936,6 +1013,7 @@ export function App() {
   const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
     {},
   );
+  const [queueMode, setQueueMode] = useState<QueueMode | undefined>();
   /**
    * Highest queue version applied per session.
    *
@@ -1017,7 +1095,7 @@ export function App() {
     sessionId.trim() !== "" &&
     (turnActivity.get(sessionId) ??
       activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
+  const queuedMessages = queueBySid[sessionId.trim()] ?? [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
@@ -1263,17 +1341,33 @@ export function App() {
         initialRoute.branch === "none") &&
         initialRoute.historyOpen),
   );
-  /**
-   * Root folder the server itself was launched with (`--cwd`). Unlike
-   * `workspaceCtx`, which follows the *viewed session*, this stays put — so the
-   * History scope does not flip when the user opens a session from elsewhere.
-   */
+  // The environment this app was started on. A switch to another remote
+  // starts another app (EnvScope), so an answer that lands here after one is
+  // the old environment's, and must not be kept for the new one.
   const [hostProjectRoot, setHostProjectRoot] = useState("");
   const [sessionsProjectOnly, setSessionsProjectOnly] = useState(false);
-  /** null until first probe of /foxxycode/scheduler/jobs; false when route returns 404 (binary without scheduler). */
-  const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
+  const [appEnvKey] = useState(() => environmentKey(getEnv()));
+  const isAppEnvironment = useCallback(
+    () => environmentKey(getEnv()) === appEnvKey,
+    [appEnvKey],
+  );
+  /**
+   * null until first probe of /foxxycode/scheduler/jobs; false when route returns
+   * 404 (binary without scheduler). Started over by a switch between remotes
+   * (EnvScope), it begins from the last answer so the rail keeps its shape.
+   */
+  const [schedulerHttpLinked, setSchedulerHttpLinkedState] = useState<
     boolean | null
-  >(null);
+  >(() => schedulerLinkedGuess(appEnvKey));
+  const setSchedulerHttpLinked = useCallback(
+    (linked: boolean) => {
+      if (isAppEnvironment()) {
+        rememberSchedulerLinked(appEnvKey, linked);
+      }
+      setSchedulerHttpLinkedState(linked);
+    },
+    [appEnvKey, isAppEnvironment],
+  );
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(
     () => initialRoute.branch === "settings",
@@ -1299,8 +1393,16 @@ export function App() {
   // closing it goes back there rather than home.
   const docsReturnHashRef = useRef("");
   // The Swarm entry only appears when the environment answers as a relay: on a
-  // plain agent there is no swarm to show.
-  const [isSwarmEnv, setIsSwarmEnv] = useState(false);
+  // plain agent there is no swarm to show. A node reached through a relay is in
+  // one from the start, and a remote last found to be a relay starts as one
+  // (a switch in place starts the app over; pageMemory.ts).
+  const [isSwarmEnv, setIsSwarmEnv] = useState(() => {
+    const env = getEnv();
+    return (
+      env.mode === "remote" &&
+      (!!env.swarmRelay || isKnownRelayHome(env.baseUrl))
+    );
+  });
   /**
    * True when this page IS the relay, not an agent reached through one.
    *
@@ -1308,7 +1410,12 @@ export function App() {
    * box and a history drawer there are furniture for a room nobody can
    * enter. What it does have is the swarm, so that is what it shows.
    */
-  const [atSwarmRoot, setAtSwarmRoot] = useState(false);
+  const [atSwarmRoot, setAtSwarmRoot] = useState(() => {
+    const env = getEnv();
+    return (
+      env.mode === "remote" && !env.swarmRelay && isKnownRelayHome(env.baseUrl)
+    );
+  });
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(() =>
     initialRoute.branch === "settings" ? initialRoute.section : null,
@@ -1332,16 +1439,19 @@ export function App() {
   const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
   // The runs of the job whose runs panel is open: the background tasks of the
   // job's session, polled the way the chat's Tasks panel polls its own.
-  const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<BackgroundTask[]>([]);
+  const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<
+    BackgroundTask[]
+  >([]);
   const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
-  const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
+  const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(
+    null,
+  );
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(
     () => initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
-  // row, a link that names a task). Which cards are open otherwise is the panel's own
-  // business and is not part of the address.
+  // A card the shell asks the Tasks panel to open from a task-targeted link. Which
+  // cards are open otherwise is the panel's own business and is not part of the address.
   //
   // The pointer names its chat and is good for one use. Every session numbers its
   // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
@@ -1431,10 +1541,9 @@ export function App() {
   );
   // The remotes this server offers as environments, read from the local config
   // rather than the active one - the list of places to go must not travel with
-  // the place you are.
-  const [configuredRemotes, setConfiguredRemotes] = useState<
-    { name: string; url: string }[]
-  >([]);
+  // the place you are. Shared with the composer's environment chip and read
+  // again on every config reload (env/configuredRemotes.ts).
+  const configuredRemotes = useConfiguredRemotes();
   // A folder picked from a History heading, waiting for the conversation on
   // screen to be gone before it is applied (see newChatWorkspace.ts). The value
   // is a ref and the trigger a counter, so the one effect that owns "the
@@ -1463,9 +1572,11 @@ export function App() {
   // The archive flag's last write this client made, so a transcript read that
   // was issued before the PATCH settled cannot put the older flag back (see
   // loadMessages, which compares the read's issue time against this).
-  const viewedArchiveWriteRef = useRef<{ sid: string; archived: boolean; at: number } | null>(
-    null,
-  );
+  const viewedArchiveWriteRef = useRef<{
+    sid: string;
+    archived: boolean;
+    at: number;
+  } | null>(null);
   // The same, for pinning.
   const pinningRef = useRef<Set<string>>(new Set());
   const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
@@ -1521,16 +1632,18 @@ export function App() {
   });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw mode/model/reasoning stored on the opened session. Held until the
-   * backends list (`llmModelIds`) is available so the restore survives whichever
-   * of `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on
-   * reload.
+   * The opened session's own model and reasoning, as its settings snapshot
+   * names them, with the levels the snapshot says it may hold. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives
+   * whichever of `/v1/models` and `/foxxycode/sessions/.../messages` resolves
+   * first on reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
     mode: string;
+    choices: string[];
   } | null>(null);
   /**
    * Session whose stored selection has already been restored. `loadMessages`
@@ -1539,7 +1652,7 @@ export function App() {
    * reverting a Mode or Model the user picked a moment earlier.
    */
   const appliedSelectionSidRef = useRef("");
-  /** Session whose Mode/Model the user changed by hand; their pick wins. */
+  /** Session whose Mode/Model/Reasoning the user changed by hand; their pick wins. */
   const userTouchedSelectionSidRef = useRef("");
   /**
    * Bumped on every hand-made Mode change. A turn snapshots it so the
@@ -1550,6 +1663,38 @@ export function App() {
   /** Current mode, readable from callbacks that outlive their render. */
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  /**
+   * The reasoning levels the viewed session's last snapshot named for its
+   * model (`reasoningChoices`): the menu's levels plus `off` where the
+   * provider can turn thinking off, which `GET /v1/models` does not list. The
+   * level is checked against them wherever the composer re-validates it, so a
+   * session running with thinking off is shown and sent as such.
+   */
+  const sessionReasoningChoicesRef = useRef<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  /** The same record as state, for what renders from it (the level menu). */
+  const [sessionReasoningChoices, setSessionReasoningChoicesState] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  const setSessionReasoningChoices = useCallback(
+    (next: { sid: string; model: string; choices: string[] }) => {
+      sessionReasoningChoicesRef.current = next;
+      setSessionReasoningChoicesState(next);
+    },
+    [],
+  );
+  /**
+   * Set while the level on the chip is the one the chooser resolved for an
+   * existing session that has none of its own (a model with no
+   * `reasoning_default`): shown so the chip names what the turn runs at, and
+   * never sent, so the session is not pinned to a level nobody chose.
+   */
+  const reasoningImpliedRef = useRef(false);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -2087,24 +2232,36 @@ export function App() {
     [sessionId],
   );
 
-  const refreshWorkspaceContext = useCallback(async (sid: string) => {
-    try {
-      const res = await fetch("/foxxycode/workspace/context", {
-        headers: sid ? { [HDR]: sid } : {},
-      });
-      if (res.ok) {
-        const ctx = (await res.json()) as WorkspaceContext;
-        setWorkspaceCtx(ctx);
-        // Host fact, not a workspace one: the tool cards name the interpreter.
-        setHostShell(ctx.shell);
+  const refreshWorkspaceContext = useCallback(
+    async (sid: string) => {
+      const gen = ++workspaceCtxGenRef.current;
+      try {
+        const res = await fetch("/foxxycode/workspace/context", {
+          headers: sid ? { [HDR]: sid } : {},
+        });
+        if (res.ok) {
+          const ctx = (await res.json()) as WorkspaceContext;
+          if (gen !== workspaceCtxGenRef.current) {
+            return;
+          }
+          setWorkspaceCtx(ctx);
+          // Host fact, not a workspace one: the tool cards name the interpreter.
+          // An answer from the environment the app was switched away from is
+          // not this host's.
+          if (isAppEnvironment()) {
+            setHostShell(ctx.shell);
+          }
+        }
+      } catch {
+        // ignore: chips keep the previous context
       }
-    } catch {
-      // ignore: chips keep the previous context
-    }
-  }, []);
+    },
+    [isAppEnvironment],
+  );
 
-  // Load the workspace context whenever the viewed session changes; a fresh
-  // home/draft view also drops stale pre-session workspace choices.
+  // Load the workspace context whenever the viewed session changes. A pending
+  // home workspace is already being previewed and must survive the route
+  // change so the next chat starts where the user left off.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -2112,15 +2269,23 @@ export function App() {
   // It replaces the default probe rather than running beside it - two context
   // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
-    pendingWorkspaceRef.current = null;
     const wanted = newChatWorkspaceRef.current;
     if (newChatWorkspaceIsReady(wanted, sessionId)) {
       newChatWorkspaceRef.current = null;
       void switchWorkspace({ path: String(wanted?.path ?? "") });
       return;
     }
+    if (!sessionId && pendingWorkspaceRef.current?.path) {
+      return;
+    }
+    setPendingWorkspace(null);
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
+  }, [
+    sessionId,
+    refreshWorkspaceContext,
+    newChatWorkspaceEpoch,
+    setPendingWorkspace,
+  ]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -2168,17 +2333,21 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
+      setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
-      };
+      });
       if (payload.path) {
+        const gen = ++workspaceCtxGenRef.current;
         try {
           const res = await fetch(
             "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
           );
           if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
+            const ctx = (await res.json()) as WorkspaceContext;
+            if (gen === workspaceCtxGenRef.current) {
+              setWorkspaceCtx(ctx);
+            }
           }
         } catch {
           // ignore
@@ -2214,7 +2383,11 @@ export function App() {
         },
       );
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
       } else {
         await refreshWorkspaceContext(sid);
       }
@@ -2227,21 +2400,38 @@ export function App() {
   // right before the first send.
   async function applyPendingWorkspace(sid: string) {
     const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
     if (!pending || (!pending.path && !pending.branch)) {
+      setPendingWorkspace(null);
       return;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
+      // The answer is the new session's workspace context: taking it here
+      // keeps the chips and everything scoped by chatWorkspace on the picked
+      // folder from the moment the pending pick is cleared, instead of on a
+      // preview that may not have answered yet.
+      const applied = async (res: Response) => {
+        if (!res.ok) {
+          return;
+        }
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
+      };
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          }),
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({
@@ -2249,10 +2439,15 @@ export function App() {
               worktree: Boolean(pending.worktree),
               vcs: pending.vcs ?? "git",
             }),
-        });
+          }),
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
+    } finally {
+      // Cleared once the session holds the pick, so the folder the chat is
+      // scoped to never falls back to a stale preview in between.
+      setPendingWorkspace(null);
     }
   }
 
@@ -2340,15 +2535,20 @@ export function App() {
           setSchedulerOpen(false);
           setSchedulerEditor(null);
           msg = t("scheduler.apiNotAvailable");
-          const sid = sessionId.trim();
-          if (sid) {
-            setSessionHashInLocation(sid);
-          } else if (window.location.hash) {
-            history.replaceState(
-              null,
-              "",
-              `${window.location.pathname}${window.location.search}`,
-            );
+          // The answer is about the scheduler screen: the address is left
+          // alone once the reader has moved on from it, or the app from the
+          // environment it asked (a switch in place keeps the request alive).
+          if (isAppEnvironment() && parseAppHash().branch === "scheduler") {
+            const sid = sessionId.trim();
+            if (sid) {
+              setSessionHashInLocation(sid);
+            } else if (window.location.hash) {
+              history.replaceState(
+                null,
+                "",
+                `${window.location.pathname}${window.location.search}`,
+              );
+            }
           }
           setSchedulerListError(msg);
           setSchedulerJobs([]);
@@ -2374,7 +2574,7 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId],
+    [sessionId, t, isAppEnvironment],
   );
 
   const applyLocationHash = useCallback(() => {
@@ -2388,7 +2588,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2402,7 +2602,9 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(p.tasksOpen);
+      setTasksOpen((wasOpen) =>
+        p.tasksOpen || (!isStackedShell() && wasOpen),
+      );
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2418,7 +2620,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -2432,10 +2634,13 @@ export function App() {
     }
     if (p.branch === "history") {
       setSettingsRoute(false);
+      // The map lies over History in the stack of the rail's screens: opened
+      // under it, the drawer would be out of sight.
+      setSwarmRoute(false);
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       return;
     }
     if (p.branch === "swarm") {
@@ -2443,7 +2648,7 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2454,7 +2659,7 @@ export function App() {
       setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSessionsOpen(false);
       return;
     }
@@ -2480,7 +2685,7 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
-      setTasksOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -2495,13 +2700,23 @@ export function App() {
   }, [schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
-    (id: string, opts?: { historySidebar?: boolean }) => {
+    (id: string, opts?: { historySidebar?: boolean; tasksOpen?: boolean }) => {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
+      const keepTasksOpen = opts?.tasksOpen === true;
+      setTasksOpen(keepTasksOpen);
       viewedSessionIdRef.current = id.trim();
-      setSessionHashInLocation(id, opts);
+      // Opening a session restores its stored selection once. What was applied
+      // or picked for the session being left belongs to that one and must not
+      // decide this one's.
+      appliedSelectionSidRef.current = "";
+      userTouchedSelectionSidRef.current = "";
+      if (keepTasksOpen) {
+        setSessionTasksHash(id, null, opts);
+      } else {
+        setSessionHashInLocation(id, opts);
+      }
       setSessionId(id);
       void markFoxxyCodeSessionActivityRead(id);
     },
@@ -2538,13 +2753,30 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
+  // An open job, or its runs, back onto the list: the editor's close control,
+  // and the step Escape takes before it closes the drawer.
+  const closeSchedulerEditor = useCallback(() => {
+    setSchedulerEditor(null);
+    setSchedulerListHash();
+  }, []);
+
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    // On desktop Tasks is the side panel of the chat on screen, not a screen of
+    // the rail: the backdrop that takes History down after a pick there leaves
+    // it open on the chat picked. The stacked shell shows it full screen, so
+    // there the backdrop closes it with the rest.
+    if (isStackedShell()) setTasksOpen(false);
     setDocsRoute(null);
-    if (parseAppHash().branch === "settings" || parseAppHash().branch === "docs") {
+    // The chat's address that follows does not take the swarm screen down by
+    // itself (applyLocationHash leaves it on a session), so it goes here.
+    setSwarmRoute(false);
+    if (
+      parseAppHash().branch === "settings" ||
+      parseAppHash().branch === "docs"
+    ) {
       const sid = sessionId.trim();
       if (sid) {
         setSessionHashInLocation(sid);
@@ -2569,7 +2801,11 @@ export function App() {
   useEffect(() => {
     // Back to the chat from History: the caret returns to the composer, except
     // on a phone or a tablet, where it would open the keyboard (composerFocus.ts).
-    if (prevSessionsOpenRef.current && !sessionsOpen && composerAutoFocusAllowed()) {
+    if (
+      prevSessionsOpenRef.current &&
+      !sessionsOpen &&
+      composerAutoFocusAllowed()
+    ) {
       requestAnimationFrame(() => {
         document.getElementById("composer")?.focus();
       });
@@ -2602,10 +2838,16 @@ export function App() {
   }, [applyLocationHash]);
 
   useEffect(() => {
-    const onHash = () => applyLocationHash();
+    // A switch to another remote writes the new environment's route while
+    // this app may still be listening; the route is the next app's to apply.
+    const onHash = () => {
+      if (isAppEnvironment()) {
+        applyLocationHash();
+      }
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, [applyLocationHash]);
+  }, [applyLocationHash, isAppEnvironment]);
 
   // Editor plugins open their panel on the bare route, so continue where the
   // user left off in this project instead of showing the hero screen. Runs
@@ -2659,17 +2901,42 @@ export function App() {
     recordLastProjectSession(sid);
   }, [sessionId]);
 
+  // The known skill names describe the workspace of the chat: the session's
+  // own, or before the first message the folder picked on the start screen.
+  // They are asked again for every other folder and every other session, and
+  // an answer for a scope left since is thrown away. The names held are
+  // dropped at once unless the chat stays in the same folder on its way from
+  // no session to its first one (the first send of a new chat), so a skill of
+  // another workspace is never highlighted while the next answer is on its way
+  // and a new chat does not blank its own chips.
+  const knownSkillsGenRef = useRef(0);
+  const knownSkillsScopeRef = useRef({ sid: "", path: "" });
   useEffect(() => {
+    const gen = ++knownSkillsGenRef.current;
+    const sid = sessionId.trim();
+    const held = knownSkillsScopeRef.current;
+    knownSkillsScopeRef.current = { sid, path: chatWorkspace };
+    const keep =
+      held.path === chatWorkspace && (held.sid === sid || held.sid === "");
+    if (!keep) {
+      setKnownSkillNames((prev) => (prev.size === 0 ? prev : new Set()));
+    }
+    const scope = workspaceScope(sid, chatWorkspace);
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
-        "/foxxycode/slash-commands?page=1&page_size=200",
+        withWorkspaceQuery("/foxxycode/slash-commands?page=1&page_size=200", scope),
+        { headers: scope.headers },
       );
+      if (gen !== knownSkillsGenRef.current) {
+        return;
+      }
       if (res.ok && res.data?.items) {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-    // Slash commands are derived from skills.dirs, so a config swap moves them too.
-  }, [configEpoch]);
+    // Slash commands are derived from skills.dirs, so a config swap moves them
+    // too.
+  }, [configEpoch, chatWorkspace, sessionId]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -2736,7 +3003,11 @@ export function App() {
       taskId: schedulerRunsLinkedTaskId,
       seq: tasksFocusSeqRef.current,
     });
-    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerEditor({
+      mode: "runs",
+      jobId: schedulerRunsJobId,
+      taskId: null,
+    });
     setSchedulerJobRunsHash(schedulerRunsJobId);
   }, [schedulerRunsJobId, schedulerRunsLinkedTaskId]);
   /** The job session the runs live under; empty until the job ran once. */
@@ -2919,10 +3190,12 @@ export function App() {
       return;
     }
     appliedSelectionSidRef.current = openSessionSelection.sid;
+    // The session's own model. What the start page picked, and the cookie that
+    // remembers it, are a new chat's default: shown here they would ride into
+    // this session with its next message (#362).
     const nextModel = pickLlmModelForOpenSession({
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,
-      cookie: readLlmModelCookie(),
     });
     setLlmModel(nextModel);
     // A session carries a reasoning level only once something chose one for it,
@@ -2930,13 +3203,24 @@ export function App() {
     // effective level as empty. Applied as it comes, that empties the composer
     // while the turn still runs at the model's default - so it goes through the
     // same chooser as every other path, with the session's value as the
-    // preference rather than as the answer.
+    // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    const choices =
+      nextModel === openSessionSelection.model
+        ? openSessionSelection.choices
+        : [];
+    setSessionReasoningChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices,
+    });
+    reasoningImpliedRef.current = !openSessionSelection.reasoning.trim();
     setLlmReasoning(
       pickReasoningLevel({
         levels: openRow?.reasoningLevels ?? [],
-        cookie: readReasoningCookie(),
+        cookie: null,
         sessionLevel: openSessionSelection.reasoning,
+        sessionChoices: choices,
         modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
@@ -3014,31 +3298,6 @@ export function App() {
     sessionsLoadingMoreRef.current = sessionsLoadingMore;
   }, [sessionsLoadingMore]);
 
-  useEffect(() => {
-    if (!sessionsOpen && !schedulerOpen) {
-      return;
-    }
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape") {
-        return;
-      }
-      if (schedulerEditor) {
-        setSchedulerEditor(null);
-        setSchedulerListHash();
-        return;
-      }
-      if (schedulerOpen) {
-        closeSchedulerDrawer();
-        return;
-      }
-      if (sessionsOpen) {
-        setSessionsOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
-
   // Forgets the archive moves and removals that no listing still out, or yet
   // to be issued, can be affected by (archiveMoves.ts).
   const pruneArchiveLists = useCallback(() => {
@@ -3105,9 +3364,12 @@ export function App() {
       sessionsListOpenRef.current.add(seq);
       let res: { ok: boolean; status: number; data?: SessionsPage };
       try {
-        res = await fetchJSON<SessionsPage>(`/foxxycode/sessions?${ps.toString()}`, {
-          headers,
-        });
+        res = await fetchJSON<SessionsPage>(
+          `/foxxycode/sessions?${ps.toString()}`,
+          {
+            headers,
+          },
+        );
       } catch {
         // A request that never got an answer; without this the loading flag
         // below stayed up and History never asked for the page again.
@@ -3137,6 +3399,9 @@ export function App() {
         return null;
       }
       setSessionsError(null);
+      if (typeof res.data.active_count === "number") {
+        setHistoryActiveCount(res.data.active_count);
+      }
       // A listing issued before an archive this tab made had settled still
       // lists the row as it was, and counts it in the offset it hands back.
       const next = overlayArchiveMoves(
@@ -3203,25 +3468,54 @@ export function App() {
         applyNotificationConfig(res.data);
         const { applyUiEffectsFromConfigDoc } = await import("./theme/uiEffects");
         applyUiEffectsFromConfigDoc(res.data);
+        const agent = res.data.agent as { queue_mode?: QueueMode } | undefined;
+        const preferred = agent?.queue_mode;
+        setQueueMode(
+          preferred === "steer" || preferred === "after_turn"
+            ? preferred
+            : undefined,
+        );
+        const compaction = res.data.compaction as
+          | Record<string, unknown>
+          | undefined;
+        const threshold = Number(compaction?.threshold_percent);
+        setCompactionSettings({
+          enabled: compaction?.enable !== false,
+          autoEnabled: compaction?.auto_enable !== false,
+          threshold: threshold >= 1 && threshold <= 100 ? threshold : 80,
+        });
       }
     })();
-  }, [headers]);
+  }, [headers, configEpoch]);
 
   useEffect(() => {
-    const ids = new Set(permissionPendingSessionIdsFromStorage());
-    for (const row of sessions) {
-      if (row.permissionPending) {
-        ids.add(row.id);
-      }
-    }
     const sid = sessionId.trim();
-    if (
-      sid &&
-      items.some((x) => x.type === "permission_prompt" && !x.resolved)
-    ) {
-      ids.add(sid);
-    }
-    setPermissionPendingSids(ids);
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "permission_prompt" && !x.resolved);
+    setPermissionPendingSids((prev) =>
+      reconcilePermissionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
+  }, [sessions, items, sessionId]);
+
+  useEffect(() => {
+    const sid = sessionId.trim();
+    const viewedPromptPending =
+      sid !== "" &&
+      items.some((x) => x.type === "question_prompt" && !x.resolved);
+    setQuestionPendingSids((prev) =>
+      reconcileQuestionPendingSessionIds(
+        sessions,
+        prev,
+        sid,
+        viewedPromptPending,
+      ),
+    );
   }, [sessions, items, sessionId]);
 
   // /foxxycode/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
@@ -3392,6 +3686,15 @@ export function App() {
           : {}),
       });
     const issuedAt = Date.now();
+    const activateMCP =
+      request.kind === "tail" &&
+      sid === sessionId &&
+      !activatedMCPSelectionsRef.current.has(sid);
+    if (activateMCP) activatedMCPSelectionsRef.current.add(sid);
+    const pageQuery = transcriptPageQuery(request);
+    const activationQuery = activateMCP
+      ? `${pageQuery}${pageQuery ? "&" : "?"}activate_mcp=1`
+      : pageQuery;
     const res = await fetchJSON<{
       window?: unknown;
       messages: Array<any>;
@@ -3416,7 +3719,7 @@ export function App() {
         createdAt?: string;
       }>;
     }>(
-      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery(request)}`,
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${activationQuery}`,
       {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       },
@@ -3436,18 +3739,6 @@ export function App() {
       return null;
     }
     if (viewingNow === sid && canApplySnapshot()) {
-      // Stash the session's saved selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). The reasoning
-      // level is later validated by the clamp effect against the chosen model.
-      // The effect restores it once per session open — see
-      // shouldApplySessionSelection — because this call also runs after every
-      // turn and every reconnect.
-      setOpenSessionSelection({
-        sid,
-        model: (res.data.model || res.data.selectedModelId || "").trim(),
-        reasoning: (res.data.selectedReasoning || "").trim(),
-        mode: (res.data.mode || "").trim(),
-      });
       // The backend may have switched the profile itself (a plan run, or the
       // model calling plan_exit). The SSE `mode` frame is the primary signal;
       // this is the recovery for a turn whose stream we did not see whole, and
@@ -3469,6 +3760,30 @@ export function App() {
       // The whole snapshot: the mode, the permission mode, the overrides for
       // the next turns, and the version the next send names.
       const snap = parseSessionSettings(res.data.settings);
+      // Stash the session's own selection; an effect applies it once the
+      // backends list is loaded (the two fetches race on reload). It is the
+      // snapshot's: the top-level model and selectedReasoning name what a
+      // running turn holds, and a turn override taken for the session's
+      // model would become it with the next message. A read whose snapshot
+      // is older than the one this tab already applied - the events stream
+      // got ahead of a slow read - says nothing new and moves nothing back.
+      const held =
+        settingsVersionRef.current.sid === sid
+          ? settingsVersionRef.current.version
+          : 0;
+      if (!snap || isNewerSettings(held, sid, snap)) {
+        setOpenSessionSelection({
+          sid,
+          model: snap
+            ? snap.model
+            : (res.data.model || res.data.selectedModelId || "").trim(),
+          reasoning: snap
+            ? snap.reasoning
+            : (res.data.selectedReasoning || "").trim(),
+          choices: snap?.reasoningChoices ?? [],
+          mode: (res.data.mode || "").trim(),
+        });
+      }
       if (snap) {
         applySessionSettings(snap);
       }
@@ -3549,11 +3864,11 @@ export function App() {
       next,
       localForMerge,
     );
-    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
       mergedTranscript,
       localForMerge,
     );
+    revokeSupersededUserMessagePreviews(mergedBase, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
     merged = mergePermissionPromptsIntoTranscript(
       merged,
@@ -3591,15 +3906,25 @@ export function App() {
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
     if (canApplySnapshot()) {
-      setPermissionPendingSids((prev) => {
-        const next = new Set(prev);
-        if (hasPendingPermission) {
-          next.add(sid);
-        } else {
-          next.delete(sid);
-        }
-        return next;
-      });
+    setPermissionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingPermission) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
+    const hasPendingQuestion = hasUnresolvedQuestionPrompt(applied);
+    setQuestionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingQuestion) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
     }
     const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
       if (serverOnly && typeof snapshotRev === "number") {
@@ -3760,7 +4085,8 @@ export function App() {
         settled = true;
       }
     } finally {
-      if (olderLoadInFlightRef.current === sid) olderLoadInFlightRef.current = "";
+      if (olderLoadInFlightRef.current === sid)
+        olderLoadInFlightRef.current = "";
       if (!settled) {
         setOlderTranscriptLoad((cur) => (cur === "loading" ? "idle" : cur));
       }
@@ -3854,7 +4180,14 @@ export function App() {
     }
     setSessionLoading(true);
     setActiveDraftId("");
-    openSessionFromRoute(id, { historySidebar: keepHistoryOpen });
+    const keepTasksOpen =
+      tasksOpen &&
+      sessionsOpen &&
+      !window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+    openSessionFromRoute(id, {
+      historySidebar: keepHistoryOpen,
+      tasksOpen: keepTasksOpen,
+    });
     if (itemsRef.current.length > 0) {
       setSessionFadingOut(true);
       fadeOutTimerRef.current = setTimeout(() => {
@@ -3879,6 +4212,9 @@ export function App() {
 
   function goHome() {
     persistComposerDraftBeforeLeave();
+    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
+      setPendingWorkspace({ path: workspaceCtx.path });
+    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -3907,18 +4243,33 @@ export function App() {
     // A new chat starts in agent; the mode used to survive New chat while the
     // model was reset, so a plan session leaked its profile into the next one.
     setMode("agent");
+    setSessionReasoningChoices({ sid: "", model: "", choices: [] });
+    // A new chat sends its level with the first message: that is its own.
+    reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
     pendingPermissionModeRef.current = "";
     setPermissionMode(configuredPermissionMode);
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
-      setLlmModel(
-        pickDefaultLlmModelForNewChat({
-          backends: llmModelIds,
-          cookie: readLlmModelCookie(),
-        }),
-      );
+      const model = pickDefaultLlmModelForNewChat({
+        backends: llmModelIds,
+        cookie: readLlmModelCookie(),
+      });
+      setLlmModel(model);
+      // A new chat starts from this surface's defaults, never from the level
+      // the session it left behind ran at (#362): the cookie, then the model's
+      // default. A model whose row has not arrived is left to the clamp effect.
+      const row = modelInfos.find((m) => m.id === model);
+      if (row) {
+        setLlmReasoning(
+          pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: readReasoningCookie(),
+            modelDefault: row.reasoningDefault ?? null,
+          }),
+        );
+      }
     }
   }
 
@@ -4747,7 +5098,7 @@ export function App() {
       void turnActivity.refresh(key);
     },
     providerUsage: providerUsageState.applyPushed,
-    configReloaded: () => setConfigEpoch((e) => e + 1),
+    configReloaded: () => { setConfigEpoch((e) => e + 1); noteSettingsConfigReloaded(); void refreshConfiguredRemotes(); },
     // A session is shared: this is what someone else queued, in another
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
@@ -4759,6 +5110,7 @@ export function App() {
         void refreshBackgroundTasks({ silent: true });
       }
     },
+    questionPending: () => { void loadSessionsList(true); },
     sessionRewound: (sid: string) => {
       const key = sid.trim();
       if (!key) return;
@@ -4778,8 +5130,10 @@ export function App() {
       void loadMessages(key, { freshLoad: true });
     },
     ready: () => {
+      void loadSessionsList(true);
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
+      noteSettingsConfigReloaded();
       stoppedTurnBySidRef.current.clear();
       for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
       turnActivity.ready();
@@ -4805,6 +5159,7 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
+      onQuestionPending: (sid) => serverEventHandlersRef.current.questionPending(sid),
       onSessionRewound: (sid) => serverEventHandlersRef.current.sessionRewound(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
@@ -5273,12 +5628,18 @@ export function App() {
     // new chat's workspace, the file read) loses nothing either.
     let restoreKey = "";
     let userItemId = "";
+    // Blob URLs the optimistic bubble's thumbnails live on. When the send is
+    // never admitted the bubble goes away without the transcript merge that
+    // would have revoked them, so giveBack returns them here.
+    let optimisticBlobUrls: string[] = [];
     const giveBack = () => {
       const key = restoreKey || sessionId.trim();
       if (userItemId)
         applyStreamItemsForSession(key, (prev) =>
           prev.filter((it) => it.id !== userItemId),
         );
+      for (const url of optimisticBlobUrls) URL.revokeObjectURL(url);
+      optimisticBlobUrls = [];
       if (
         !opts?.restoreOnRefusal ||
         (key && viewedSessionIdRef.current.trim() !== key)
@@ -5372,16 +5733,19 @@ export function App() {
       }
 
       const hdrs = sid ? { [HDR]: sid } : {};
+      const optimisticFiles =
+        opts?.files && opts.files.length > 0
+          ? optimisticUserFiles(opts.files)
+          : [];
+      optimisticBlobUrls = optimisticFiles
+        .map((f) => f.previewUrl)
+        .filter((url): url is string => typeof url === "string" && url.startsWith("blob:"));
       const userItem: TranscriptItem = {
         id: newId("u"),
         type: "user_message",
         content: text,
         createdAtUtc: new Date().toISOString(),
-        ...(opts?.files && opts.files.length > 0
-          ? {
-              files: optimisticUserFiles(opts.files),
-            }
-          : {}),
+        ...(optimisticFiles.length > 0 ? { files: optimisticFiles } : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -5474,12 +5838,11 @@ export function App() {
                   reader.onerror = () => {
                     unreadable ??= {
                       name: f.name,
-                      reason:
-                        errorDetail(reader.error) || "NotReadableError",
+                      reason: errorDetail(reader.error) || "NotReadableError",
                     };
                     resolve(null);
                   };
-                  reader.readAsDataURL(f);
+                  reader.readAsDataURL(normalizeClipboardImageFile(f));
                 },
               ),
           ),
@@ -5517,10 +5880,14 @@ export function App() {
         settingsVersionRef.current.sid === sid.trim()
           ? settingsVersionRef.current.version
           : 0;
-      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
+      // The level the chip names for a session with none of its own is shown,
+      // not chosen: sent, it would pin the session to it (#362).
+      const sendReasoning =
+        reasoningSel !== "" && !(sid.trim() && reasoningImpliedRef.current);
+      if (yamlSel || sendReasoning || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
-        if (reasoningSel) meta.reasoning = reasoningSel;
+        if (sendReasoning) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
         if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
@@ -5664,11 +6031,8 @@ export function App() {
               getEnv(),
               await res
                 .json()
-                .then(
-                  (b: { error?: { message?: unknown } }) =>
-                    typeof b?.error?.message === "string"
-                      ? b.error.message
-                      : "",
+                .then((b: { error?: { message?: unknown } }) =>
+                  typeof b?.error?.message === "string" ? b.error.message : "",
                 )
                 .catch(() => ""),
             );
@@ -5744,8 +6108,8 @@ export function App() {
       if (!ownsPost() || abortCtl.signal.aborted) return;
       assistantStreamId = finalAssistantId;
       // Only settings commands: the exchange drawn for it is not part of the
-      // conversation. The transcript's log holds the notice, which the reload
-      // below renders in the place a reload of the page would.
+      // conversation, and the change is on the selectors. The reload below
+      // shows the transcript as the server holds it.
       if (settingsOnly) {
         applyStreamItems((prev) =>
           prev.filter(
@@ -6014,6 +6378,14 @@ export function App() {
     const generation = turnActivity.generation(sid);
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
     const cancelCtl = new AbortController();
+    // Capture this turn's gates before releasing its stream. An acknowledgement
+    // may arrive after navigation or a successor turn raised another prompt.
+    const stoppedPermissions = (
+      streamShadowBySidRef.current.get(sid) ?? itemsRef.current
+    ).filter(
+      (it): it is Extract<TranscriptItem, { type: "permission_prompt" }> =>
+        it.type === "permission_prompt" && !it.resolved,
+    );
     const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
     const errorId = `stop_error_${sid}`;
     applyStreamItemsForSession(sid, (prev) =>
@@ -6047,6 +6419,41 @@ export function App() {
         turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
       if (fenced) {
+        const stoppedIds = new Set(
+          stoppedPermissions.map((it) => it.payload.toolCall.toolCallId),
+        );
+        for (const it of stoppedPermissions) {
+          upsertPermissionPromptRecord(sid, {
+            toolCallId: it.payload.toolCall.toolCallId,
+            payload: it.payload,
+            resolved: { optionId: "cancelled", summaryLine: "" },
+          });
+        }
+        applyStreamItemsForSession(sid, (prev) =>
+          prev
+            .filter(
+              (it) =>
+                it.type !== "permission_prompt" ||
+                !stoppedIds.has(it.payload.toolCall.toolCallId),
+            )
+            .map((it) =>
+              it.type === "tool_call" &&
+              stoppedIds.has(it.toolCallId) &&
+              (it.status === "pending" || it.status === "in_progress")
+                ? { ...it, status: "cancelled" as const }
+                : it,
+            ),
+        );
+        setPermissionPendingSids((prev) => {
+          const next = new Set(prev);
+          next.delete(sid);
+          return next;
+        });
+        setDesktopNotifications((prev) =>
+          prev.filter(
+            (n) => n.kind !== "permission" || !stoppedIds.has(n.toolCallId),
+          ),
+        );
         stoppedTurnBySidRef.current.set(sid, generation);
         void turnActivity.refresh(sid, false);
       }
@@ -6094,11 +6501,27 @@ export function App() {
 
   const llmReasoningLevels = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.reasoningLevels ?? [];
-  }, [modelInfos, llmModel]);
+    const levels = row?.reasoningLevels ?? [];
+    // Off is not a level GET /v1/models lists; the viewed session's snapshot
+    // names it where the provider can turn thinking off, and the menu offers
+    // it there, so a session can be switched back to it as well as shown so.
+    const known = sessionReasoningChoices;
+    if (
+      levels.length > 0 &&
+      known.sid !== "" &&
+      known.sid === sessionId.trim() &&
+      known.model === llmModel &&
+      known.choices.includes("off") &&
+      !levels.includes("off")
+    ) {
+      return [...levels, "off"];
+    }
+    return levels;
+  }, [modelInfos, llmModel, sessionReasoningChoices, sessionId]);
 
   // Keep the selected reasoning level valid for the current model: keep the user's
-  // pick when the new model still offers it, else fall back (cookie -> model default).
+  // pick when the new model still offers it, else fall back (the cookie for a new
+  // chat, then the model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     // Nothing is known about a model whose row has not arrived - the list is still
@@ -6110,11 +6533,18 @@ export function App() {
       return;
     }
     const levels = row.reasoningLevels ?? [];
+    const viewed = viewedSessionIdRef.current.trim();
+    const known = sessionReasoningChoicesRef.current;
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
-        cookie: readReasoningCookie(),
+        // An open session's level is its own; the cookie seeds a new chat only.
+        cookie: viewed ? null : readReasoningCookie(),
         sessionLevel: prev,
+        sessionChoices:
+          viewed && known.sid === viewed && known.model === llmModel
+            ? known.choices
+            : [],
         modelDefault: row.reasoningDefault ?? null,
       }),
     );
@@ -6148,7 +6578,28 @@ export function App() {
     if (snap.model && llmModelIds.includes(snap.model)) {
       setLlmModel(snap.model);
     }
-    setLlmReasoning(snap.reasoning);
+    setSessionReasoningChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.reasoningChoices,
+    });
+    reasoningImpliedRef.current = !snap.reasoning.trim();
+    // An empty level is the model's own default when the model names none:
+    // shown as it comes, it blanks the chip while the session still runs at
+    // that default, so it goes through the chooser the open path uses. A
+    // model whose row has not arrived is left to the clamp effect.
+    const row = modelInfos.find((m) => m.id === snap.model);
+    setLlmReasoning(
+      row
+        ? pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: null,
+            sessionLevel: snap.reasoning,
+            sessionChoices: snap.reasoningChoices,
+            modelDefault: row.reasoningDefault ?? null,
+          })
+        : snap.reasoning,
+    );
   });
 
   /** patchSessionSettings sends a settings change and mirrors the answer. */
@@ -6197,10 +6648,13 @@ export function App() {
       }
       setLlmReasoning(lv);
       writeReasoningCookie(lv);
+      reasoningImpliedRef.current = false;
       const sid = sessionId.trim();
       if (!sid) {
         return;
       }
+      // Their pick outranks the snapshot a slower read may still be carrying.
+      userTouchedSelectionSidRef.current = sid;
       void patchSessionSettings(sid, { selectedReasoning: lv });
     },
     [sessionId, patchSessionSettings],
@@ -6215,7 +6669,12 @@ export function App() {
       setLlmModel(mid);
       writeLlmModelCookie(mid);
       const sid = sessionId.trim();
-      if (!sid || !llmModelIds.includes(mid)) {
+      if (!sid) {
+        return;
+      }
+      // Their pick outranks the snapshot a slower read may still be carrying.
+      userTouchedSelectionSidRef.current = sid;
+      if (!llmModelIds.includes(mid)) {
         return;
       }
       void patchSessionSettings(sid, { selectedModelId: mid });
@@ -6339,7 +6798,11 @@ export function App() {
       setSchedulerRunsError(res.message);
       return;
     }
-    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerEditor({
+      mode: "runs",
+      jobId: schedulerRunsJobId,
+      taskId: null,
+    });
     setSchedulerJobRunsHash(schedulerRunsJobId);
     void refreshSchedulerRuns({ silent: true });
     void refreshSchedulerJobs({ silent: true });
@@ -6350,7 +6813,7 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -6366,13 +6829,18 @@ export function App() {
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
-    setSessionTasksHash(sid);
+    if (isStackedShell()) {
+      setSessionTasksHash(sid);
+    }
   }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    if (!isStackedShell()) {
+      return;
+    }
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -6388,20 +6856,6 @@ export function App() {
       );
     }
   }, [sessionId, sessionsOpen]);
-
-  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
-  const openBackgroundTask = useCallback(
-    (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      setTasksOpen(true);
-      focusBackgroundTask(sid, taskId);
-      setSessionTasksHash(sid);
-    },
-    [sessionId, focusBackgroundTask],
-  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -6425,86 +6879,233 @@ export function App() {
     }
     const ac = new AbortController();
     void probeSwarm(ac.signal).then((info) => {
+      if (env.mode === "remote") {
+        rememberRelayHome(env.baseUrl, !!info);
+      }
       setIsSwarmEnv(!!info);
       setAtSwarmRoot(!!info);
     });
     return () => ac.abort();
   }, []);
 
+  // What serves this page: an agent, or a relay serving its own page. The
+  // documentation is read from it (docs/api.ts), so on a relay's own page the
+  // reader is left out of the rail; and only an agent is a machine of its own
+  // the swarm map draws above the relay as where the connection starts
+  // (issue #401). Null until it answers.
+  // It never changes while the page is open, so it is asked once and kept
+  // (pageMemory.ts): an app started over by a switch in place knows it at once.
+  const [localServer, setLocalServer] = useState<"agent" | "relay" | null>(
+    () => knownPageServer()?.kind ?? null,
+  );
+  // The host name of the machine the page runs on (GET /foxxycode/info of the
+  // page's own server), which is how the swarm map names it.
+  const [localHost, setLocalHost] = useState(
+    () => knownPageServer()?.host ?? "",
+  );
+  useEffect(() => {
+    if (knownPageServer()) {
+      return undefined;
+    }
+    let alive = true;
+    const readJSON = (path: string) =>
+      localFetch(path)
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null) as Promise<Record<string, unknown> | null>;
+    void (async () => {
+      const info = await readJSON("/swarm/info");
+      const kind = info?.swarm === true ? "relay" : "agent";
+      // Only an agent is a machine of its own on the map; the map says
+      // "Local" when it does not say its name.
+      const about = kind === "agent" ? await readJSON("/foxxycode/info") : null;
+      const host =
+        typeof about?.hostname === "string" ? about.hostname.trim() : "";
+      rememberPageServer({ kind, host });
+      if (alive) {
+        setLocalServer(kind);
+        setLocalHost(host);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const localDocs = localServer !== "relay";
+  // The machine the page runs on, for the swarm map: drawn only while the app
+  // is on a remote environment the page reached from it, and named by its host
+  // name (Local when the system reports none).
+  const swarmClient = useMemo(() => {
+    if (localServer !== "agent" || getEnv().mode !== "remote") {
+      return undefined;
+    }
+    return { name: localHost || t("composer.env.local") };
+  }, [localServer, localHost, t]);
+
   // Entering a node points the whole app at that node's mount, so every screen
   // that already existed works against it with a relay in the middle.
-  const openSwarmNode = useCallback((nodePath: string[], hash?: string) => {
-    const env = getEnv();
-    // Served by the relay from its own root, the environment is plain
-    // same-origin: the relay is then this page's origin. Without that fallback
-    // the one entry point this screen exists for silently did nothing.
-    const relay =
-      env.mode === "remote"
-        ? (env.swarmRelay ?? env.baseUrl)
-        : window.location.origin;
-    if (!relay) {
-      return;
-    }
-    connectSwarmNode(
-      relay,
-      nodePath,
-      env.mode === "remote" ? env.token : "",
-      hash,
-    );
-  }, []);
+  // `hash` is a session to open; `landing` is where a switch to another node
+  // lands without one - the map, kept open over the node, for a node clicked
+  // on it.
+  const openSwarmNode = useCallback(
+    (nodePath: string[], hash?: string, landing?: string) => {
+      const env = getEnv();
+      // The node the app is already on: nothing to switch, and no reload. A
+      // session of it a search row picked opens in place; without one the map
+      // closes onto the node. (The map itself leaves this node alone.)
+      if (
+        env.mode === "remote" &&
+        env.swarmRelay &&
+        env.swarmNode === nodePath.join("/")
+      ) {
+        setSwarmRoute(false);
+        if (hash) {
+          window.location.hash = hash;
+          return;
+        }
+        const sid = viewedSessionIdRef.current.trim();
+        if (sid) {
+          setSessionHashInLocation(sid);
+        } else {
+          window.location.hash = "#/";
+        }
+        return;
+      }
+      // Served by the relay from its own root, the environment is plain
+      // same-origin: the relay is then this page's origin. Without that fallback
+      // the one entry point this screen exists for silently did nothing.
+      const relay =
+        env.mode === "remote"
+          ? swarmRootRelay(env)
+          : window.location.origin;
+      if (!relay) {
+        return;
+      }
+      connectSwarmNode(
+        relay,
+        nodePath,
+        env.mode === "remote" ? env.token : "",
+        hash ?? landing,
+      );
+    },
+    [],
+  );
+
+  // A relay on the map opens as a relay: the one the map is drawn for is
+  // connected to itself, a relay chained under it opens through its mount -
+  // staying on the same map, which is always drawn by the outermost relay.
+  const openSwarmRelay = useCallback(
+    (relayPath: string[], name: string) => {
+      const env = getEnv();
+      // Already on the relay this path names - the map's root for a home or
+      // a local env, a chained relay for its own mount env: nothing to
+      // connect to, and a reload would only blink the page. A node env never
+      // matches: leaving it for a relay is a switch.
+      const onRelayPath =
+        env.mode === "remote"
+          ? env.swarmRelay
+            ? null
+            : swarmMountPath(env.baseUrl)
+          : swarmMountPath(window.location.origin);
+      if (onRelayPath && onRelayPath.join("/") === relayPath.join("/")) {
+        return;
+      }
+      const relay =
+        env.mode === "remote"
+          ? swarmRootRelay(env)
+          : window.location.origin;
+      if (!relay) {
+        return;
+      }
+      // The chip names the relay the way the environment menu does: by its
+      // entry in httpserver.remotes, else by the name it goes by on the map.
+      const label =
+        relayPath.length === 0
+          ? configuredRemoteFor(relay, configuredRemotes)?.name || name
+          : name;
+      connectSwarmRelay(
+        relay,
+        relayPath,
+        env.mode === "remote" ? env.token : "",
+        label,
+      );
+    },
+    [configuredRemotes],
+  );
 
   /**
-   * Where the app has been in this swarm, as a route.
-   *
-   * Inside a node it is that node; back on the relay it is whatever
-   * `returnToSwarm` remembered. The map marks it and draws the path to it, so
-   * the screen can say where we are rather than only what exists.
+   * Where the app is in this swarm, as a route: inside a node, that node. The
+   * map marks it and draws the path to it, so the screen can say where we are
+   * rather than only what exists.
    */
   const swarmCurrentNode = useMemo(() => {
     const env = getEnv();
     if (env.mode !== "remote") {
       return [] as string[];
     }
-    const route = env.swarmNode || env.swarmFrom || "";
-    return route.split("/").filter(Boolean);
+    const path = (env.swarmNode || "").split("/").filter(Boolean);
+    // A chained relay's env carries no swarmNode, but its mount URL spells
+    // the same path - the map marks where the app stands on the whole swarm.
+    return path.length ? path : swarmMountPath(env.baseUrl);
+  }, []);
+
+  /**
+   * The relay the map reads when the app is inside one of its nodes. The
+   * environment is the node's mount, which the relay's own routes are not
+   * under, so the map asks the relay directly - with the same client token the
+   * mount takes - and opening it leaves the node, its History and its
+   * Scheduler where they are (issue #401). Undefined on the relay itself,
+   * where the environment shim already reaches it.
+   */
+  const swarmRelayTarget = useMemo(() => {
+    const env = getEnv();
+    if (env.mode !== "remote") {
+      return undefined;
+    }
+    // The map is drawn by the outermost relay of the chain the environment
+    // hangs off: entering a node or a chained relay keeps the whole swarm in
+    // view and only moves the mark of where the app stands (env.swarmRelay
+    // for a node, the mount in its own baseUrl for a chained relay).
+    const relay =
+      env.swarmRelay || swarmMountPath(env.baseUrl).length
+        ? swarmRootRelay(env)
+        : "";
+    return relay ? { baseUrl: relay, token: env.token } : undefined;
   }, []);
 
   const openSwarmFromNav = useCallback(() => {
-    const env = getEnv();
-    // Inside a node, going to the swarm means going back out to its relay.
-    if (env.mode === "remote" && env.swarmRelay) {
-      returnToSwarm();
-      return;
-    }
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsRoute(false);
     window.location.hash = appNavHrefSwarm();
   }, []);
 
   /** Opens the reader over whatever is on screen, remembering it for the close. */
-  const openDocsAt = useCallback((slug: string | null, anchor: string | null) => {
-    if (parseAppHash().branch !== "docs") {
-      docsReturnHashRef.current = window.location.hash;
-    }
-    setSchedulerOpen(false);
-    setSchedulerEditor(null);
-    setTasksOpen(false);
-    setSessionsOpen(false);
-    setSettingsRoute(false);
-    window.location.hash = appNavHrefDocs(slug, anchor);
-  }, []);
+  const openDocsAt = useCallback(
+    (slug: string | null, anchor: string | null) => {
+      if (parseAppHash().branch !== "docs") {
+        docsReturnHashRef.current = window.location.hash;
+      }
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      if (isStackedShell()) setTasksOpen(false);
+      setSessionsOpen(false);
+      setSettingsRoute(false);
+      window.location.hash = appNavHrefDocs(slug, anchor);
+    },
+    [],
+  );
 
   const openDocsFromNav = useCallback(() => {
     openDocsAt(lastDocsSlugRef.current, null);
   }, [openDocsAt]);
 
   // A search /docs <words> brings into the reader; cleared when the reader closes.
-  const [docsSearchSeed, setDocsSearchSeed] = useState<{ query: string; nonce: number } | null>(
-    null,
-  );
+  const [docsSearchSeed, setDocsSearchSeed] = useState<{
+    query: string;
+    nonce: number;
+  } | null>(null);
 
   /**
    * `/docs [page or words]` in the composer, as in the console: the command
@@ -6584,12 +7185,14 @@ export function App() {
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
 
-  const onCloseSettings = useCallback(() => {
+  // Back to the chat on screen, or to the start screen when there is none:
+  // what closing Settings does.
+  const closeToChat = useCallback(() => {
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);
@@ -6623,17 +7226,25 @@ export function App() {
   // "Restart onboarding" in Settings: close settings, clear the tour-seen flag
   // so it can replay, and reopen the provider form.
   const restartOnboarding = useCallback(() => {
-    onCloseSettings();
+    closeToChat();
     resetTour();
     setShowTour(false);
     setShowProviderPicker(true);
-  }, [onCloseSettings]);
+  }, [closeToChat]);
+
+  // The swarm screen over a chat has no close control of its own: Escape
+  // takes it down as the backdrop does, back to the chat.
+  const onCloseSwarm = useCallback(() => {
+    setSwarmRoute(false);
+    closeToChat();
+  }, [closeToChat]);
 
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    if (isStackedShell()) setTasksOpen(false);
     setSettingsRoute(false);
+    setSwarmRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
@@ -6673,40 +7284,6 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
-  // Read the environments this server offers once: the list lives in the local
-  // config, so it is fetched off the origin rather than through the shim.
-  useEffect(() => {
-    let alive = true;
-    localFetch("/foxxycode/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg) => {
-        if (!alive || !cfg) {
-          return;
-        }
-        const list = (cfg as Record<string, unknown>)?.httpserver as
-          | Record<string, unknown>
-          | undefined;
-        const raw = list?.remotes;
-        if (!Array.isArray(raw)) {
-          return;
-        }
-        setConfiguredRemotes(
-          raw
-            .map((item) => {
-              const o = (item ?? {}) as Record<string, unknown>;
-              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
-            })
-            .filter((r) => r.url.trim() !== ""),
-        );
-      })
-      .catch(() => {
-        /* configured remotes are optional */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   const activeEnv = useSyncExternalStore(
     subscribeEnv,
     snapshotEnv,
@@ -6722,48 +7299,46 @@ export function App() {
    */
   const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
     const onRemote = activeEnv.mode === "remote";
-    // Narrowing by origin is a filter on the server being read; it must not
-    // reach for connectLocal, which reloads the page and would throw the choice
-    // away before it was used. Only coming *back* from a remote is a switch,
-    // and that reload resets the filter along with everything else.
+    const activeConfiguredRemote = onRemote
+      ? configuredRemoteFor(activeEnv.baseUrl, configuredRemotes)
+      : undefined;
+    // The first three rows filter whichever server is active. Configured
+    // remote rows below switch the server the whole app reads instead.
     const narrowTo = (origin: SessionOriginFilter) => () => {
-      if (onRemote) {
-        connectLocal();
-        return;
-      }
       setSessionsOrigin(origin);
       writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
     };
     const rows: SessionsEnvironmentOption[] = [
       {
+        kind: "origin",
         key: "all",
         label: t("sessions.filter.env.all"),
-        active: !onRemote && sessionsOrigin === "",
+        active: sessionsOrigin === "",
         onPick: narrowTo(""),
       },
       {
+        kind: "origin",
         key: "local",
         label: t("sessions.filter.env.local"),
-        active: !onRemote && sessionsOrigin === "local",
+        active: sessionsOrigin === "local",
         onPick: narrowTo("local"),
       },
       {
+        kind: "origin",
         key: "gateway",
         label: t("sessions.filter.env.gateway"),
-        active: !onRemote && sessionsOrigin === "gateway",
+        active: sessionsOrigin === "gateway",
         onPick: narrowTo("gateway"),
       },
     ];
     for (const remote of configuredRemotes) {
       rows.push({
+        kind: "switch",
         key: remote.url,
         label: remote.name.trim() || remote.url,
-        active:
-          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
-        // connectRemote reloads the page, so nothing of this session's state
-        // reaches the other server - the origin filter included.
-        onPick: () =>
-          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+        active: remote === activeConfiguredRemote,
+        // A configured remote is an environment switch, not an origin filter.
+        onPick: () => connectConfiguredRemote(remote),
       });
     }
     return rows;
@@ -6842,6 +7417,21 @@ export function App() {
     onLoadMore: () => void loadSessionsList(false),
   };
 
+  // Every screen of the rail, whether it is on screen and what Escape does to
+  // it: the step its close control takes (nav/railEscape.ts).
+  useRailScreenEscape({
+    history: { open: sessionsOpen, close: sessionPanelShared.onClose },
+    scheduler: {
+      open: schedulerOpen && schedulerHttpLinked === true,
+      // An open job or its runs first, back onto the list; the drawer next.
+      close: schedulerEditor ? closeSchedulerEditor : closeSchedulerDrawer,
+    },
+    // On a relay the swarm is the home screen, with nothing under it.
+    swarm: { open: swarmRoute && !atSwarmRoot, close: onCloseSwarm },
+    docs: { open: docsRoute !== null, close: onCloseDocs },
+    settings: { open: settingsRoute, close: closeToChat },
+  });
+
   const toggleRailWidth = () => {
     setRailLabelsWide((prev) => {
       const next = !prev;
@@ -6861,10 +7451,6 @@ export function App() {
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
-  const handleStopBackgroundTask = useStableHandler((id: string) => {
-    void stopBackgroundTaskById(id);
-  });
-
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -6873,28 +7459,57 @@ export function App() {
    * prompt rather than dropped. Any other refusal puts the text back in the
    * composer, because losing it is worse than a second attempt.
    */
-  const handleQueueMessage = useStableHandler((text: string) => {
+  const handleQueueModeChange = useStableHandler((mode: QueueMode) => {
+    setQueueMode(mode);
+    void (async () => {
+      const current = await fetchJSON<Record<string, unknown>>(
+        "/foxxycode/config",
+        { headers },
+      );
+      if (!current.ok || !current.data) return;
+      const agent = (current.data.agent ?? {}) as Record<string, unknown>;
+      const res = await fetch("/foxxycode/config", {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...current.data,
+          agent: { ...agent, queue_mode: mode },
+        }),
+      });
+      if (res.ok) setConfigEpoch((e) => e + 1);
+    })();
+  });
+
+  const handleQueueMessage = useStableHandler((text: string, mode: QueueMode, files: File[] = []) => {
     const sid = sessionId.trim();
     const generation = turnActivity.generation(sid);
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const body = text.trim();
-    if (!sid || !body) return;
+    if (!sid || (!body && files.length === 0)) return;
     setDraft("");
     void (async () => {
       type QueueAnswer = {
         messages?: QueuedMessage[];
         version?: number;
+        /** Attachments the server could not carry to a model that reads no images. */
+        images_dropped?: number;
         error?: { code?: string; message?: string };
       };
       let payload: QueueAnswer | null = null;
       let status = 0;
       try {
+        const inlineFiles = await Promise.all(files.map((file) => new Promise<{ name: string; data_url: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, data_url: reader.result as string });
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(normalizeClipboardImageFile(file));
+        })));
         const res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(sid)}/queue`,
           {
             method: "POST",
             headers: { [HDR]: sid, "Content-Type": "application/json" },
-            body: JSON.stringify({ text: body }),
+            body: JSON.stringify({ text: body, mode, inline_files: inlineFiles }),
           },
         );
         status = res.status;
@@ -6902,8 +7517,27 @@ export function App() {
       } catch {
         // Network failure: treated as a refusal below.
       }
-      if (status === 201 && Array.isArray(payload?.messages)) {
+      if (
+        (status === 201 || status === 200) &&
+        Array.isArray(payload?.messages)
+      ) {
         applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
+        // An attachment the server could not send to a model that reads no
+        // images is gone from the queued row: say so rather than let the
+        // paperclip disappear with it.
+        const dropped = Number(payload?.images_dropped ?? 0);
+        if (dropped > 0 && viewedSessionIdRef.current.trim() === sid) {
+          applyStreamItemsForSession(sid, (prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "info" as const,
+              message: tp("composer.queueImagesDropped", dropped),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+        }
         return;
       }
       if (
@@ -6916,10 +7550,13 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreOnRefusal: true });
+        void streamResponses(body, { files, restoreOnRefusal: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      if (viewedSessionIdRef.current.trim() === sid) {
+        setDraft((current) => current || body);
+        setComposerFiles((current) => [...files, ...current]);
+      }
       const code = payload?.error?.code;
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
@@ -6963,6 +7600,9 @@ export function App() {
         const data = (await res.json().catch(() => null)) as {
           messages?: QueuedMessage[];
           version?: number;
+          message?: QueuedMessage & {
+            inline_files?: { name?: string; data_url?: string }[];
+          };
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
@@ -6970,11 +7610,59 @@ export function App() {
         // Taken back before the agent read it: the text returns to the composer to be
         // edited, ahead of anything typed since. A 404 means the agent read it first,
         // and it is already in the conversation.
-        const text = taken?.text ?? "";
-        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+        const text = data?.message?.text ?? taken?.text ?? "";
+        if (
+          res.ok &&
+          text.trim() &&
+          viewedSessionIdRef.current.trim() === sid
+        ) {
           setDraft((current) =>
             current.trim() ? `${text}\n\n${current}` : text,
           );
+        }
+        // Its images come back only in this answer: the queue every client is
+        // sent names them and never carries them.
+        const files = (data?.message?.inline_files ?? [])
+          .map((f) => fileFromDataUrl(f.data_url ?? "", f.name ?? ""))
+          .filter((f): f is File => f !== null);
+        if (
+          res.ok &&
+          files.length > 0 &&
+          viewedSessionIdRef.current.trim() === sid
+        ) {
+          setComposerFiles((current) => [...files, ...current]);
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
+    })();
+  });
+  /**
+   * Switch a waiting message between steering the running turn and waiting for
+   * its answer. The answer carries the whole queue; a message the agent read a
+   * moment ago answers 404 and the next `message_queue` frame settles the list.
+   */
+  const handleSetQueuedMode = useStableHandler((id: string, mode: QueueMode) => {
+    const sid = sessionId.trim();
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          {
+            method: "PATCH",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (res.ok && Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
         }
       } catch {
         // The next message_queue frame corrects the list.
@@ -7022,17 +7710,23 @@ export function App() {
     >
       <EnvHealthBanner />
       <NavRail
-        onNewChat={goHome}
+        // A relay has no chat to start: its home is the map, and the brand
+        // leads there as it leads an agent's page to a new chat.
+        onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        historyActiveCount={historyActiveCount}
         showHistory={!atSwarmRoot}
         showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        schedulerActiveCount={schedulerInfo?.runs_active ?? 0}
         showSwarm={isSwarmEnv}
         onOpenSwarm={openSwarmFromNav}
-        swarmOpen={swarmRoute}
-        onOpenDocs={openDocsFromNav}
+        // On a relay the map is the home screen, so its entry stays lit while
+        // the map is what is on screen, whichever address shows it.
+        swarmOpen={swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute)}
+        {...(localDocs ? { onOpenDocs: openDocsFromNav } : {})}
         docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
@@ -7082,7 +7776,8 @@ export function App() {
             <SchedulerJobsDrawer
               open={schedulerOpen}
               selectedJobId={
-                schedulerEditor?.mode === "edit" || schedulerEditor?.mode === "runs"
+                schedulerEditor?.mode === "edit" ||
+                schedulerEditor?.mode === "runs"
                   ? schedulerEditor.jobId
                   : null
               }
@@ -7111,7 +7806,9 @@ export function App() {
               <BackgroundTasksPanel
                 open
                 className="scheduler-runs-dock"
-                title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
+                title={t("scheduler.runsTitle", {
+                  jobId: schedulerEditor.jobId,
+                })}
                 emptyText={t("scheduler.runsEmpty")}
                 focus={schedulerRunsFocus}
                 onFocusHonoured={(seq) =>
@@ -7146,10 +7843,7 @@ export function App() {
               availableModels={llmModelIds}
               defaultModel={llmModel}
               currentCwd={currentSessionCwd}
-              onClose={() => {
-                setSchedulerEditor(null);
-                setSchedulerListHash();
-              }}
+              onClose={closeSchedulerEditor}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });
                 if (createdId) {
@@ -7168,12 +7862,22 @@ export function App() {
         {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
-              onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
+              onOpenNode={(nodePath: string[]) =>
+                openSwarmNode(nodePath, undefined, "#/swarm")
+              }
+              onOpenRelay={openSwarmRelay}
+              {...(swarmRelayTarget ? { relay: swarmRelayTarget } : {})}
+              {...(swarmClient
+                ? { client: swarmClient, onOpenLocal: connectLocal }
+                : {})}
               onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
               {...(swarmCurrentNode.length > 0
                 ? { currentNode: swarmCurrentNode }
                 : {})}
-              {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
+              {...(atSwarmRoot && swarmCurrentNode.length === 0
+                ? { rootCurrent: true }
+                : {})}
+              {...(atSwarmRoot ? {} : { onClose: onCloseSwarm })}
             />
           </div>
         ) : null}
@@ -7192,8 +7896,11 @@ export function App() {
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings
-              onClose={onCloseSettings}
-              onConfigSaved={() => setConfigEpoch((e) => e + 1)}
+              onClose={closeToChat}
+              onConfigSaved={() => {
+                setConfigEpoch((e) => e + 1);
+                void refreshConfiguredRemotes();
+              }}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
               // Subagent approvals are keyed by workspace, and spawn_agent
@@ -7201,16 +7908,21 @@ export function App() {
               // is the one the tab must ask about. Falls back to the host
               // project root, which is the cwd an editor plugin launched the
               // server for.
-              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
               initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace (or the folder a new chat
+              // picked) is the one the Subagents and Skills tabs list.
+              workspacePath={chatWorkspace || undefined}
               onSessionTagsChanged={(id: string, tags: string[]) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, tags } : s)),
                 )
               }
+              // On a relay the drawer edits the relay's own deployment.
+              relay={atSwarmRoot}
             />
           </div>
         ) : null}
@@ -7250,8 +7962,6 @@ export function App() {
             }}
             backgroundTasksByToolCallId={backgroundTasksByToolCallId}
             backgroundNowMs={backgroundNowMs}
-            onOpenBackgroundTask={openBackgroundTask}
-            onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
             sessionArchived={viewedArchived}
             unarchiving={unarchiving}
@@ -7262,6 +7972,7 @@ export function App() {
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
+            chatWorkspacePath={chatWorkspace}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
             workspaceLocked={items.length > 0}
@@ -7298,6 +8009,20 @@ export function App() {
             contextPct={contextPct}
             maxContextTokens={maxContextTokens}
             contextBreakdown={contextBreakdown}
+            compactionSettings={{
+              ...compactionSettings,
+              enabled:
+                compactionSettings.enabled &&
+                !subagentTranscript &&
+                !viewedArchived,
+            }}
+            onContextCompacted={() => {
+              const sid = sessionId.trim();
+              if (sid) {
+                void loadMessages(sid, { freshLoad: true });
+                void refreshSessionStats(sid);
+              }
+            }}
             mode={mode}
             modes={[...PROFILE_MODES]}
             {...(llmModelIds.length > 0
@@ -7323,6 +8048,14 @@ export function App() {
             }
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
+            onMentionArtifact={(path: string) =>
+              setDraft((current) => {
+                // The mention grammar needs a quoted path when it carries
+                // whitespace, exactly like the composer's own picker.
+                const mention = /\s/.test(path) ? `@"${path}"` : `@${path}`;
+                return `${current}${current.trim() ? " " : ""}${mention}`;
+              })
+            }
             generating={generating}
             turnActive={turnActivity.get(sessionId)}
             onContextRingOpen={() => {
@@ -7337,6 +8070,9 @@ export function App() {
               : {
                   queuedMessages,
                   onQueue: handleQueueMessage,
+                  ...(queueMode ? { queueMode } : {}),
+                  onQueueModeChange: handleQueueModeChange,
+                  onSetQueuedMode: handleSetQueuedMode,
                   onCancelQueued: handleCancelQueued,
                 })}
             onQuestionPromptResolved={resolveQuestionPrompt}
@@ -7408,6 +8144,14 @@ export function App() {
               }
             }}
             onDocsCommand={openDocsCommand}
+            onMCPCommand={() => {
+              setDraft("");
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+              setTasksOpen(false);
+              setSessionsOpen(false);
+              setSettingsSectionHash(MCP_SECTION_ID);
+            }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {

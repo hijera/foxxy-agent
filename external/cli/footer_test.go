@@ -69,6 +69,47 @@ func TestFooterNamesRunningTasksAndTheCommandThatListsThem(t *testing.T) {
 	}
 }
 
+// On a narrow line with every note up - the MCP count, the running tasks, the
+// permission mode - the notes stay whole together and the path gives way.
+func TestFooterKeepsEveryNoteWhenTheLineIsNarrow(t *testing.T) {
+	cwd := "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/foxxycode-cli-bdd-1789734719342464000/work"
+	f := newFooter(newTheme("dark"), cwd)
+	f.title = "Session manager walkthrough"
+	f.SetMCP(1, 3, true)
+	f.SetRunningTasks(2)
+	f.permission = "bypass"
+	line := tui.StripTerminalSequences(f.Render(80)[0])
+	for _, note := range []string{"MCP 1/3", "2 tasks running (/tasks)", "bypass"} {
+		if !strings.Contains(line, note) {
+			t.Fatalf("the note %q fell off the footer:\n%s", note, line)
+		}
+	}
+	if got := tui.VisibleWidth(line); got > 80 {
+		t.Fatalf("footer line is %d cells wide, want at most 80", got)
+	}
+	if !strings.Contains(line, "/var/folders") {
+		t.Fatalf("the path vanished instead of giving way:\n%s", line)
+	}
+}
+
+// On a line with room for the notes and not for any of the path, the path
+// goes and the notes stay.
+func TestFooterDropsThePathBeforeANote(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/home/operator/projects/foxxycode")
+	f.SetMCP(1, 3, true)
+	f.SetRunningTasks(2)
+	f.permission = "bypass"
+	line := tui.StripTerminalSequences(f.Render(48)[0])
+	for _, note := range []string{"MCP 1/3", "2 tasks running (/tasks)", "bypass"} {
+		if !strings.Contains(line, note) {
+			t.Fatalf("the note %q fell off the footer:\n%s", note, line)
+		}
+	}
+	if got := tui.VisibleWidth(line); got > 48 {
+		t.Fatalf("footer line is %d cells wide, want at most 48", got)
+	}
+}
+
 // A long working directory - a macOS temp folder, a deep monorepo path - must not push
 // the running tasks off the line: the path gives way, the count and the command that
 // lists the tasks stay.

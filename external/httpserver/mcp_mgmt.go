@@ -2,8 +2,8 @@
 
 package httpserver
 
-// MCP management REST surface (/foxxycode/mcp*): merged server list (config.yaml
-// + global <home>/mcp.json + project .foxxycode/mcp.json) with tool inventories
+// MCP management REST surface (/foxxycode/mcp*): merged server list (global
+// <home>/mcp.json + project .foxxycode/mcp.json) with tool inventories
 // probed over each server's transport, server/tool disable toggles persisted
 // into the owning file, and CRUD for mcp.json entries in either scope.
 // Mirrors the skills management surface in skills_mgmt.go.
@@ -11,7 +11,9 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // mcpProbeTimeout bounds one server probe (spawn + initialize + tools/list).
@@ -48,56 +51,65 @@ type mcpToolRow struct {
 
 // mcpServerRow is one merged server in the list response.
 type mcpServerRow struct {
-	Name      string            `json:"name"`
-	Source    string            `json:"source"`    // global | local (scope)
-	Origin    string            `json:"origin"`    // config | home | project (owning file)
-	Readonly  bool              `json:"readonly"`  // config.yaml entries: no edit/delete here
-	Transport string            `json:"transport"` // stdio | http
-	Command   string            `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	// InsecureSkipVerify: this server's TLS certificate is not verified.
-	InsecureSkipVerify bool         `json:"insecure_skip_verify,omitempty"`
-	SourcePath         string       `json:"source_path,omitempty"` // file that defines the entry
-	Enabled            bool         `json:"enabled"`
-	Status             string       `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
-	Error              string       `json:"error,omitempty"`
-	Trusted            bool         `json:"trusted"`               // false only for a gated project entry
-	Gated              bool         `json:"gated"`                 // the workspace trust gate applies to this entry
-	Fingerprint        string       `json:"fingerprint,omitempty"` // digest an approval binds to
-	Tools              []mcpToolRow `json:"tools"`
-	DisabledTools      []string     `json:"disabled_tools,omitempty"`
+	Name               string            `json:"name"`
+	Source             string            `json:"source"`    // global | local (scope)
+	Origin             string            `json:"origin"`    // home | project (owning file)
+	Transport          string            `json:"transport"` // stdio | http
+	Command            string            `json:"command,omitempty"`
+	Args               []string          `json:"args,omitempty"`
+	URL                string            `json:"url,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	Reads              []string          `json:"reads,omitempty"`       // variables of the process its values read
+	SourcePath         string            `json:"source_path,omitempty"` // file that defines the entry
+	Enabled            bool              `json:"enabled"`
+	Status             string            `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
+	Error              string            `json:"error,omitempty"`
+	Trusted            bool              `json:"trusted"`               // false only for a gated project entry
+	Gated              bool              `json:"gated"`                 // the workspace trust gate applies to this entry
+	Fingerprint        string            `json:"fingerprint,omitempty"` // digest an approval binds to
+	Tools              []mcpToolRow      `json:"tools"`
+	DisabledTools      []string          `json:"disabled_tools,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
 
 // mcpProbeEntry caches one server's probed tool list keyed by its config and
 // workspace fingerprint, so repeated GETs do not respawn subprocesses.
 type mcpProbeEntry struct {
+	origin      string
+	name        string
+	workspace   string
 	fingerprint string
 	tools       []mcp.ToolInfo
 	err         string
 }
 
-func mcpFingerprint(srv config.MCPServerConfig, cwd string) string {
-	b, _ := json.Marshal(struct {
-		Server config.MCPServerConfig `json:"server"`
-		CWD    string                 `json:"cwd"`
-	}{Server: srv, CWD: cwd})
+type mcpProbeKey struct {
+	origin    string
+	poolKey   string
+	workspace string
+}
+
+func mcpFingerprint(srv config.MCPServerConfig) string {
+	b, _ := json.Marshal(srv)
 	return string(b)
 }
 
 // probeMCPServer returns the cached tool list for srv, probing on fingerprint
 // change or when refresh is forced. The probe runs through the trust gate, so
 // listing servers never starts a project command the operator has not
-// approved.
+// approved, and through the session manager's server pool, so a server the
+// process runs already answers from its connection instead of being started a
+// second time.
 func (s *Server) probeMCPServer(ctx context.Context, gate *mcp.TrustGate, srv mcp.ManagedServer, cwd string, refresh bool) ([]mcp.ToolInfo, string) {
-	fp := mcpFingerprint(srv.Config, cwd)
+	fp := mcpFingerprint(srv.Config)
+	workspace := session.CanonicalWorkspacePath(cwd)
+	key := mcpProbeKey{origin: srv.Origin, poolKey: mcp.PoolKey(srv, cwd), workspace: workspace}
 	s.mcpProbeMu.Lock()
 	if s.mcpProbeCache == nil {
-		s.mcpProbeCache = make(map[string]mcpProbeEntry)
+		s.mcpProbeCache = make(map[mcpProbeKey]mcpProbeEntry)
 	}
-	entry, ok := s.mcpProbeCache[srv.Config.Name]
+	entry, ok := s.mcpProbeCache[key]
 	s.mcpProbeMu.Unlock()
 	if ok && !refresh && entry.fingerprint == fp {
 		return entry.tools, entry.err
@@ -105,27 +117,67 @@ func (s *Server) probeMCPServer(ctx context.Context, gate *mcp.TrustGate, srv mc
 
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
-	tools, err := gate.Probe(probeCtx, srv, cwd, s.log)
-	entry = mcpProbeEntry{fingerprint: fp, tools: tools}
+	var tools []mcp.ToolInfo
+	var err error
+	if s.mgr != nil {
+		tools, err = s.mgr.ProbeMCPServer(probeCtx, srv, cwd)
+	} else {
+		tools, err = gate.Probe(probeCtx, srv, cwd, s.log)
+	}
+	entry = mcpProbeEntry{origin: srv.Origin, name: srv.Config.Name, workspace: workspace, fingerprint: fp, tools: tools}
 	if err != nil {
-		entry.err = err.Error()
+		// The list shows this error to every client of the API, so what the
+		// declaration resolved to (a ${NAME} in the URL, a value the server
+		// echoed back) leaves it the way the list shows the declaration.
+		entry.err = mcp.RedactValues(srv.Config, cwd, err.Error())
 	}
 	s.mcpProbeMu.Lock()
-	s.mcpProbeCache[srv.Config.Name] = entry
+	s.mcpProbeCache[key] = entry
 	s.mcpProbeMu.Unlock()
 	return entry.tools, entry.err
 }
 
-func (s *Server) invalidateMCPProbe(name string) {
+func (s *Server) invalidateMCPProbe(origin, name, cwd string) {
+	workspace := session.CanonicalWorkspacePath(cwd)
 	s.mcpProbeMu.Lock()
-	delete(s.mcpProbeCache, name)
+	for key, entry := range s.mcpProbeCache {
+		if entry.origin != origin || entry.name != name {
+			continue
+		}
+		if origin != mcp.OriginProject || entry.workspace == workspace {
+			delete(s.mcpProbeCache, key)
+		}
+	}
 	s.mcpProbeMu.Unlock()
+}
+
+// mcpWorkspace resolves the optional session header for every MCP route that
+// reads or changes a workspace-dependent declaration. Project-trust policy is
+// deliberately global and therefore does not call this helper.
+func (s *Server) mcpWorkspace(w http.ResponseWriter, r *http.Request) (string, bool) {
+	return s.resolveSessionCWD(w, r)
+}
+
+func findManagedMCPServer(cfg *config.Config, cwd, name string) (mcp.ManagedServer, error) {
+	servers, err := mcp.ListManagedServers(cfg, cwd)
+	if err != nil {
+		return mcp.ManagedServer{}, err
+	}
+	for _, srv := range servers {
+		if srv.Config.Name == name {
+			return srv, nil
+		}
+	}
+	return mcp.ManagedServer{}, fmt.Errorf("mcp server %q not found", name)
 }
 
 // foxxycodeMCPGet lists merged MCP servers with tools and per-tool switches.
 // ?refresh=1 re-probes every enabled stdio server.
 func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
-	cwd := s.sessionDefaultCWD()
+	cwd, ok := s.mcpWorkspace(w, r)
+	if !ok {
+		return
+	}
 	servers, err := mcp.ListManagedServers(s.activeCfg(), cwd)
 	if err != nil {
 		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
@@ -143,30 +195,34 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			Name:               srv.Config.Name,
 			Source:             srv.Scope,
 			Origin:             srv.Origin,
-			Readonly:           srv.Origin == mcp.OriginConfig,
 			Transport:          transport,
 			Command:            srv.Config.Command,
 			Args:               srv.Config.Args,
 			URL:                srv.Config.URL,
-			InsecureSkipVerify: srv.Config.InsecureSkipVerify,
 			SourcePath:         mcpSourcePath(s.activeCfg(), cwd, srv.Origin),
 			Enabled:            !srv.Config.Disabled,
 			Trusted:            trust == mcp.TrustStateAllowed,
 			Gated:              srv.Origin == mcp.OriginProject,
 			Fingerprint:        mcp.Fingerprint(srv.Config),
+			Reads:              mcp.ReadsEnvironment(srv.Config),
 			Tools:              []mcpToolRow{},
 			DisabledTools:      srv.Config.DisabledTools,
+			InsecureSkipVerify: srv.Config.InsecureSkipVerify,
 		}
+		// Names only (issue #376): a value never leaves the server, whichever
+		// file declared it. The placeholder in its place is what a save sends
+		// back to keep the stored value (mcp.SaveServer), and reads names the
+		// variables of the process the values take.
 		if len(srv.Config.Env) > 0 {
 			row.Env = make(map[string]string, len(srv.Config.Env))
 			for _, e := range srv.Config.Env {
-				row.Env[e.Name] = e.Value
+				row.Env[e.Name] = config.RedactedValue
 			}
 		}
 		if len(srv.Config.Headers) > 0 {
 			row.Headers = make(map[string]string, len(srv.Config.Headers))
 			for _, h := range srv.Config.Headers {
-				row.Headers[h.Name] = h.Value
+				row.Headers[h.Name] = config.RedactedValue
 			}
 		}
 		if !mcp.SupportedTransport(transport) {
@@ -175,16 +231,16 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			rows[i] = row
 			continue
 		}
-		if srv.Config.Disabled {
-			row.Status = "disabled"
-			rows[i] = row
-			continue
-		}
 		// A gated project entry is reported, never probed: probing it would
 		// start exactly the command the approval is about.
 		if trust != mcp.TrustStateAllowed {
 			row.Status = string(trust)
 			row.Error = gate.Check(cwd, srv).Error()
+			rows[i] = row
+			continue
+		}
+		if srv.Config.Disabled {
+			row.Status = "disabled"
 			rows[i] = row
 			continue
 		}
@@ -232,56 +288,49 @@ func mcpSourcePath(cfg *config.Config, cwd, origin string) string {
 	case mcp.OriginHome:
 		return config.GlobalMCPJSONPath(cfg.Paths.Home)
 	default:
-		return cfg.Paths.ConfigPath
+		return ""
 	}
 }
 
-// foxxycodeMCPServerTrust approves the current declaration of a project-local
-// server for this workspace, so sessions may start it.
+// foxxycodeMCPServerTrust approves the declaration of a project-local server the
+// operator was shown, for this workspace, and connects it in live sessions.
+// The optional body {"fingerprint": "..."} names that declaration by the
+// fingerprint the list reported: when the checkout rewrote the entry since,
+// the approval is refused with 409 and nothing is recorded. Without a body the
+// current declaration is approved, for a client that shows it and approves it
+// in one step.
 func (s *Server) foxxycodeMCPServerTrust(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.mcpWorkspace(w, r)
+	if !ok {
+		return
+	}
 	name := r.PathValue("name")
-	cwd := s.sessionDefaultCWD()
-	servers, err := mcp.ListManagedServers(s.activeCfg(), cwd)
+	var body struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	srv, err := findManagedMCPServer(s.activeCfg(), cwd, name)
 	if err != nil {
-		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	gate := mcp.NewTrustGate(s.activeCfg())
-	for _, srv := range servers {
-		if srv.Config.Name != name {
-			continue
+	if err := gate.ApproveShown(cwd, srv, body.Fingerprint); err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, mcp.ErrDeclarationChanged) {
+			code = http.StatusConflict
 		}
-		if err := gate.Approve(cwd, srv); err != nil {
-			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		s.invalidateMCPProbe(name)
-		slog.Info("mcp server approved for workspace",
-			"name", name, "workspace", cwd, "digest", mcp.Fingerprint(srv.Config))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"ok":          true,
-			"fingerprint": mcp.Fingerprint(srv.Config),
-		})
+		writeFoxxyCodeMCPErr(w, code, err.Error())
 		return
 	}
-	writeFoxxyCodeMCPErr(w, http.StatusBadRequest, fmt.Sprintf("mcp server %q not found", name))
-}
-
-// foxxycodeMCPServerUntrust withdraws an approval; running sessions keep their
-// already connected clients, new sessions do not start the server again.
-func (s *Server) foxxycodeMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	cwd := s.sessionDefaultCWD()
-	removed, err := mcp.NewTrustGate(s.activeCfg()).Revoke(cwd, name)
-	if err != nil {
-		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.invalidateMCPProbe(name)
-	slog.Info("mcp server approval revoked", "name", name, "workspace", cwd, "removed", removed)
+	s.invalidateMCPProbe(srv.Origin, name, cwd)
+	s.refreshLiveMCPServer(r, name, srv.Origin, cwd)
+	slog.Info("mcp server approved for workspace", "name", name, "workspace", cwd, "digest", mcp.Fingerprint(srv.Config))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "fingerprint": mcp.Fingerprint(srv.Config)})
 }
 
 // foxxycodeMCPProjectTrust persists the mcp.project_trust policy, so the MCP
@@ -308,36 +357,59 @@ func (s *Server) foxxycodeMCPProjectTrust(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// foxxycodeMCPServerToggle enables or disables a whole server, persisting into
-// the file that defines it (config.yaml or .foxxycode/mcp.json).
+// foxxycodeMCPServerToggle enables or disables a whole server and connects or
+// closes it in live sessions, leaving their other servers running. Project
+// switches stay in the operator's home, outside the checkout.
 func (s *Server) foxxycodeMCPServerToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cwd, ok := s.mcpWorkspace(w, r)
+		if !ok {
+			return
+		}
 		name := r.PathValue("name")
-		if err := mcp.SetServerDisabled(s.activeCfg(), s.sessionDefaultCWD(), name, disable); err != nil {
+		srv, err := findManagedMCPServer(s.activeCfg(), cwd, name)
+		if err != nil {
+			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := mcp.SetServerDisabled(s.activeCfg(), cwd, name, disable); err != nil {
 			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		s.reloadConfigFromDisk()
+		s.invalidateMCPProbe(srv.Origin, name, cwd)
+		s.refreshLiveMCPServer(r, name, srv.Origin, cwd)
 		slog.Info("mcp server toggled", "name", name, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}
 }
 
-// foxxycodeMCPToolToggle enables or disables a single tool of a server.
+// foxxycodeMCPToolToggle enables or disables a single tool of a server. Nothing
+// reconnects: every turn rebuilds its tool filter from the switches.
 func (s *Server) foxxycodeMCPToolToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cwd, ok := s.mcpWorkspace(w, r)
+		if !ok {
+			return
+		}
 		name := r.PathValue("name")
 		tool := r.PathValue("tool")
 		if strings.TrimSpace(tool) == "" {
 			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, "missing tool name")
 			return
 		}
-		if err := mcp.SetToolDisabled(s.activeCfg(), s.sessionDefaultCWD(), name, tool, disable); err != nil {
+		srv, err := findManagedMCPServer(s.activeCfg(), cwd, name)
+		if err != nil {
+			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := mcp.SetToolDisabled(s.activeCfg(), cwd, name, tool, disable); err != nil {
 			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		s.reloadConfigFromDisk()
+		s.invalidateMCPProbe(srv.Origin, name, cwd)
 		slog.Info("mcp tool toggled", "server", name, "tool", tool, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
@@ -346,8 +418,16 @@ func (s *Server) foxxycodeMCPToolToggle(disable bool) http.HandlerFunc {
 
 // foxxycodeMCPServerPut creates or updates a server entry in the mcp.json file
 // selected by ?scope=: "local" (default) writes <cwd>/.foxxycode/mcp.json,
-// "global" writes <home>/mcp.json.
+// "global" writes <home>/mcp.json. An env or header value of "<redacted>",
+// the placeholder the list shows, keeps the stored value; ?fingerprint= names
+// the declaration the client was shown, and a save against one rewritten
+// since is refused with 409 (mcp.SaveServer). Live sessions start it, or
+// start it again from the new declaration.
 func (s *Server) foxxycodeMCPServerPut(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.mcpWorkspace(w, r)
+	if !ok {
+		return
+	}
 	name := r.PathValue("name")
 	if err := mcp.ValidateServerName(name); err != nil {
 		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
@@ -366,31 +446,86 @@ func (s *Server) foxxycodeMCPServerPut(w http.ResponseWriter, r *http.Request) {
 		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, "either command or url is required")
 		return
 	}
-	if err := mcp.UpsertServer(s.activeCfg(), s.sessionDefaultCWD(), name, scope, entry); err != nil {
-		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+	shown := strings.TrimSpace(r.URL.Query().Get("fingerprint"))
+	if err := mcp.SaveServer(s.activeCfg(), cwd, name, scope, entry, shown); err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, mcp.ErrDeclarationChanged) {
+			code = http.StatusConflict
+		}
+		writeFoxxyCodeMCPErr(w, code, err.Error())
 		return
 	}
-	s.invalidateMCPProbe(name)
+	origin := mcp.OriginProject
+	if scope == mcp.ScopeGlobal {
+		origin = mcp.OriginHome
+	}
+	s.invalidateMCPProbe(origin, name, cwd)
+	// Live sessions start the server, or start it again from the edited
+	// declaration, and leave their other servers running.
+	s.refreshLiveMCPServer(r, name, origin, cwd)
 	slog.Info("mcp server saved", "name", name, "scope", scope)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// foxxycodeMCPServerDelete removes an mcp.json-defined server from its owning
-// file. Config.yaml-defined servers are refused (edit Settings instead).
+// foxxycodeMCPServerDelete removes a server from the mcp.json file that declares
+// it and closes it in live sessions.
 func (s *Server) foxxycodeMCPServerDelete(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.mcpWorkspace(w, r)
+	if !ok {
+		return
+	}
 	name := r.PathValue("name")
-	if err := mcp.DeleteServer(s.activeCfg(), s.sessionDefaultCWD(), name); err != nil {
+	srv, err := findManagedMCPServer(s.activeCfg(), cwd, name)
+	if err != nil {
 		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.invalidateMCPProbe(name)
+	if err := mcp.DeleteServer(s.activeCfg(), cwd, name); err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.invalidateMCPProbe(srv.Origin, name, cwd)
+	// Live sessions close the server the declaration named.
+	s.refreshLiveMCPServer(r, name, srv.Origin, cwd)
 	slog.Info("mcp server deleted", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
+// refreshLiveMCPServer brings live sessions in line with one server whose
+// switch or trust the request changed. The change is already on disk, so a
+// client that goes away does not cut the refresh short: it keeps the request's
+// values but not its cancellation, and the manager bounds its own time.
+func (s *Server) refreshLiveMCPServer(r *http.Request, name, origin, cwd string) {
+	go s.mgr.RefreshMCPServerInWorkspace(context.WithoutCancel(r.Context()), name, origin, cwd)
+}
+
 func writeFoxxyCodeMCPErr(w http.ResponseWriter, code int, msg string) {
 	body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": msg}})
 	http.Error(w, string(body), code)
+}
+
+// foxxycodeMCPServerUntrust withdraws an approval: live sessions close the server
+// (a turn in flight keeps it until the turn ends) and new sessions do not
+// start it again.
+func (s *Server) foxxycodeMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.mcpWorkspace(w, r)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	srv, findErr := findManagedMCPServer(s.activeCfg(), cwd, name)
+	removed, err := mcp.NewTrustGate(s.activeCfg()).Revoke(cwd, name)
+	if err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if findErr == nil {
+		s.invalidateMCPProbe(srv.Origin, name, cwd)
+		s.refreshLiveMCPServer(r, name, srv.Origin, cwd)
+	}
+	slog.Info("mcp server approval revoked", "name", name, "workspace", cwd, "removed", removed)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }

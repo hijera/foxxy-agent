@@ -499,9 +499,10 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			m.notifyUsageObservers("", delivered)
 			return
 		}
+		sender := m.currentSender()
 		for _, id := range waiters {
-			if m.server != nil {
-				_ = m.server.SendSessionUpdate(id, delivered)
+			if sender != nil {
+				_ = sender.SendSessionUpdate(id, delivered)
 			}
 			m.notifyUsageObservers(id, delivered)
 		}
@@ -571,9 +572,10 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 // enough to retry for a row whose key is produced by a command: the
 // fingerprint cannot see the command's output change, so time does.
 func (m *Manager) usageRejectionExpiredLocked(prov *config.ProviderConfig, e *providerUsageEntry, now time.Time) bool {
-	// The command is the credential in use only when no literal key outranks
-	// it (EffectiveAPIKey: api_key, then the command, then the env var).
-	if strings.TrimSpace(prov.APIKeyCommand) == "" || strings.TrimSpace(prov.APIKey) != "" {
+	// The command is the credential in use only when the row takes a key at
+	// all and no literal key outranks it (EffectiveAPIKey: api_key, then the
+	// command, then the env var).
+	if !prov.TakesAPIKey() || strings.TrimSpace(prov.APIKeyCommand) == "" || strings.TrimSpace(prov.APIKey) != "" {
 		return false
 	}
 	return !e.unauthorizedAt.IsZero() && now.Sub(e.unauthorizedAt) >= providerUsageCommandRetry
@@ -735,8 +737,8 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
-		if m.server != nil {
-			_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+		if sender := m.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(sessionID, *deliverNow)
 		}
 		// The HTTP server listens through the observers only: a deferred or
 		// backed-off turn end still has to reach its events stream.
@@ -751,7 +753,11 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 // however long the credential helper takes. Nothing waits here.
 func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	prov, ok := m.usageProviderForSession(st)
-	if !ok || m.server == nil {
+	if !ok {
+		return
+	}
+	sender := m.currentSender()
+	if sender == nil {
 		return
 	}
 	cfg := m.activeCfg()
@@ -775,7 +781,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
-		_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+		_ = sender.SendSessionUpdate(sessionID, *deliverNow)
 	}
 }
 

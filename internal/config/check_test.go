@@ -129,6 +129,34 @@ func TestCheckLegacyEnabledBesideTheSwitchIsIgnored(t *testing.T) {
 	}
 }
 
+// A key that moved out of config.yaml is a warning saying where it went,
+// not an unknown key: the next start moves it there, and -t writes nothing.
+func TestCheckWarnsAboutAKeyThatMovedOut(t *testing.T) {
+	body := withModeline("mcp_servers:\n  - name: files\n    command: npx\n")
+	rep := checkYAML(t, body)
+	if errs := errorsOf(rep); len(errs) != 0 {
+		t.Fatalf("a moved key must not be an error: %+v", errs)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 || warns[0].Path != "mcp_servers" || warns[0].Line != 2 {
+		t.Fatalf("want one warning at mcp_servers on line 2, got %+v", rep.Findings)
+	}
+	if !strings.Contains(warns[0].Fix, "mcp.json") {
+		t.Errorf("fix %q does not say where the servers live now", warns[0].Fix)
+	}
+	if got, err := os.ReadFile(rep.File); err != nil || string(got) != body {
+		t.Fatalf("the check rewrote the file: %q, %v", got, err)
+	}
+
+	sources := checkYAML(t, withModeline("skills:\n  sources:\n    - owner/repo\n"))
+	if errs := errorsOf(sources); len(errs) != 0 {
+		t.Fatalf("skills.sources must not be an error: %+v", errs)
+	}
+	if w := warningsOf(sources); len(w) != 1 || w[0].Path != "skills.sources" || !strings.Contains(w[0].Fix, "marketplaces.json") {
+		t.Fatalf("want one warning at skills.sources naming marketplaces.json, got %+v", sources.Findings)
+	}
+}
+
 func TestCheckUnknownKeyInsideAListEntry(t *testing.T) {
 	rep := checkYAML(t, withModeline("providers:\n  - name: a\n    type: openai\n  - name: b\n    type: openai\n    api_bas: x\n"))
 	f := onlyError(t, rep)
@@ -215,7 +243,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 	t.Run("word for a number", func(t *testing.T) {
 		rep := checkYAML(t, withModeline("agent:\n  max_turns: many\n"))
 		f := onlyError(t, rep)
-		if !strings.Contains(f.Fix, "max_turns: 0") {
+		if !strings.Contains(f.Fix, "max_turns: 165") {
 			t.Errorf("fix %q should show the schema default as an example", f.Fix)
 		}
 	})
@@ -727,5 +755,26 @@ func TestCheckWarnsWhenTheMemoryAddendumIsCut(t *testing.T) {
 		if strings.Contains(f.Message, "memory.additional_prompt") {
 			t.Fatalf("a text within the cap was reported: %+v", f)
 		}
+	}
+}
+
+// A header name carries hyphens, and a refused default header is still
+// reported on its own line with the doc of the map it sits in.
+func TestCheckRefusedDefaultHeaderPointsAtTheHeader(t *testing.T) {
+	rep := checkYAML(t, withModeline(`tools:
+  http_request:
+    default_headers:
+      User-Agent: probe/2
+      Content-Type: application/json
+`))
+	f := onlyError(t, rep)
+	if !strings.Contains(f.Message, "default_headers.Content-Type") {
+		t.Errorf("message %q", f.Message)
+	}
+	if f.Line != 6 {
+		t.Errorf("line %d, want 6 (the Content-Type header)", f.Line)
+	}
+	if !strings.Contains(f.Doc, "every http_request call sends") {
+		t.Errorf("doc %q, want the description of default_headers", f.Doc)
 	}
 }

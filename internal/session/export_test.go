@@ -11,6 +11,12 @@ func (m *Manager) SetSubagentPublishHookForTest(fn func(*State)) {
 	m.testHooks.afterSubagentPublish = fn
 }
 
+// SetSubagentPrePublishHookForTest runs fn once a child state is built (a
+// resumed child's bundle read) and before it is published to the live map.
+func (m *Manager) SetSubagentPrePublishHookForTest(fn func(*State)) {
+	m.testHooks.beforeSubagentPublish = fn
+}
+
 // SetTurnEntryHookForTest runs fn at the start of turn admission, after the
 // caller resolved its state and before anything is registered.
 func (m *Manager) SetTurnEntryHookForTest(fn func(sessionID string)) {
@@ -42,3 +48,13 @@ func SetDeleteSettleTimeoutForTest(d time.Duration) (restore func()) {
 	deleteSettleTimeout = d
 	return func() { deleteSettleTimeout = prev }
 }
+
+// SetMCPConnectTimeoutForTest shortens the per-server MCP connect budget.
+func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
+	m.mcpConnectTimeout = d
+	m.mcpPool.SetDialTimeout(d)
+}
+
+// SetMCPStopDelayForTest sets how long a shared MCP server nothing holds runs
+// on before the pool stops it.
+func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }

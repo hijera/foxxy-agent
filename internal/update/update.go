@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -26,7 +27,7 @@ type Options struct {
 	TargetVersion  string // empty = latest release
 	GOOS           string
 	GOARCH         string
-	InstallPath    string // empty = replace os.Executable()
+	InstallPath    string // empty = replace platform.Executable()
 	CheckOnly      bool
 	Yes            bool
 	NoRestart      bool // Windows only: install the update but do not start FoxxyCode again
@@ -179,7 +180,7 @@ func Run(ctx context.Context, opts Options) error {
 
 // resolveExecutablePath returns the path to replace (symlink-resolved).
 func resolveExecutablePath() (string, error) {
-	exe, err := os.Executable()
+	exe, err := platform.Executable()
 	if err != nil {
 		return "", err
 	}

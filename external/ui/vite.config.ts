@@ -6,6 +6,8 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 // @ts-ignore -- plain .mjs module without type declarations
 import resolveColorMix from "./postcss-resolve-color-mix.mjs";
+// @ts-ignore -- plain .mjs module without type declarations
+import forkStyles from "./postcss-fork-styles.mjs";
 
 const backend = (process.env.FOXXYCODE_UI_BACKEND || "").trim();
 const cacheDir = (process.env.FOXXYCODE_UI_VITE_CACHE_DIR || "").trim();
@@ -38,7 +40,7 @@ export default defineConfig({
     // Resolves color-mix() to Chromium-104-safe literals at build time
     // (JCEF baseline, see docs/contributing/intellij-embedding.md). Applies in dev too.
     postcss: {
-      plugins: [resolveColorMix()],
+      plugins: [forkStyles(), resolveColorMix()],
     },
   },
   test: {

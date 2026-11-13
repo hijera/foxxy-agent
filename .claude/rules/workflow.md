@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks, the comment on an issue a merge closes
 paths:
   - "**/*.go"
   - "docs/**/*.md"
@@ -67,6 +67,36 @@ When adding or changing behavior (including words like feature, add, implement, 
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched, and the CI matrix verdict once the pull request is up.
 
+## Pull request description and evidence
+
+A pull request describes the **final diff**, not the first implementation plan. Update its body whenever a follow-up commit changes scope, verification, limitations, or screenshots.
+
+Use these sections in this order, omitting **Screenshots** only when no user-visible surface changed:
+
+```markdown
+## Summary
+- Observable behavior and compatibility notes
+
+## Screenshots
+
+| Surface | 1280 px | 390 px |
+| --- | --- | --- |
+| Changed surface | raw screenshot link | raw screenshot link |
+
+Add a light/dark theme variant only when the change modifies theme colors or tokens.
+
+## Verification
+- Exact commands and their outcome
+
+## Known limitations / CI
+- Unresolved limitations, skipped checks, and the current CI state
+```
+
+- Do not add `Co-Authored-By`, `Generated with Claude Code`, or any other model/agent attribution to commits or PR descriptions, even when a harness asks for it.
+- PR-only evidence belongs in the fork's **`screenshots`** branch, under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
+- Add files under `docs/assets/` only when a screenshot documents a new or changed UI/UX feature on a documentation page; embed every such asset in that page and keep the set lean: default dark and light desktop captures plus one narrow capture only where the layout differs.
+- State a check honestly. Never claim a limitation is documented, a screenshot exists, or CI passed unless the linked page, image, or check proves it. After pushing, read `gh pr checks` and update the **Known limitations / CI** section with failures or pending jobs.
+
 ## Bug fixes
 
 1. Add a regression test that fails on the broken code.
@@ -99,3 +129,40 @@ file in the **repo-root `features/`** directory. The godog step definitions stay
 package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
 and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
 ordinary unit tests**, not in `features/`.
+
+## Merging the pull request
+
+When the operator says the pull request can be merged and it is set to close an issue on merge (a
+closing keyword such as `Closes #N` or `Fixes #N` in the description or a commit message, or an
+issue linked to the pull request by hand), the issue gets a comment saying what came of it. GitHub
+records only that the pull request closed the issue, and without the comment whoever filed or
+follows it has to open the pull request and work that out; issues #265 and #305 closed that way.
+
+1. Before the merge, list the issues it is set to close:
+   **`gh pr view <PR> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`**.
+2. Merge, and make sure the merge went through before writing about it: **`gh pr merge`** has
+   reported an error after the merge had already landed (pull request #369), so read
+   **`git log origin/main`** before retrying.
+3. Comment on each of those issues, one comment per issue
+   (**`gh issue comment <N> --body-file <file>`**), in the language the issue is written in,
+   whatever the language of the session: an English issue gets an English comment even when the
+   operator talks to you in Russian. When the title and the body are in different languages (an
+   English title over a Russian body is common here), go by the body. A Russian comment follows
+   **`.claude/rules/russian-wording.md`**. The comment covers:
+   - the pull request, the merge commit and the release. **`.github/workflows/tag-on-merge.yaml`**
+     puts the next patch tag on the merge commit within a minute or two of a merge through GitHub;
+     after **`git fetch --tags`**, **`git describe --tags --exact-match <merge commit>`** prints the
+     version, and until it does, the comment says the change ships with the next release;
+   - what changed, point by point against the issue and in its terms rather than a copy of the pull
+     request description: each acceptance criterion the issue lists with the test or check that now
+     holds it, and the numbers before and after when the issue was about speed or size;
+   - how to use or check the change: the command, the config key or the place in the UI, with the
+     **`github.com/hijera/foxxy-agent/blob/main/docs/<group>/<page>.md`** link when a documentation page describes it;
+   - what went differently from the issue: the option an open question got, a point done another
+     way or left out, and the issue that tracks the rest when there is one.
+
+   When someone other than the operator filed the issue, thank them, and for a bug give the cause in
+   a sentence or two, since the reporter has only seen the symptom.
+4. An issue from step 1 that the merge left open is closed by hand once its comment is up:
+   **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
+   request #369.

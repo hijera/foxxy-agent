@@ -104,14 +104,20 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	ctx = turnCtx
 
 	// A resumed turn is one somebody is watching by definition - they just answered its
-	// permission prompt - so it publishes like any other composer turn. The sender stays
-	// non-interactive: this turn has no HTTP response of its own for a client to read.
+	// permission prompt - so it publishes like any other composer turn. It has no HTTP
+	// response of its own for a client to read, so a question is refused; a permission
+	// prompt is asked the way a woken turn asks one - emitted on the relay, persisted,
+	// answered through the permission endpoint - because the one who answered is there:
+	// an http_request whose default headers moved since its prompt asks again here.
 	rel := s.beginComposerRelay(sessionID)
 	defer s.endComposerRelay(sessionID, rel)
-	bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
+	bridge := NewWakeRelaySender(s.activeCfg(), rel, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+		return s.mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+	})
 	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
 		if err == nil {
@@ -129,14 +135,23 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// The resumed turn calls the model like any other: its release refreshes
 	// the provider usage.
 	session.MarkTurnRan(ctx)
-	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
+	outcome := session.ActivityOutcomeSuccess
+	_, err = ag.ResumeAfterPermission(ctx, toolCallID, res)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			outcome = session.ActivityOutcomeCanceled
+		} else {
+			outcome = session.ActivityOutcomeFailure
+		}
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
-		return
 	}
+	if ctx.Err() != nil && outcome == session.ActivityOutcomeSuccess {
+		outcome = session.ActivityOutcomeCanceled
+	}
+	st.RecordActivityOutcome(outcome)
 	if fs := s.mgr.FileStore(); fs != nil {
 		if err := fs.Save(st); err != nil {
 			s.log.Warn("permission resume persist", "session", sessionID, "error", err)
 		}
 	}
-	st.BumpActivitySeq()
 }

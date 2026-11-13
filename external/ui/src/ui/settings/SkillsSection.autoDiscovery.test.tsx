@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SkillsSection } from "./SkillsSection";
 import type { JsonSchema } from "./SchemaForm";
+import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(() => {
   cleanup();
@@ -17,10 +18,10 @@ const skillsSchema = {
       title: "Skill directories",
       items: { type: "string" },
     },
-    sources: {
-      type: "array",
-      title: "Remote skill sources",
-      items: { type: "string" },
+    project_trust: {
+      type: "string",
+      title: "Project marketplaces",
+      enum: ["ask", "allow", "deny"],
     },
     auto_discovery: {
       type: "boolean",
@@ -148,4 +149,65 @@ test("an installed skill row leads with its switch", async () => {
   expect(row.firstElementChild).toBe(toggle);
   expect(row.querySelector(":scope > svg")).toBeNull();
   expect(row.textContent).toContain("v1.0.1");
+});
+
+// The marketplace results hang under the search box. Escape takes them away
+// first, clearing the search, and the Settings drawer stays for the next one.
+test("Escape clears the install search before it reaches the drawer", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  const closeDrawer = vi.fn();
+  render(
+    <>
+      <OpenRailScreen id="settings" onClose={closeDrawer} />
+      <SkillsSection schema={skillsSchema} value={{}} onChange={() => {}} />
+    </>,
+  );
+  const input = screen.getByTestId("skills-install-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "pdf" } });
+  expect(await screen.findByTestId("skills-install-results")).toBeTruthy();
+
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(input.value).toBe("");
+  expect(screen.queryByTestId("skills-install-results")).toBeNull();
+  expect(closeDrawer).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(closeDrawer).toHaveBeenCalledTimes(1);
+});
+
+// The policy for the project's marketplaces.json is a block of its own, the
+// way MCP discovery is in the MCP tab, and it stands above the list it
+// governs rather than as a loose field between two fieldsets.
+test("the project marketplaces policy has its own fieldset above the marketplaces", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  render(
+    <SkillsSection
+      schema={skillsSchema}
+      value={{ auto_discovery: true, project_trust: "ask" }}
+      onChange={() => {}}
+    />,
+  );
+  const group = screen.getByTestId("settings-group-skills-marketplace-trust");
+  expect(group.querySelector("legend")?.textContent).toBe(
+    "Marketplace discovery",
+  );
+  expect(group.textContent).toContain("Project marketplaces");
+  const marketplaces = await screen.findByTestId("skills-marketplaces");
+  expect(
+    group.compareDocumentPosition(marketplaces) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // Every top-level block of the section is a fieldset: no field stands
+  // loose between them.
+  const section = document.querySelector(".settings-skills-section")!;
+  const loose = section.querySelectorAll(
+    ":scope > .settings-schema-root > .settings-row",
+  );
+  expect(loose).toHaveLength(0);
 });

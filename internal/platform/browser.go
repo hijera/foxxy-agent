@@ -22,6 +22,11 @@ var browserOpeners = []struct {
 	{name: "wslview"},
 }
 
+// termuxURLOpener is how Termux opens a URL on Android: it hands the URL to
+// the system, which shows it in the phone's browser. There is no display to
+// look for.
+const termuxURLOpener = "termux-open-url"
+
 // LocalBrowserAvailable reports whether this machine plausibly has a browser
 // the person at the keyboard is looking at.
 //
@@ -58,6 +63,12 @@ func browserOpenArgv(goos string, getenv func(string) string, lookPath func(stri
 	if b := browserFromEnv(getenv); b != "" {
 		return []string{b, url}
 	}
+	if goos == "android" {
+		if _, err := lookPath(termuxURLOpener); err == nil {
+			return []string{termuxURLOpener, url}
+		}
+		return nil
+	}
 	for _, opener := range browserOpeners {
 		if _, err := lookPath(opener.name); err == nil {
 			return append(append([]string{opener.name}, opener.args...), url)
@@ -89,6 +100,12 @@ func localBrowserAvailable(goos string, getenv func(string) string, lookPath fun
 	switch goos {
 	case "windows", "darwin":
 		return true
+	case "android":
+		if browserFromEnv(getenv) != "" {
+			return true
+		}
+		_, err := lookPath(termuxURLOpener)
+		return err == nil
 	default:
 		if getenv("DISPLAY") == "" && getenv("WAYLAND_DISPLAY") == "" {
 			return false

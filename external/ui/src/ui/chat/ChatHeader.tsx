@@ -60,6 +60,9 @@ export function ChatHeader(props: {
                 (e.target as HTMLInputElement).blur();
               }
               if (e.key === "Escape") {
+                // Leaving the title is this Escape's step: a drawer open
+                // beside the chat stays (nav/railEscape.ts).
+                e.preventDefault();
                 setValue(props.title || "");
                 setEditing(false);
               }

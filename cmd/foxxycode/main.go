@@ -213,11 +213,13 @@ func printUsage(w io.Writer) {
   %[1]s skills list
   %[1]s skills enable <name>
   %[1]s skills disable <name>
-  %[1]s skills add <owner/repo | git-url | marketplace-url>
+  %[1]s skills add <owner/repo | git-url | marketplace-url> [--project]
   %[1]s skills sync
   %[1]s skills remove <name>
-  %[1]s plugin marketplace list | add <src> | remove <src> | sync
-  %[1]s plugin install <owner/repo | git-url | marketplace-url>
+  %[1]s plugin list
+  %[1]s plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
+  %[1]s plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
+  %[1]s plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
@@ -388,6 +390,9 @@ func runACP(args []string) error {
 	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetWorkspaceSwitcher(func(ctx context.Context, dir string) error {
+			return mgr.SetSessionWorkspaceDuringTurn(ctx, st, dir)
+		})
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
@@ -401,6 +406,10 @@ func runACP(args []string) error {
 		}
 		mgr.SetPreferredSessionID(pid)
 	}
+	// The servers of the global configuration start now and stay up for every
+	// session the editor opens; they stop when the editor lets go of the agent.
+	mgr.StartGlobalMCPServers()
+	defer mgr.CloseMCP()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
 	// updates can read, live and when session/load replays it.
@@ -629,21 +638,33 @@ func runSkills(args []string) error {
 		fmt.Printf("Disabled skill %q\n", args[1])
 		return nil
 	case "add":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: %s skills add <owner/repo | git-url | marketplace-url>", os.Args[0])
+		// --project writes the workspace's .foxxycode/marketplaces.json, approved
+		// for it by the act of writing; without it the operator's own file.
+		scope, rest := skills.ScopeGlobal, make([]string, 0, len(args))
+		for _, a := range args[1:] {
+			if a == "--project" {
+				scope = skills.ScopeLocal
+				continue
+			}
+			rest = append(rest, a)
 		}
-		added, err := skills.AddSource(cfg, args[1])
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: %s skills add <owner/repo | git-url | marketplace-url> [--project]", os.Args[0])
+		}
+		cwd, _ := os.Getwd()
+		added, err := skills.AddSource(cfg, cwd, rest[0], scope)
 		if err != nil {
 			return err
 		}
 		if added {
-			fmt.Printf("Added skill source %q. Run `%s skills sync` to install.\n", args[1], os.Args[0])
+			fmt.Printf("Added skill source %q. Run `%s skills sync` to install.\n", rest[0], os.Args[0])
 		} else {
-			fmt.Printf("Source %q already configured.\n", args[1])
+			fmt.Printf("Source %q already configured.\n", rest[0])
 		}
 		return nil
 	case "sync":
-		res, err := skills.Sync(context.Background(), cfg)
+		cwd, _ := os.Getwd()
+		res, err := skills.Sync(context.Background(), cfg, cwd)
 		if err != nil {
 			return err
 		}
@@ -664,15 +685,16 @@ func runSkills(args []string) error {
 }
 
 // runPlugin implements `foxxycode plugin ...` — the Claude-Code-style plugin and
-// marketplace surface, sharing skills.RunPluginCommand with the chat /plugin
-// command so both stay in lockstep.
+// marketplace surface, sharing skills.RunPluginCommandWith with the chat
+// /plugin command so both stay in lockstep. Only the terminal approves a
+// project marketplace (`plugin marketplace trust`).
 func runPlugin(args []string) error {
 	cfg, err := loadSkillsConfig()
 	if err != nil {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	out, err := skills.RunPluginCommand(context.Background(), cfg, cwd, args)
+	out, err := skills.RunPluginCommandWith(context.Background(), cfg, cwd, args, skills.PluginOptions{AllowTrust: true})
 	if err != nil {
 		return err
 	}
@@ -682,6 +704,13 @@ func runPlugin(args []string) error {
 
 func printSyncResult(res *skills.SyncResult) {
 	fmt.Printf("Synced: %d added, %d updated, %d failed.\n", len(res.Added), len(res.Updated), len(res.Failed))
+	for _, d := range res.Held {
+		if d.State == skills.StateDenied {
+			fmt.Printf("  ? %s: declared by %s, switched off by skills.project_trust: deny\n", d.Key(), d.Path)
+			continue
+		}
+		fmt.Printf("  ? %s: declared by %s, not approved for this workspace (`%s plugin marketplace trust %s`)\n", d.Key(), d.Path, os.Args[0], d.Key())
+	}
 	for _, n := range res.Added {
 		fmt.Printf("  + %s\n", n)
 	}

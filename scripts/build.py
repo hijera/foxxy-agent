@@ -156,7 +156,7 @@ def run_cmd(
 
 def require_tools(ui: UI, names: Iterable[str]) -> None:
     hints = {
-        "go": "Установите Go 1.25+ (см. go.mod) и добавьте в PATH.",
+        "go": "Установите Go 1.26+ (см. go.mod) и добавьте в PATH.",
         "git": "Установите Git и добавьте в PATH (нужен для версии сборки).",
         "npm": "Установите Node.js с npm (нужен для UI и плагинов).",
         "node": "Установите Node.js и добавьте в PATH.",

@@ -20,19 +20,25 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 // prints: one row per rule with its source folder, the dialect its extension
 // selected, the activation mode, whether it is in every prompt (ALWAYS: an
 // auto rule with no patterns and no directory scope) and what activates it.
+// Under the table it names the project folder the rules came from and the
+// folders further down the chain that hold rules and were not read.
 func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error {
 	if f == nil {
 		f = DefaultFactory("")
 	}
-	rules, err := f.Discover(cwd, systems)
+	d, err := f.Inspect(cwd, systems)
 	if err != nil {
 		return err
 	}
+	rules := d.Rules
 	if len(rules) == 0 {
 		if _, err := fmt.Fprintln(w, "No rules found."); err != nil {
 			return err
 		}
-		return renderAgentsNote(w, systems)
+		if err := renderFolders(w, d); err != nil {
+			return err
+		}
+		return renderAgentsNote(w)
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(w)
@@ -53,13 +59,12 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 		}
 		// ALWAYS answers "is this rule in every prompt?": a gated rule is an
 		// auto rule too, but it waits for a matching path.
-		alwaysOn := r.ApplyMode == ApplyAuto && len(r.Globs) == 0 && r.ScopeDir == ""
 		t.AppendRow(table.Row{
 			string(r.Source),
 			string(r.Format),
 			r.CanonicalName(),
 			string(r.ApplyMode),
-			fmt.Sprintf("%v", alwaysOn),
+			fmt.Sprintf("%v", r.AlwaysOn()),
 			activates,
 			desc,
 		})
@@ -68,38 +73,67 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 	style.Format.Header = text.FormatUpper
 	t.SetStyle(style)
 	t.Render()
-	if _, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), catalogRoots(cwd, f, rules)); err != nil {
+	if _, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), catalogRoots(cwd, d)); err != nil {
 		return err
 	}
-	return renderAgentsNote(w, systems)
+	if err := renderFolders(w, d); err != nil {
+		return err
+	}
+	return renderAgentsNote(w)
 }
 
 // catalogRoots names where the listed rules came from. The workspace alone,
 // unless the operator's own folder contributed a row - then it is named too,
 // so a rule nobody can find in the checkout is not a mystery.
-func catalogRoots(cwd string, f *Factory, listed []*Rule) string {
-	for _, r := range listed {
-		if r.Source != SourceUser {
-			continue
-		}
-		for _, p := range f.Providers() {
-			if p.ID() == SourceUser {
-				return cwd + " and " + p.RulesRoot()
-			}
-		}
+func catalogRoots(cwd string, d *Discovery) string {
+	if d.UserFolder != "" {
+		return cwd + " and " + d.UserFolder
 	}
 	return cwd
+}
+
+// renderFolders names the project folder the rules came from, the folders of
+// the chain that hold rules and were left alone - most often another agent's
+// mirror of the same rules, which a reader would otherwise expect in the table
+// - the rules of those folders that are no mirror of anything read, and the
+// folders that could not be read at all.
+func renderFolders(w io.Writer, d *Discovery) error {
+	if d.ProjectFolder != "" {
+		if _, err := fmt.Fprintf(w, "Project rules folder: %s\n", d.ProjectFolder); err != nil {
+			return err
+		}
+	}
+	if len(d.Skipped) > 0 {
+		if _, err := fmt.Fprintf(w, "Not read: %s (one project folder is read: the first of %s that holds a rule file)\n",
+			strings.Join(d.Skipped, ", "), strings.Join(d.Chain, ", ")); err != nil {
+			return err
+		}
+	}
+	if len(d.OnlySkipped) > 0 {
+		names := d.OnlySkipped
+		more := ""
+		if len(names) > 10 {
+			more = fmt.Sprintf(" and %d more", len(names)-10)
+			names = names[:10]
+		}
+		if _, err := fmt.Fprintf(w, "Only in a folder not read: %s%s\n", strings.Join(names, ", "), more); err != nil {
+			return err
+		}
+	}
+	if len(d.Unreadable) > 0 {
+		if _, err := fmt.Fprintf(w, "Could not read: %s\n", strings.Join(d.Unreadable, "; ")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // agentsOnDemandNote tells a reader of the catalog why no nested document
 // appears in it: the listing would have to walk the whole workspace to find
 // them, and a session never does.
-const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the root pair is the project docs preamble)."
+const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the pairs of the agent home and of the workspace are always in the prompt)."
 
-func renderAgentsNote(w io.Writer, systems []Source) error {
-	if !AgentsOnDemand(systems) {
-		return nil
-	}
+func renderAgentsNote(w io.Writer) error {
 	_, err := fmt.Fprintln(w, agentsOnDemandNote)
 	return err
 }

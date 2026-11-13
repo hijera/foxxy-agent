@@ -4,7 +4,10 @@ package platform
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -136,5 +139,77 @@ func TestProcessStartedAroundFailsClosedWhenCreationTimeCannotBeRead(t *testing.
 
 	if processStartedAround(handle, time.Now()) {
 		t.Fatal("processStartedAround() = true when GetProcessTimes cannot read the handle")
+	}
+}
+
+const jobParentDirEnv = "FOXXYCODE_TEST_JOB_PARENT_DIR"
+
+// TestHelperJobParent is not a real test: re-executed with
+// FOXXYCODE_TEST_JOB_PARENT_DIR set it waits for a "go" file there, starts
+// TestHelperJobSleeper, records the child's pid and exits without waiting for
+// it - a package runner whose server outlives it.
+func TestHelperJobParent(t *testing.T) {
+	dir := os.Getenv(jobParentDirEnv)
+	if dir == "" {
+		t.Skip("helper process")
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go")); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	child := exec.Command(os.Args[0], "-test.run=^TestHelperJobSleeper$")
+	child.Env = append(os.Environ(), jobParentDirEnv+"=", "FOXXYCODE_TEST_JOB_SLEEPER=1")
+	if err := child.Start(); err != nil {
+		os.Exit(3)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "child.pid"), []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+	os.Exit(0)
+}
+
+// TestHelperJobSleeper is the child TestHelperJobParent leaves behind.
+func TestHelperJobSleeper(t *testing.T) {
+	if os.Getenv("FOXXYCODE_TEST_JOB_SLEEPER") != "1" {
+		t.Skip("helper process")
+	}
+	time.Sleep(time.Minute)
+	os.Exit(0)
+}
+
+// A child that outlived its parent is still in the parent's job, and closing
+// the job ends it: what taskkill /T can no longer reach once the parent is
+// gone.
+func TestKillTreeOnCloseEndsAChildItsParentLeftBehind(t *testing.T) {
+	dir := t.TempDir()
+	parent := exec.Command(os.Args[0], "-test.run=^TestHelperJobParent$")
+	parent.Env = append(os.Environ(), jobParentDirEnv+"="+dir)
+	if err := parent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	closeJob, err := KillTreeOnClose(parent)
+	if err != nil {
+		t.Fatalf("KillTreeOnClose: %v", err)
+	}
+	defer closeJob()
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = parent.Wait()
+	data, err := os.ReadFile(filepath.Join(dir, "child.pid"))
+	if err != nil {
+		t.Fatalf("the parent recorded no child: %v", err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := ProcessStartedAt(pid)
+	if !waitForProbe(pid, started, true) {
+		t.Fatal("the child is not running once its parent exited")
+	}
+	closeJob()
+	if !waitForProbe(pid, started, false) {
+		t.Fatal("the child outlived the job it was started in")
 	}
 }

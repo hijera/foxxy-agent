@@ -33,6 +33,8 @@ func Serve(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	defer srv.Close()
+	srv.EnableSettings(opts.Live, opts.Install)
 
 	// Resolving the client credential is a security decision, not a
 	// convenience: a relay holds every node's credential, so an open one hands

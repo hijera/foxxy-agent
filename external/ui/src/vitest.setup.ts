@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
+import { resetPageMemoryForTests } from "./ui/env/pageMemory";
+
+// What a page keeps while it is open starts empty for every test, as it does
+// for every page.
+beforeEach(() => {
+  resetPageMemoryForTests();
+});
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,

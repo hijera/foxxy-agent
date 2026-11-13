@@ -21,8 +21,10 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/autocomplete"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/configapi"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/platform"
@@ -84,14 +86,17 @@ type Server struct {
 	// trustLoopback makes a direct loopback client pass the sign-in form; only
 	// `foxxycode http` sets it (SetTrustLoopbackClients).
 	trustLoopback atomic.Bool
+	// served remembers the configurations GET /foxxycode/config handed out, so a
+	// PUT is measured against what its client read (config_revisions.go).
+	served *configapi.Revisions
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
-	// mcpProbeCache holds probed MCP tool inventories for /foxxycode/mcp (keyed
-	// by server name, invalidated on config fingerprint change or edit).
+	// mcpProbeCache holds /foxxycode/mcp inventories by origin, resolved pool key,
+	// and canonical workspace, so same-named project declarations do not leak.
 	mcpProbeMu    sync.Mutex
-	mcpProbeCache map[string]mcpProbeEntry
+	mcpProbeCache map[mcpProbeKey]mcpProbeEntry
 
 	composerRelayMu  sync.Mutex
 	composerRelays   map[string]*composerStreamRelay
@@ -130,7 +135,7 @@ type Server struct {
 
 	// autocomplete holds inline-completion counters and the per-model "raw FIM
 	// failed, use chat" memory; its zero value is ready to use.
-	autocomplete autocompleteState
+	autocomplete autocomplete.Service
 	bgWG         sync.WaitGroup
 }
 
@@ -195,6 +200,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		streamTickets:        newStreamTicketStore(),
+		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}
@@ -213,6 +219,13 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
 		s.removeConfigObserver = mgr.AddConfigObserver(s.ReplaceConfig)
+		// A configuration the manager installed after cfg was read and before
+		// the observer above was registered was announced to nobody here, and
+		// is not announced again. Catch up with it, unless the observer has
+		// already stored a newer one.
+		if cur := mgr.Cfg(); cur != nil && cur != cfg {
+			s.cfgAt.CompareAndSwap(cfg, cur)
+		}
 	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed. Who wakes the agent when a task ends
@@ -318,6 +331,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
+		UserAgent:     rm.UserAgent,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
 		NoCLILogin:    rm.NoCLILogin,
@@ -349,6 +363,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		Model:             rm.Model,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
+		UserAgent:         rm.UserAgent,
 		ProxyURL:          rm.ProxyURL,
 		AuthPath:          rm.AuthPath,
 		NoCLILogin:        rm.NoCLILogin,
@@ -697,7 +712,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// The caller reads the strict OpenAI contract; the relay keeps the
 			// whole foxxycode stream for whoever watches this turn.
 			client := newOpenAIStreamFilter(w, model, req.includeUsage())
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -779,7 +794,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
@@ -1310,7 +1325,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
 			writeSSEHeaders(w)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -1401,7 +1416,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 
 	if body.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), w, true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), w, true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}

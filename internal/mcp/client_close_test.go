@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"context"
+	"log/slog"
 	"sync"
 	"testing"
 )
@@ -22,7 +24,7 @@ func TestClientCloseConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 	select {
-	case <-c.done:
+	case <-c.conn.done:
 	default:
 		t.Fatal("done channel not closed after Close")
 	}
@@ -32,10 +34,15 @@ func TestClientCloseConcurrent(t *testing.T) {
 // Client.Close forwards to; the process handle is nil-safe on purpose so the
 // test needs no subprocess.
 func TestStdioTransportCloseConcurrent(t *testing.T) {
+	exited := make(chan struct{})
+	close(exited)
 	tr := &stdioTransport{
-		msgs:   make(chan []byte, 1),
-		done:   make(chan struct{}),
-		cancel: func() {},
+		msgs:     make(chan []byte, 1),
+		done:     make(chan struct{}),
+		exited:   exited,
+		stopped:  make(chan struct{}),
+		closeJob: func() {},
+		log:      slog.Default(),
 	}
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -48,6 +55,7 @@ func TestStdioTransportCloseConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	<-tr.Stopped()
 	select {
 	case <-tr.done:
 	default:
@@ -57,7 +65,8 @@ func TestStdioTransportCloseConcurrent(t *testing.T) {
 
 // TestHTTPTransportsCloseConcurrent covers the two remote transports' Close.
 func TestHTTPTransportsCloseConcurrent(t *testing.T) {
-	streamable := &streamableHTTPTransport{msgs: make(chan []byte, 1), closed: make(chan struct{})}
+	life, endLife := context.WithCancel(context.Background())
+	streamable := &streamableHTTPTransport{msgs: make(chan []byte, 1), closed: make(chan struct{}), stopped: make(chan struct{}), lost: make(chan struct{}), life: life, endLife: endLife}
 	sse := &sseTransport{msgs: make(chan []byte, 1), closed: make(chan struct{}), cancel: func() {}}
 
 	var wg sync.WaitGroup

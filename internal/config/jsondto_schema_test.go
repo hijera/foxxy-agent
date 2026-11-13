@@ -11,6 +11,21 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
+func TestQueueModeJSONRoundTripAndValidation(t *testing.T) {
+	original := &config.Config{Agent: config.Agent{QueueMode: "after_turn"}}
+	got := config.JSONDTOToConfig(config.ConfigToJSONDTO(original), config.Paths{})
+	if got.Agent.QueueMode != "after_turn" {
+		t.Fatalf("queue mode = %q", got.Agent.QueueMode)
+	}
+	if err := got.Agent.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got.Agent.QueueMode = "unknown"
+	if err := got.Agent.Validate(); err == nil {
+		t.Fatal("invalid queue mode accepted")
+	}
+}
+
 func TestUISchemaOmitsHTTPServerFromUI(t *testing.T) {
 	doc := config.UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})
@@ -51,7 +66,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	want := []interface{}{
 		"providers", "models",
 		"agent", "compaction", "memory", "autocomplete", "title",
-		"tools", "mcp_servers", "skills", "subagents", "hooks", "browser", "vcs",
+		"tools", "skills", "subagents", "hooks", "browser", "vcs",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions", "ui", "debug",
 	}
@@ -122,6 +137,9 @@ models:
 
 agent:
   model: "openai/gpt-4o"
+
+skills:
+  project_trust: allow
 `
 	p := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(p, []byte(yml), 0o644); err != nil {
@@ -144,6 +162,11 @@ agent:
 	if cfg2.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("model %q", cfg2.Agent.Model)
 	}
+	// skills.project_trust must survive the JSON DTO round-trip so the
+	// settings form can view and persist it (not just skills.dirs).
+	if cfg2.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in JSON round-trip: %q", cfg2.Skills.ProjectTrust)
+	}
 	yb, err := config.MarshalConfigYAML(cfg2)
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +181,9 @@ agent:
 	}
 	if cfg3.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("yaml round-trip model %q", cfg3.Agent.Model)
+	}
+	if cfg3.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in yaml round-trip: %q", cfg3.Skills.ProjectTrust)
 	}
 }
 
@@ -215,13 +241,14 @@ func TestRulesUIAndFallbackModelsSurviveTheJSONDTO(t *testing.T) {
 	cfg.Rules = config.Rules{AutoDiscover: &off, Systems: []string{"acme/rules"}}
 	cfg.UI.Enabled = &off
 	cfg.Compaction.FallbackModels = []string{"codex/gpt-5.5", "neuraldeep/gpt-oss-120b"}
+	cfg.Compaction.AutoEnabled = &off
 	cfg.Memory.FallbackModels = []string{"codex/gpt-5.5"}
 
 	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"rules"`, `"ui"`, `"auto_discover":false`, `"enable":false`, `"fallback_models"`} {
+	for _, want := range []string{`"rules"`, `"ui"`, `"auto_discover":false`, `"enable":false`, `"auto_enable":false`, `"fallback_models"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("GET DTO dropped %s: %s", want, raw)
 		}
@@ -239,6 +266,9 @@ func TestRulesUIAndFallbackModelsSurviveTheJSONDTO(t *testing.T) {
 	}
 	if len(back.Compaction.FallbackModels) != 2 || back.Compaction.FallbackModels[1] != "neuraldeep/gpt-oss-120b" {
 		t.Fatalf("compaction.fallback_models lost: %v", back.Compaction.FallbackModels)
+	}
+	if back.Compaction.AutoEnabled == nil || *back.Compaction.AutoEnabled {
+		t.Fatalf("compaction.auto_enable lost: %+v", back.Compaction)
 	}
 	if len(back.Memory.FallbackModels) != 1 || back.Memory.FallbackModels[0] != "codex/gpt-5.5" {
 		t.Fatalf("memory.fallback_models lost: %v", back.Memory.FallbackModels)
@@ -297,4 +327,34 @@ func taggedStruct(t reflect.Type, tag string) reflect.Type {
 		}
 	}
 	return nil
+}
+
+// The settings form edits tools.http_request.default_headers as rows of a name
+// and a value: the UI schema has to say it is a map of strings, not a section
+// with keys of its own, and place it after the allowlist.
+func TestUISchemaDescribesDefaultHeadersAsAStringMap(t *testing.T) {
+	doc := config.UISchemaMap()
+	tools := doc["properties"].(map[string]interface{})["tools"].(map[string]interface{})
+	section := tools["properties"].(map[string]interface{})["http_request"].(map[string]interface{})
+	field, ok := section["properties"].(map[string]interface{})["default_headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tools.http_request has no default_headers field: %#v", section["properties"])
+	}
+	if field["type"] != "object" {
+		t.Errorf("type = %v, want object", field["type"])
+	}
+	if _, fixed := field["properties"]; fixed {
+		t.Error("a map of headers has no fixed properties")
+	}
+	values, ok := field["additionalProperties"].(map[string]interface{})
+	if !ok || values["type"] != "string" {
+		t.Errorf("additionalProperties = %#v, want a string schema", field["additionalProperties"])
+	}
+	if title, _ := field["title"].(string); title == "" {
+		t.Error("the field has no title")
+	}
+	order, _ := section["x-foxxycode-property-order"].([]interface{})
+	if len(order) != 2 || order[0] != "allowlist" || order[1] != "default_headers" {
+		t.Errorf("property order = %v", order)
+	}
 }

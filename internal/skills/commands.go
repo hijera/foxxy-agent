@@ -46,13 +46,13 @@ func List(cfg *config.Config) error {
 	home := cfg.Paths.Home
 	cwd := "."
 
-	loader := NewLoader(cfg.Skills.Dirs)
+	loader := NewLoader(cfg.Skills.SearchDirs())
 	loaded, err := loader.LoadAll(cwd, home, managedDir)
 	if err != nil {
 		return err
 	}
 
-	printSkillSearchRoots(cfg.Skills.Dirs, cwd, home)
+	printSkillSearchRoots(cfg.Skills.SearchDirs(), cwd, home)
 
 	if len(loaded) == 0 {
 		fmt.Println("No skills found.")
@@ -133,16 +133,13 @@ func stdoutCols() int {
 	return n
 }
 
+// printSkillSearchRoots prints the folders the loader reads, in its order and
+// each once at its last place (SearchRoots), so the list says which folder
+// wins a name.
 func printSkillSearchRoots(skillDirs []string, cwd, home string) {
 	fmt.Println("Search roots:")
-	seen := make(map[string]bool)
-	for _, d := range skillDirs {
-		p := filepath.Clean(ExpandConfiguredPath(d, cwd, home))
-		if seen[p] {
-			continue
-		}
-		seen[p] = true
-		fmt.Printf("  %s\n", p)
+	for _, p := range SearchRoots(skillDirs, cwd, home) {
+		fmt.Printf("  %s\n", filepath.Clean(p))
 	}
 	fmt.Println()
 }
@@ -189,5 +186,31 @@ func sanitizeSkillName(skillName string) (string, error) {
 	if filepath.Dir(name) != "." {
 		return "", fmt.Errorf("skill name must be a single name, not a path (got %q)", skillName)
 	}
+	// Windows strips a trailing dot or space, so "foo." is the directory "foo",
+	// and it reserves the device names whatever their extension. A skills
+	// directory shared across hosts must not carry names that alias others.
+	if strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") {
+		return "", fmt.Errorf("skill name %q must not end with a dot or a space", skillName)
+	}
+	if windowsReservedName(name) {
+		return "", fmt.Errorf("skill name %q is a reserved device name on Windows", skillName)
+	}
 	return name, nil
+}
+
+// windowsReservedName reports whether name, up to its first dot, is one of the
+// device names Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9).
+func windowsReservedName(name string) bool {
+	stem := strings.ToUpper(name)
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		return stem[3] >= '1' && stem[3] <= '9'
+	}
+	return false
 }

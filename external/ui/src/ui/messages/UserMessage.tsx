@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 
-import { ImageLightbox } from "../components/ImageLightbox";
+import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
 import { stripFoxxyCodeAttachmentsForUserDisplay } from "../skills/stripFoxxyCodeAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
 import { useT } from "../i18n/I18nProvider";
@@ -13,11 +13,45 @@ import { fileTypeIcon } from "./fileTypeIcon";
 import { splitDocMentions } from "../docs/docMentions";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 
-/** Prose of a sent message with its **`@foxxycode:`** mentions as links to the reader. */
+const USER_MENTION = /(^|[\s([])(@(?:[~./]|[a-zA-Z0-9_-])[\w./~:@#'"-]*)/g;
+
+function copyUserToken(token: string) {
+  void navigator.clipboard?.writeText(token);
+}
+
+function copyableMentions(text: string, keyPrefix: string) {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(USER_MENTION.source, "g");
+  while ((match = re.exec(text)) !== null) {
+    const lead = match[1] ?? "";
+    const token = match[2] ?? "";
+    const prefix = text.slice(last, match.index) + lead;
+    if (prefix) out.push(<span key={`${keyPrefix}-text-${last}`}>{prefix}</span>);
+    out.push(
+      <button
+        key={`${keyPrefix}-mention-${match.index}`}
+        type="button"
+        className="msg-user-token msg-user-token--mention"
+        data-testid={`user-token-mention-${token.slice(1).replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
+        title={token}
+        onClick={() => copyUserToken(token)}
+      >
+        {token}
+      </button>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) out.push(<span key={`${keyPrefix}-tail`}>{text.slice(last)}</span>);
+  return out.length > 0 ? out : text;
+}
+
+/** Prose of a sent message with reader links and copyable workspace mentions. */
 function withDocMentions(text: string, keyPrefix: string) {
   return splitDocMentions(text).map((part, i) => {
     if (part.type === "text") {
-      return <span key={`${keyPrefix}-${i}`}>{part.value}</span>;
+      return <span key={`${keyPrefix}-${i}`}>{copyableMentions(part.value, `${keyPrefix}-${i}`)}</span>;
     }
     const cut = part.ref.indexOf("#");
     const href =
@@ -30,10 +64,14 @@ function withDocMentions(text: string, keyPrefix: string) {
   });
 }
 
-function fmtBytes(n: number, t: (key: string, params?: Record<string, string | number>) => string): string {
-  if (n < 1024) return t("composer.bytesB", {n});
-  if (n < 1024 * 1024) return t("composer.bytesKB", {n:(n / 1024).toFixed(1)});
-  return t("composer.bytesMB", {n:(n / (1024 * 1024)).toFixed(1)});
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (n < 1024) return t("composer.bytesB", { n });
+  if (n < 1024 * 1024)
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
 export const UserMessage = memo(function UserMessage(props: {
@@ -111,7 +149,7 @@ export const UserMessage = memo(function UserMessage(props: {
                     data-testid="msg-user-file-open"
                     onClick={() => setLightbox({ src: fullSrc, alt: f.name })}
                   >
-                    <img
+                    <ApiImage
                       className="msg-user-file-thumb"
                       src={thumbSrc}
                       alt=""
@@ -143,7 +181,15 @@ export const UserMessage = memo(function UserMessage(props: {
                     data-testid="foxxycode-skill-span"
                     data-skill-name={seg.name}
                   >
-                    {seg.literal}
+                    <button
+                      type="button"
+                      className="msg-user-token"
+                      data-testid={`user-token-skill-${seg.name}`}
+                      title={seg.literal}
+                      onClick={() => copyUserToken(seg.literal)}
+                    >
+                      {seg.literal}
+                    </button>
                   </span>
                 ) : (
                   <span key={i}>{withDocMentions(seg.value, String(i))}</span>
@@ -198,7 +244,7 @@ export const UserMessage = memo(function UserMessage(props: {
         ) : null}
       </div>
       {lightbox ? (
-        <ImageLightbox
+        <ApiImageLightbox
           src={lightbox.src}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}

@@ -4,11 +4,11 @@
  * Whether a row is wider than the transcript is a layout fact, so jsdom cannot
  * assert it. This page mounts the rows that used to be - a tool row named after
  * an MCP tool, an answer with a long link and a long identifier, a user message
- * of one unbroken word - from the real components against the real stylesheet,
- * in a column with the chat's own 14px margins, with no backend behind them,
- * plus a built-in tool whose raw output is one unbroken line and rows whose label
- * leaves little of its line at some width. Every tool row is open, so the
- * argument preview and the result are measured too.
+ * and system notices of unbroken text - from the real components against the real
+ * stylesheet, in a column with the chat's own 14px margins, with no backend behind
+ * them, plus a built-in tool whose raw output is one unbroken line and rows whose
+ * label leaves little of its line at some width. Tool rows and notices are measured
+ * open; notices are measured collapsed too.
  */
 import { useEffect } from "react";
 import ReactDOM from "react-dom/client";
@@ -16,12 +16,19 @@ import "./styles.css";
 import { AssistantMessage } from "./ui/messages/AssistantMessage";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
 import { UserMessage } from "./ui/messages/UserMessage";
+import { SystemNoticeMessage } from "./ui/messages/SystemNoticeMessage";
+import { TypingDotsMessage } from "./ui/messages/TypingDotsMessage";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { initLocale } from "./ui/i18n/i18n";
 import { UI_LOCALE_DEFAULT, isUiLocale } from "./ui/i18n/locales";
 
 const lang = new URLSearchParams(location.search).get("lang") || "";
 initLocale(isUiLocale(lang) ? lang : UI_LOCALE_DEFAULT);
+const theme = new URLSearchParams(location.search).get("theme");
+if (theme === "light" || theme === "dark") {
+  document.documentElement.dataset.theme = theme;
+}
+const statusStartedAt = Date.now();
 
 const longRepo = "organization-with-a-long-name/repository-number-0-with-a-long-name";
 const mcpAnswer = JSON.stringify({
@@ -67,7 +74,24 @@ function Fixture() {
       }}
     >
       <div className="messages-inner">
+        <div data-testid="long-tool-status">
+          <TypingDotsMessage
+            statusKind="tool"
+            statusKey="status.run"
+            startedAtMs={statusStartedAt - 1_662_000}
+            turnStartedAtMs={statusStartedAt - 1_668_000}
+            turnTokens={169}
+          />
+        </div>
         <UserMessage content={`search ${"x".repeat(80)}`} />
+        <SystemNoticeMessage
+          level="error"
+          message={`LLM error: provider "routerai" (https://routerai.ru/api/v1): openai stream failed with request_id_${"0123456789abcdef".repeat(12)}`}
+        />
+        <SystemNoticeMessage
+          level="info"
+          message={`Model changed to provider/model-with-a-very-long-name-${"x".repeat(80)}; mode changed to agent`}
+        />
         <ToolCallMessage
           toolCallId="tc-mcp-search"
           title="github__search_repositories_with_extended_filters"

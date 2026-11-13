@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -317,6 +319,7 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 			},
 		},
 	}
+	st.Messages[1].ToolCalls = append(st.Messages[1].ToolCalls, llm.ToolCall{ID: "call_sibling", Name: "run_command", InputJSON: `{"command":"printf SIBLING_MUST_NOT_RUN"}`})
 	provider := &resumePermissionProvider{t: t}
 	ag := NewAgent(&config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
@@ -355,29 +358,406 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 	if toolMsg.Content != "permission denied by user" {
 		t.Fatalf("tool result %q", toolMsg.Content)
 	}
+	var siblingMsg *llm.Message
+	for i := range st.GetMessages() {
+		m := st.GetMessages()[i]
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_sibling" {
+			siblingMsg = &m
+			break
+		}
+	}
+	if siblingMsg == nil || siblingMsg.Content != permissionBatchSkippedResult {
+		t.Fatalf("missing or incorrect sibling result: %+v", siblingMsg)
+	}
 	if len(provider.seen) == 0 {
 		t.Fatal("provider was not called to continue after rejected permission")
 	}
-	last := lastHistoryMessage(provider.seen)
-	if last.Role != llm.RoleTool || last.ToolCallID != "call_blocked" || last.Content != "permission denied by user" {
-		t.Fatalf("provider did not receive denied tool result as latest message: %+v", last)
+	var sawBlocked, sawSibling bool
+	for _, msg := range provider.seen {
+		if msg.Role != llm.RoleTool {
+			continue
+		}
+		if msg.ToolCallID == "call_blocked" && msg.Content == "permission denied by user" {
+			sawBlocked = true
+		}
+		if msg.ToolCallID == "call_sibling" && msg.Content == permissionBatchSkippedResult {
+			sawSibling = true
+		}
+	}
+	if !sawBlocked || !sawSibling {
+		t.Fatalf("provider did not receive both closed batch results: %+v", provider.seen)
 	}
 	if got := st.GetMessages()[len(st.GetMessages())-1]; got.Role != llm.RoleAssistant || got.Content != "continued" {
 		t.Fatalf("missing continuation assistant message: %+v", got)
 	}
 }
 
-// lastHistoryMessage is the newest message of a request that is part of the
-// replayed conversation: the turn context block trails it and belongs to no
-// transcript (turn_context.go).
-func lastHistoryMessage(msgs []llm.Message) llm.Message {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if strings.Contains(msgs[i].Content, turnContextOpenTag) {
-			continue
-		}
-		return msgs[i]
+func TestFindPendingToolCallSelectsNewerCallAfterReusedCompletedID(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "read", InputJSON: `{"path":"old.txt"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "old result"},
+		{Role: llm.RoleUser, Content: "continue"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command", InputJSON: `{"command":"echo newer"}`}}},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_a")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return llm.Message{}
+	if got.Name != "run_command" || got.InputJSON != `{"command":"echo newer"}` {
+		t.Fatalf("selected tool call = %+v, want newer pending call", got)
+	}
+}
+
+func TestFindPendingToolCallKeepsSiblingResultBatchLocal(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_target", Name: "read"},
+			{ID: "call_sibling", Name: "write"},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "call_sibling", Content: "done"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "call_target" {
+		t.Fatalf("selected tool call = %+v, want pending target", got)
+	}
+}
+
+func TestFindPendingToolCallIgnoresPlanDocumentRows(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_target", Name: "run_command"},
+			{ID: "call_plan", Name: "plan_write"},
+		}},
+		{Role: llm.RoleAssistant, PlanDocument: &llm.PlanDocumentSnapshot{Slug: "plan"}},
+		{Role: llm.RoleTool, ToolCallID: "call_plan", Content: "saved"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got, err := ag.findPendingToolCall("call_target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "call_target" {
+		t.Fatalf("selected tool call = %+v, want pending target", got)
+	}
+}
+
+func TestFindPendingToolCallRejectsNewestAnsweredOccurrence(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "read"}}},
+		{Role: llm.RoleUser, Content: "next"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command"}}},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "new result"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	if _, err := ag.findPendingToolCall("call_a"); err == nil || !strings.Contains(err.Error(), "already has a result") {
+		t.Fatalf("findPendingToolCall error = %v, want already-answered error", err)
+	}
+}
+
+// A same-ID result that is not part of the call's own batch chain - it follows
+// an intervening message - belongs to a different occurrence or is misplaced.
+// It never makes this call answered; the call is stale.
+func TestFindPendingToolCallStaleWhenResultFollowsInterveningMessage(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_a", Name: "run_command"}}},
+		{Role: llm.RoleUser, Content: "newer user message"},
+		{Role: llm.RoleTool, ToolCallID: "call_a", Content: "late result"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	_, err := ag.findPendingToolCall("call_a")
+	var staleErr *stalePermissionError
+	if !errors.As(err, &staleErr) {
+		t.Fatalf("findPendingToolCall error = %v, want stale permission", err)
+	}
+}
+
+// A call whose result is already on record - a refusal the interrupted turn
+// wrote, a repaired sibling - has an outcome; answering its leftover gate must
+// only lift the gate, never run the tool.
+func TestResumeAfterPermissionClearsGateForAnsweredCall(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_answered_permission",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run the command"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+				ID:        "call_answered",
+				Name:      "run_command",
+				InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+			}}},
+			{Role: llm.RoleTool, ToolCallID: "call_answered", Content: "not executed: the turn was interrupted before this tool call ran"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_answered", Status: "pending"},
+	}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+	before := st.GetMessages()
+	provider := &pairingProvider{legacy: true}
+	ag := newPairingAgent(provider, st, resumePermissionSender{})
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_answered", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("stop reason %q, want cancelled", stop)
+	}
+	if session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("the gate of an already answered call was not lifted")
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider received %d requests for an answered call", provider.calls)
+	}
+	if got := st.GetMessages(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("resume of an answered call changed history: got=%+v want=%+v", got, before)
+	}
+}
+
+// An answered call lifts only the gate that names it: a gate persisted for a
+// different call keeps waiting for its own answer.
+func TestResumeAfterPermissionAnsweredCallKeepsAnotherGate(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_answered_mismatch",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_answered", Name: "read"}}},
+			{Role: llm.RoleTool, ToolCallID: "call_answered", Content: "done"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_other", Status: "pending"},
+	}, "write", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_answered", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("an answered call lifted a gate belonging to call_other")
+	}
+}
+
+// A bare plan-document row between a call and its result is UI-only and out of
+// the pairing analysis: the batch's contiguous result chain stays whole, no
+// synthetic result is inserted.
+func TestBuildMessagesIgnoresPlanDocumentRowsInPairing(t *testing.T) {
+	st := &session.State{Messages: []llm.Message{
+		{Role: llm.RoleUser, Content: "write a plan"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_plan", Name: "plan_write"},
+			{ID: "call_read", Name: "read"},
+		}},
+		{Role: llm.RoleAssistant, PlanDocument: &llm.PlanDocumentSnapshot{Slug: "plan"}},
+		{Role: llm.RoleTool, ToolCallID: "call_plan", Content: "saved"},
+		{Role: llm.RoleTool, ToolCallID: "call_read", Content: "content"},
+	}}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got := ag.buildMessages("sys")
+	if len(got) != 5 {
+		t.Fatalf("buildMessages = %d messages, want system + 4 with no synthetic: %+v", len(got), got)
+	}
+	for i, m := range got {
+		if strings.Contains(m.Content, "no result was recorded") || strings.Contains(m.Content, "not executed") {
+			t.Fatalf("a synthetic result was inserted at %d: %+v", i, m)
+		}
+	}
+}
+
+func TestResumeAfterPermissionSettlesStaleAllowAndRejectWithoutRunning(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome string
+		option  string
+	}{
+		{name: "allow", outcome: "selected", option: "allow"},
+		{name: "reject", outcome: "cancelled", option: "reject"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionDir := t.TempDir()
+			st := &session.State{
+				ID:         "sess_stale_permission",
+				CWD:        t.TempDir(),
+				Mode:       session.ModeAgent,
+				SessionDir: sessionDir,
+				Messages: []llm.Message{
+					{Role: llm.RoleUser, Content: "run the command"},
+					{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+						ID:        "call_stale",
+						Name:      "run_command",
+						InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+					}}},
+					{Role: llm.RoleUser, Content: "newer user message"},
+				},
+			}
+			if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+				SessionID: st.ID,
+				ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+			}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+				t.Fatal(err)
+			}
+			before := st.GetMessages()
+			ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+			stop, err := ag.ResumeAfterPermission(context.Background(), "call_stale", &acp.PermissionResult{
+				Outcome:  tc.outcome,
+				OptionID: tc.option,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stop != string(acp.StopReasonCancelled) {
+				t.Fatalf("stop reason %q, want cancelled", stop)
+			}
+			if session.PendingPermissionHeld(sessionDir) {
+				t.Fatal("stale permission gate was not cleared")
+			}
+			meta, err := session.ReadToolCallMeta(sessionDir, "call_stale")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if meta.Status != "cancelled" || meta.Name != "run_command" {
+				t.Fatalf("stale tool metadata = %+v, want cancelled run_command", meta)
+			}
+			if got := st.GetMessages(); !reflect.DeepEqual(got, before) {
+				t.Fatalf("stale resume changed history: got=%+v want=%+v", got, before)
+			}
+		})
+	}
+}
+
+func TestResumeAfterPermissionStaleDoesNotClearAnotherGate(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_stale_mismatch",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_stale", Name: "run_command"}}},
+			{Role: llm.RoleUser, Content: "newer user message"},
+		},
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_other", Status: "pending"},
+	}, "run_command", `{"command":"printf OTHER"}`); err != nil {
+		t.Fatal(err)
+	}
+	ag := newPairingAgent(&pairingProvider{legacy: true}, st, resumePermissionSender{})
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_stale", &acp.PermissionResult{
+		Outcome:  "selected",
+		OptionID: "allow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("stop reason %q, want cancelled", stop)
+	}
+	pending, err := session.ReadPendingPermission(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.ToolCall.ToolCallID != "call_other" {
+		t.Fatalf("pending gate changed to %+v, want call_other", pending.ToolCall)
+	}
+}
+
+func TestSettleStalePermissionKeepsGateWhenMetadataFails(t *testing.T) {
+	sessionDir := t.TempDir()
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: "sess_stale_metadata_failure",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+	}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the gate when the separate tool metadata store is unavailable so a
+	// later resume can retry the bookkeeping.
+	if err := os.WriteFile(filepath.Join(sessionDir, "tool_calls"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := settleStalePermission(sessionDir, "call_stale", llm.ToolCall{
+		ID:   "call_stale",
+		Name: "run_command",
+	})
+	if settled {
+		t.Fatal("stale permission was reported as settled despite metadata failure")
+	}
+	if err == nil {
+		t.Fatal("metadata write failure was swallowed")
+	}
+	if !session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("stale permission gate was cleared despite metadata failure")
+	}
+}
+
+func TestSettleStalePermissionFinalizesMetadataWithoutToolName(t *testing.T) {
+	sessionDir := t.TempDir()
+	if err := session.MarkToolCallStarted(sessionDir, "call_stale", "", "run_command", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WritePendingPermission(sessionDir, acp.PermissionRequestParams{
+		SessionID: "sess_stale_empty_name",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_stale", Status: "pending"},
+	}, "", `{}`); err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := settleStalePermission(sessionDir, "call_stale", llm.ToolCall{ID: "call_stale"})
+	if err != nil || !settled {
+		t.Fatalf("stale permission cleanup = settled %v, err %v", settled, err)
+	}
+	if session.PendingPermissionHeld(sessionDir) {
+		t.Fatal("stale permission gate remained after metadata was finalized")
+	}
+	meta, err := session.ReadToolCallMeta(sessionDir, "call_stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Status != "cancelled" || meta.Kind != "run_command" {
+		t.Fatalf("metadata = %+v, want cancelled status with preserved run_command kind", meta)
+	}
+}
+
+func TestSettleStalePermissionWithoutSessionDirectoryDoesNotReportSettled(t *testing.T) {
+	settled, err := settleStalePermission("", "call_stale", llm.ToolCall{ID: "call_stale", Name: "run_command"})
+	if err != nil {
+		t.Fatalf("settle stale permission error = %v, want nil for an unavailable persisted gate", err)
+	}
+	if settled {
+		t.Fatal("stale permission without a persisted session directory was reported as settled")
+	}
 }
 
 // --- system_prompt.go: context breakdown -----------------------------------
@@ -390,7 +770,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	toolsMD := "## Tools\n\ntool_a: does things"
 	_ = toolsMD
-	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, nil)
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}})
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
@@ -420,7 +800,7 @@ func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
 		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
 	}
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt does not contain %q", want)
@@ -433,11 +813,11 @@ func TestComputeContextBreakdownSubtractsParts(t *testing.T) {
 	skillsText := strings.Repeat("s", 100)
 	toolsText := strings.Repeat("t", 80)
 	rules := strings.Repeat("r", 40)
-	b := computeContextBreakdown(full, skillsText, toolsText, rules, nil, nil)
+	b := computeContextBreakdown(full, skillsText, toolsText, rules, nil, false, nil)
 	if b.SystemPrompt <= 0 {
 		t.Fatalf("system tokens: %d", b.SystemPrompt)
 	}
-	if b.Skills != session.EstimateTokens(skillsText) {
+	if b.Skills != session.EstimateContextTokens(skillsText) {
 		t.Fatalf("skills: got %d", b.Skills)
 	}
 }
@@ -450,8 +830,12 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
-	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(content), 0o644); err != nil {
+	always := "---\nalwaysApply: true\n---\nRULE_ALWAYS_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "house.mdc"), []byte(always), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	globbed := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(globbed), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
@@ -460,12 +844,17 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
-		t.Fatal("expected rule token in prompt")
+	prompt := a.buildSystemPrompt("agent", nil, nil)
+	if !strings.Contains(prompt, "## Active project rules") || !strings.Contains(prompt, "RULE_ALWAYS_TOKEN") {
+		t.Fatal("expected the always-on rule under the rules heading")
 	}
 	if strings.Contains(prompt, "## Active Skills") {
 		t.Fatal("rule token should be under Rules not Skills heading")
+	}
+	// A glob rule waits for its path and then rides in the message or the
+	// tool result that brought it, never in the system prompt.
+	if strings.Contains(prompt, "RULE_GLOB_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
 	}
 }
 
@@ -488,7 +877,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	before := a.buildSystemPrompt("agent", nil, nil)
 	if strings.Contains(before, "RULE_MENTION_ONLY") {
 		t.Fatal("mention-only rule must not appear without @mention")
 	}
@@ -499,7 +888,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 			t.Fatalf("%q: the rule must ride in the user message, got:\n%s", typed, msg)
 		}
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: msg})
-		if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+		if after := a.buildSystemPrompt("agent", nil, nil); after != before {
 			t.Fatalf("%q: the system prompt moved:\n--- before\n%s\n--- after\n%s", typed, before, after)
 		}
 	}
@@ -519,7 +908,7 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
 		t.Fatal("expected project docs in rules block")
 	}
@@ -568,7 +957,7 @@ func TestBuildSystemPromptRootAgentsMDOnce(t *testing.T) {
 			st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 			a := NewAgent(cfg, st, nil, nil)
 			for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
-				prompt := a.buildSystemPrompt(mode, nil, nil, nil)
+				prompt := a.buildSystemPrompt(mode, nil, nil)
 				for token, want := range map[string]int{
 					"ROOT_AGENTS_ONCE_TOKEN":  1,
 					"DESIGN_ONCE_TOKEN":       1,
@@ -596,7 +985,7 @@ func TestContextBreakdownCountsRootAgentsMDOnceUnderRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	breakdown := func() session.ContextBreakdown {
 		t.Helper()
-		_ = a.buildSystemPrompt("agent", nil, nil, nil)
+		_ = a.buildSystemPrompt("agent", nil, nil)
 		b := st.GetLastContextBreakdown()
 		if b == nil {
 			t.Fatal("expected a context breakdown after building the system prompt")
@@ -610,6 +999,10 @@ func TestContextBreakdownCountsRootAgentsMDOnceUnderRules(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if frozen := breakdown(); frozen.Rules != before.Rules {
+		t.Fatal("editing AGENTS.md changed the standing prompt within its generation")
+	}
+	st.ReplaceRulesCatalog(st.GetRulesCatalog())
 	after := breakdown()
 
 	bodyTok := session.EstimateTokens(body)
@@ -639,13 +1032,13 @@ func TestBuildSystemPromptPerProviderSelectsFamily(t *testing.T) {
 
 	// Enabled: the anthropic family variant (agent.anthropic.md) carries a
 	// "Model-family notes" section that the shared agent.md does not.
-	on := newAgentFor(true).buildSystemPrompt("agent", nil, nil, nil)
+	on := newAgentFor(true).buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(on, "Model-family notes") {
 		t.Fatal("expected anthropic family prompt when per-provider prompts are enabled")
 	}
 
 	// Disabled: falls back to the shared base prompt without family notes.
-	off := newAgentFor(false).buildSystemPrompt("agent", nil, nil, nil)
+	off := newAgentFor(false).buildSystemPrompt("agent", nil, nil)
 	if strings.Contains(off, "Model-family notes") {
 		t.Fatal("expected shared base prompt when per-provider prompts are disabled")
 	}
@@ -670,7 +1063,7 @@ func TestBuildSystemPromptPerModelFileFromDir(t *testing.T) {
 	cfg.Prompts.ApplyDefaults()
 	cfg.Prompts.Dir = dir
 	a := NewAgent(cfg, st, nil, nil)
-	got := a.buildSystemPrompt("agent", nil, nil, nil)
+	got := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(got, "PERMODEL") {
 		t.Fatalf("expected per-model prompt file to be selected, got: %.80s", got)
 	}
@@ -693,6 +1086,29 @@ func TestPromptVariantsIncludeResolvedAPIModel(t *testing.T) {
 	}
 }
 
+func TestKimiOpenAICompatiblePromptSelection(t *testing.T) {
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "moonshot", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "moonshot/kimi-k2.7-code", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "moonshot/kimi-k2.7-code"},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+
+	a := NewAgent(cfg, st, nil, nil)
+	want := []string{"moonshot-kimi-k2.7-code", "kimi-k2.7-code", "kimi"}
+	if got := a.promptVariants(); !slices.Equal(got, want) {
+		t.Fatalf("promptVariants() = %v, want %v", got, want)
+	}
+	prompt := a.buildSystemPrompt("agent", nil, nil)
+	for _, marker := range []string{"Model-family notes (Kimi)", "Reading and searching (context is limited)"} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("Kimi system prompt should contain %q", marker)
+		}
+	}
+}
+
 // --- system_prompt.go: skills injection ------------------------------------
 
 // An explicit /name invocation carries the skill's body in the message that
@@ -706,7 +1122,7 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 		Description: "find skills",
 		Content:     body,
 	}
-	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk})
+	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk}, "")
 	if len(blocks) != 1 || blocks[0].Resource == nil || blocks[0].Resource.Text != body ||
 		blocks[0].Resource.URI != "skill:find-skills" || blocks[0].Resource.Mention.Kind != mention.KindSkill {
 		t.Fatalf("expected one skill attachment carrying the body, got %+v", blocks)
@@ -717,6 +1133,45 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 	}
 	if got := mention.ForDisplay(msg); got != "/find-skills search pdf" {
 		t.Fatalf("the transcript shows the message as typed, got %q", got)
+	}
+}
+
+// A skill that is a folder on disk names its own files (scripts/,
+// references/) by relative path, so the model is told where that folder is,
+// with the body it invoked or loaded. A skill read out of the binary has no
+// folder to name.
+func TestSkillBodyNamesTheSkillDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "crossreview")
+	onDisk := &skills.Skill{Name: "crossreview", FilePath: filepath.Join(dir, "SKILL.md"), Content: "Run scripts/x.py.\n"}
+	blocks := invokedSkillBlocks("/crossreview now", []*skills.Skill{onDisk}, "")
+	want := "Skill directory: " + dir + "\n\nRun scripts/x.py."
+	if len(blocks) != 1 || blocks[0].Resource.Text != want {
+		t.Fatalf("attachment text = %+v, want %q", blocks, want)
+	}
+	if got := skillBodyForModel(onDisk, ""); got != want {
+		t.Fatalf("load_skill body = %q, want %q", got, want)
+	}
+	flat := &skills.Skill{Name: "notes", FilePath: filepath.Join(t.TempDir(), "notes.md"), Content: "body"}
+	if got := skillBodyForModel(flat, ""); got != "body" {
+		t.Fatalf("a single-file skill is not a folder of its own, got %q", got)
+	}
+
+	// Served out of the binary: the delivered copy in the managed directory is
+	// named when it is on disk, and nothing is named when it is not.
+	embedded := &skills.Skill{Name: "crossreview", FilePath: "bundled/crossreview/SKILL.md", Content: "body"}
+	managed := t.TempDir()
+	if got := skillBodyForModel(embedded, managed); got != "body" {
+		t.Fatalf("no delivered copy, nothing to name, got %q", got)
+	}
+	if err := os.MkdirAll(filepath.Join(managed, "crossreview"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "crossreview", "SKILL.md"), []byte("---\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want = "Skill directory: " + filepath.Join(managed, "crossreview") + "\n\nbody"
+	if got := skillBodyForModel(embedded, managed); got != want {
+		t.Fatalf("delivered copy = %q, want %q", got, want)
 	}
 }
 
@@ -765,7 +1220,7 @@ func TestInvokedSkillBlocks_noSkillMatch(t *testing.T) {
 		FilePath: filepath.Join("skills", "other", "SKILL.md"),
 		Content:  "other body",
 	}
-	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing when no skill matches; got %+v", blocks)
 	}
 }
@@ -776,7 +1231,7 @@ func TestInvokedSkillBlocks_noSlashCommand(t *testing.T) {
 		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
 		Content:  "body",
 	}
-	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing without a slash command; got %+v", blocks)
 	}
 }
@@ -1927,14 +2382,14 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = promptsDir
 	a := NewAgent(cfg, st, nil, nil)
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
 	}
 
 	// With the built-in template the rules block carries it, exactly once.
 	cfg.Prompts.Dir = ""
-	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
 	}
 }
@@ -1969,7 +2424,7 @@ func TestWithTurnContextSendsHistoryAloneWhenTheBlockIsEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
+func TestBuildTurnContextCarriesClockAndTodoButNoRules(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -1987,7 +2442,7 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
 	}
@@ -2001,19 +2456,25 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	}
 
 	st.SetPlan([]acp.PlanEntry{{Content: "TURN_CTX_TODO_TOKEN", Status: "pending"}})
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{read}})
+	result := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp))
+	st.AddMessage(result)
+	if !strings.Contains(result.Rules, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("the read's result lost the rule it activated: %+v", result)
+	}
 
 	block = a.buildTurnContext(sys)
 	if !strings.Contains(block, "TURN_CTX_TODO_TOKEN") {
 		t.Fatalf("turn context lost the checklist: %q", block)
 	}
-	if !strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
-		t.Fatalf("turn context lost the rule the read activated: %q", block)
+	// The rule rides in the result of the read, written once; repeating it in
+	// the block would send it again on every step.
+	if strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("turn context repeats the rule the read's result carries: %q", block)
 	}
-	// The frozen prompt is what the provider already has cached: the rule must
-	// not be folded back into it mid-turn.
-	if frozen := sys.Content; strings.Contains(frozen, "TURN_CTX_RULE_TOKEN") {
-		t.Fatal("the activated rule rewrote the frozen system prompt")
+	if next := a.buildSystemPromptParts("agent", nil, nil); next.Content != sys.Content {
+		t.Fatal("the activated rule rewrote the system prompt")
 	}
 }
 
@@ -2031,14 +2492,14 @@ func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for i := 1; i <= 3; i++ {
-		if got := a.buildSystemPromptParts("agent", nil, nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		if got := a.buildSystemPromptParts("agent", nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 			t.Fatalf("build %d lost the plan hand-off", i)
 		}
 	}
 
 	// And it is let go when the turn ends, so the next one starts clean.
 	a.releasePlanContext()
-	if got := a.buildSystemPromptParts("agent", nil, nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+	if got := a.buildSystemPromptParts("agent", nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 		t.Fatal("the plan hand-off outlived the turn that ran the plan")
 	}
 }
@@ -2096,7 +2557,7 @@ func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
-		sys := a.buildSystemPromptParts(mode, nil, nil, nil)
+		sys := a.buildSystemPromptParts(mode, nil, nil)
 		block := a.buildTurnContext(sys)
 		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
 			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
@@ -2125,7 +2586,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if !sys.Volatile {
 		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
 	}
@@ -2135,7 +2596,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 	// The built-in template is the other way round.
 	cfg.Prompts.Dir = ""
-	builtin := a.buildSystemPromptParts("agent", nil, nil, nil)
+	builtin := a.buildSystemPromptParts("agent", nil, nil)
 	if builtin.Volatile {
 		t.Fatal("the built-in agent template must not be volatile")
 	}
@@ -2146,7 +2607,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 // A template with no {{.Rules}} in it asked for no rules at all. A rule a tool
 // call activates must not be smuggled in after the history either.
-func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
+func TestTemplateWithoutRulesGetsNoRulesAfterTheHistory(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2168,17 +2629,20 @@ func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); res.Rules != "" {
+		t.Fatalf("a template without {{.Rules}} still received a rule with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
 		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
 	}
 }
 
-// A rule the frozen system prompt already carries must never be repeated after
-// the history: that is what rules.Added is for, and repeating it would spend on
-// every step exactly the tokens this change is saving.
-func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T) {
+// A glob rule an attached file brought in rides in the user's message, never
+// in the system prompt, and is not repeated with a later tool result: that
+// would spend exactly the tokens the attachment already paid.
+func TestRuleAnAttachmentBroughtIsNotRepeatedWithAToolResult(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2200,14 +2664,24 @@ func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T)
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	// An attachment already made the rule sticky, so the frozen prompt carries it.
-	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatal("the attached file did not activate the glob rule")
+	prompt := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "main.go"))}},
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: contentBlocksToText(prompt)})
+	if !strings.Contains(st.GetMessages()[0].Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("the attached file did not bring the glob rule into its message")
 	}
-	a.activateScopedRulesForToolCall("read", `{"path":"other.go"}`, tmp)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
+	if strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
+	}
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"other.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); strings.Contains(res.Rules, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatalf("a rule the user's message carries was repeated with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatalf("a rule the system prompt already carried was repeated after the history: %q", block)
+		t.Fatalf("a rule the user's message carries was repeated after the history: %q", block)
 	}
 }
 
@@ -2228,7 +2702,7 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
 	}
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	first := a.buildTurnContext(sys)
 	second := a.buildTurnContext(sys)
 	if first != second {
@@ -2510,9 +2984,19 @@ type settingsHarness struct {
 	sessionID string
 	mu        sync.Mutex
 	providers map[string]*scriptedProvider
+	// onBuild, when set, runs whenever the agent builds a provider for an
+	// API model id, before the provider is handed back.
+	onBuild func(apiModel string)
 }
 
 func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	return newSettingsHarnessWith(t, nil, models...)
+}
+
+// newSettingsHarnessWith is newSettingsHarness with tune applied to the
+// configuration before the manager sees it.
+func newSettingsHarnessWith(t *testing.T, tune func(*config.Config), models ...string) *settingsHarness {
 	t.Helper()
 	root := t.TempDir()
 	cwd := t.TempDir()
@@ -2525,6 +3009,9 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	for _, m := range models {
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
 	}
+	if tune != nil {
+		tune(cfg)
+	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
 	titleEnabled := false
 	cfg.Title.Enabled = &titleEnabled
@@ -2535,7 +3022,15 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(cfg, st, snd, slog.Default())
 		loop.SetSubagentRuntime(h.mgr)
-		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) {
+			h.mu.Lock()
+			onBuild := h.onBuild
+			h.mu.Unlock()
+			if onBuild != nil {
+				onBuild(in.Model)
+			}
+			return h.provider(in.Model), nil
+		})
 		return loop.Run(ctx, prompt)
 	}
 	// Sessions persist, because a subagent's bundle nests in its parent's.
@@ -2589,6 +3084,167 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	h.prompt(t, "and now")
 	if a := h.provider("a").calls; a != 2 {
 		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+// switchModelDuring answers like a model a browser interrupts with
+// PATCH /foxxycode/sessions/{id}: part of the answer streams, the session's model
+// is switched to model, and the answer ends with a tool call, so the turn
+// takes another step.
+func switchModelDuring(t *testing.T, h *settingsHarness, model, text string) scriptStep {
+	return func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		onChunk(llm.StreamChunk{TextDelta: text})
+		to := model
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &to, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		call := llm.ToolCall{ID: "g1", Name: "glob", InputJSON: `{"pattern":"*.none"}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{Content: text, ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+	}
+}
+
+// seedExchanges gives the session earlier turns, so a compaction has
+// something to fold.
+func (h *settingsHarness) seedExchanges(n int, model string) {
+	st := h.mgr.SessionByID(h.sessionID)
+	for i := 0; i < n; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("earlier question %d", i+1)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("earlier answer %d", i+1), Model: model})
+	}
+}
+
+func (h *settingsHarness) compacted() bool {
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.CompactionSummary {
+			return true
+		}
+	}
+	return false
+}
+
+// A model switched while an answer streams takes the turn's next request, and
+// the answer in flight keeps the name of the model that wrote it (#362).
+func TestAnswerIsSignedByTheModelThatWroteIt(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the step after the switch on b", a, b)
+	}
+	var signed []string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleAssistant {
+			signed = append(signed, m.Content+" | "+m.Model)
+		}
+	}
+	if want := []string{"written by a | fake/a", "written by b | fake/b"}; !reflect.DeepEqual(signed, want) {
+		t.Fatalf("assistant rows %q, want %q", signed, want)
+	}
+}
+
+// A switch that lands after the turn built its transport and before its first
+// request - here while the turn compacts first - reaches that request: the
+// loop compares the settings with what the transport was built for, not with
+// what it found when it started.
+func TestSwitchBeforeTheFirstRequestReachesIt(t *testing.T) {
+	keep := 1
+	h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+		// The system prompt alone crosses 80% of this window, so the turn
+		// compacts before its first request.
+		cfg.Models[0].MaxContextTokens = 50
+		cfg.Compaction.KeepRecentTurns = &keep
+	}, "fake/a", "fake/b")
+	h.seedExchanges(3, "fake/a")
+	b := "fake/b"
+	h.provider("a").steps = []scriptStep{func(_ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) *llm.Response {
+		// The summarizer's request: the operator switches meanwhile.
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		return &llm.Response{Content: "summary of the earlier turns", StopReason: "end_turn"}
+	}}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if !h.compacted() {
+		t.Fatal("the turn did not compact before its first request")
+	}
+	if a, bCalls := h.provider("a").calls, h.provider("b").calls; a != 1 || bCalls != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the summary on a and the first request on b", a, bCalls)
+	}
+}
+
+// A second switch that lands while the loop builds the transport for the
+// first is not left for the step after: the request goes to the model the
+// session names when it is sent.
+func TestSwitchDuringTheRebuildReachesTheRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b", "fake/c")
+	var once sync.Once
+	h.onBuild = func(apiModel string) {
+		if apiModel != "b" {
+			return
+		}
+		once.Do(func() {
+			c := "fake/c"
+			if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &c, Source: "web"}); err != nil {
+				t.Errorf("switch the model: %v", err)
+			}
+		})
+	}
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("c").steps = []scriptStep{answerStep("written by c")}
+	h.prompt(t, "go")
+	if a, b, c := h.provider("a").calls, h.provider("b").calls, h.provider("c").calls; a != 1 || b != 0 || c != 1 {
+		t.Fatalf("requests served: a=%d b=%d c=%d, want the step after the switches on c", a, b, c)
+	}
+}
+
+// A switch to a model whose window only its provider's listing reports reads
+// that listing before the next request and compacts against it, in the middle
+// of a turn and between turns alike, instead of measuring against the 128000
+// default (#362).
+func TestSwitchToASmallerWindowCompactsBeforeTheNextRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		midTurn  bool
+		wantACnt int
+	}{
+		{name: "in the middle of a turn", midTurn: true, wantACnt: 1},
+		{name: "between turns", wantACnt: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+				// fake/b reports its window through the provider's listing
+				// only; fake/a declares a large one of its own.
+				cfg.Providers[0].APIBase = "https://listing.invalid/v1"
+				cfg.Models[0].MaxContextTokens = 1_000_000
+			}, "fake/a", "fake/b")
+			var listings atomic.Int32
+			h.mgr.SetContextWindowLister(func(context.Context, llm.ProviderInput) ([]llm.ModelEntry, error) {
+				listings.Add(1)
+				return []llm.ModelEntry{{ID: "b", ContextWindow: 50}}, nil
+			}, nil)
+			t.Cleanup(func() { _ = h.mgr.WaitContextWindowsIdle(5 * time.Second) })
+			h.seedExchanges(4, "fake/a")
+			if tc.midTurn {
+				h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+			} else {
+				b := "fake/b"
+				if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h.provider("b").steps = []scriptStep{answerStep("summary of the earlier turns"), answerStep("written by b")}
+			h.prompt(t, "go")
+			if !h.compacted() {
+				w, source := h.mgr.SessionByID(h.sessionID).ContextWindow(h.mgr.Cfg())
+				t.Fatalf("no compaction before the request to fake/b; the session measures against %d (%s), listings read: %d", w, source, listings.Load())
+			}
+			if a := h.provider("a").calls; a != tc.wantACnt {
+				t.Fatalf("fake/a served %d requests, want %d", a, tc.wantACnt)
+			}
+		})
 	}
 }
 
@@ -2654,5 +3310,193 @@ func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
 	}
 	if !strings.Contains(result, `unknown model "fake/nope"`) {
 		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
+	}
+}
+
+type cancelToolBatchProvider struct {
+	cancel    context.CancelFunc
+	mode      string
+	emptyArgs bool
+}
+
+func (p *cancelToolBatchProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("Complete must not be used")
+}
+
+func (p *cancelToolBatchProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	calls := []llm.ToolCall{
+		{ID: "cancel-1", Name: "run_command", InputJSON: `{"command":"printf FIRST"}`},
+		{ID: "cancel-2", Name: "run_command", InputJSON: `{"command":"printf SECOND"}`},
+	}
+	if p.emptyArgs {
+		for i := range calls {
+			calls[i].Name = "background_list"
+			calls[i].InputJSON = ""
+		}
+	}
+	for _, call := range calls {
+		onChunk(llm.StreamChunk{ToolCall: &call})
+	}
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.mode == "partial" {
+		return &llm.Response{ToolCalls: calls, StopReason: "tool_use"}, context.Canceled
+	}
+	return &llm.Response{ToolCalls: calls, StopReason: "tool_use"}, nil
+}
+
+func TestBuildMessagesRepairsMissingToolResultsWithoutChangingStoredHistory(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_pairing_repair",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "continue"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "missing-1", Name: "read"}}},
+		},
+	}
+	var logs bytes.Buffer
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&logs, nil)))
+
+	first := ag.buildMessages("system")
+	second := ag.buildMessages("system")
+	if len(first) != len(second) || !reflect.DeepEqual(first, second) {
+		t.Fatalf("repair is not stable: first=%+v second=%+v", first, second)
+	}
+	if len(first) != 4 || first[2].Role != llm.RoleAssistant || len(first[2].ToolCalls) != 1 {
+		t.Fatalf("assistant tool call was not preserved in outbound history: %+v", first)
+	}
+	if first[3].Role != llm.RoleTool || first[3].ToolCallID != "missing-1" || first[3].Content != "no result was recorded: the call may or may not have run; check the current state before running it again" {
+		t.Fatalf("unexpected synthetic result: %+v", first[3])
+	}
+	if first[3].CreatedAt != "" {
+		t.Fatalf("outbound synthetic result gained a timestamp: %+v", first[3])
+	}
+	if len(session.ValidateToolPairing(st.GetMessages())) == 0 {
+		t.Fatal("stored history was unexpectedly rewritten by outbound repair")
+	}
+	if !strings.Contains(logs.String(), "sess_pairing_repair") {
+		t.Fatalf("pairing diagnostics did not name the session: %s", logs.String())
+	}
+}
+
+func TestBuildMessagesStripsFoxxyCodeFileMarkersFromProviderHistory(t *testing.T) {
+	st := &session.State{ID: "sess_file_markers", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Here is the report.\n\n<foxxycode_file id=\"verified\"/>\n<foxxycode_file id=\"hallucinated\"/>"})
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got := ag.buildMessages("system")
+	if len(got) != 2 {
+		t.Fatalf("messages = %#v", got)
+	}
+	if strings.Contains(got[1].Content, "<foxxycode_file") {
+		t.Fatalf("provider history leaked file marker: %q", got[1].Content)
+	}
+	if !strings.Contains(got[1].Content, "Here is the report.") {
+		t.Fatalf("provider history lost answer text: %q", got[1].Content)
+	}
+}
+
+func TestRunCancelsUnstartedToolBatchWithStableResults(t *testing.T) {
+	st := &session.State{ID: "sess_cancel_batch", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	provider := &cancelToolBatchProvider{cancel: cancel}
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "run both"}})
+	if err != nil || stop != string(acp.StopReasonCancelled) {
+		t.Fatalf("run = %q, %v; want cancelled", stop, err)
+	}
+	msgs := st.GetMessages()
+	if len(msgs) < 4 || msgs[len(msgs)-2].Role != llm.RoleTool || msgs[len(msgs)-1].Role != llm.RoleTool {
+		t.Fatalf("unstarted calls were not recorded as results: %+v", msgs)
+	}
+	if msgs[len(msgs)-2].Content != toolCallInterruptedResult || msgs[len(msgs)-1].Content != toolCallInterruptedResult {
+		t.Fatalf("unstable or incorrect cancellation results: %+v", msgs[len(msgs)-2:])
+	}
+}
+
+func TestPartialStreamClosesToolCallsWhilePreservingAssistantMessage(t *testing.T) {
+	for _, emptyArgs := range []bool{false, true} {
+		t.Run(fmt.Sprint("emptyArgs=", emptyArgs), func(t *testing.T) {
+			st := &session.State{ID: "sess_partial_batch", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+			cfg := &config.Config{
+				Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+				Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+				Agent:     config.Agent{Model: "fake/model"},
+			}
+			ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			provider := &cancelToolBatchProvider{cancel: cancel, mode: "partial", emptyArgs: emptyArgs}
+			ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+			stop, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "start"}})
+			if err != nil || stop != string(acp.StopReasonCancelled) {
+				t.Fatalf("run = %q, %v; want cancelled", stop, err)
+			}
+			msgs := st.GetMessages()
+			if len(msgs) != 4 || msgs[1].Role != llm.RoleAssistant || len(msgs[1].ToolCalls) != 2 {
+				t.Fatalf("partial assistant tool calls were not preserved: %+v", msgs)
+			}
+			if msgs[2].Content != toolCallInterruptedResult || msgs[3].Content != toolCallInterruptedResult {
+				t.Fatalf("partial calls were not closed with stable results: %+v", msgs)
+			}
+		})
+	}
+}
+
+func TestCloseUnexecutedPermissionBatchDoesNotMoveLateTargetResult(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_late_target",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_target", Name: "run_command"},
+					{ID: "call_sibling", Name: "run_command"},
+				},
+			},
+			{Role: llm.RoleUser, Content: "continue"},
+			{Role: llm.RoleTool, ToolCallID: "call_target", Content: "real result"},
+		},
+	}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	before := st.GetMessages()
+	ag.closeUnexecutedPermissionBatch("call_target")
+
+	msgs := st.GetMessages()
+	if len(msgs) != 4 {
+		t.Fatalf("history has %d messages, want original messages plus one skipped sibling: %+v", len(msgs), msgs)
+	}
+	if !reflect.DeepEqual(msgs[:len(before)], before) {
+		t.Fatalf("late result handling rewrote existing history: got=%+v want prefix=%+v", msgs, before)
+	}
+	if msgs[3].Role != llm.RoleTool || msgs[3].ToolCallID != "call_sibling" || msgs[3].Content != permissionBatchSkippedResult {
+		t.Fatalf("later sibling was not skipped: %+v", msgs[3])
+	}
+	var targetResults int
+	for _, msg := range msgs {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "call_target" {
+			targetResults++
+		}
+	}
+	if targetResults != 1 {
+		t.Fatalf("target result appears %d times, want exactly once without moving it: %+v", targetResults, msgs)
+	}
+	if issues := session.ValidateToolPairing(msgs); len(issues) == 0 {
+		t.Fatalf("late result should remain visible as malformed pairing: %+v", msgs)
 	}
 }

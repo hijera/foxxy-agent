@@ -59,14 +59,9 @@ func messagesWithoutImages(messages []Message) []Message {
 		}
 		names := make([]string, 0, len(m.ImageParts))
 		for _, ip := range m.ImageParts {
-			name := strings.TrimSpace(ip.Name)
-			if name == "" {
-				name = "image"
-			}
-			names = append(names, name)
+			names = append(names, ip.Name)
 		}
-		note := fmt.Sprintf("%s %s — this model or endpoint rejected image input, so %s not shown to you. Rely on the text results instead.",
-			imagesDroppedMarker, strings.Join(names, ", "), pluralWere(len(names)))
+		note := ImagesDroppedNote("this model or endpoint rejected image input", names)
 		out[i].ImageParts = nil
 		if strings.TrimSpace(m.Content) == "" {
 			out[i].Content = note
@@ -75,6 +70,24 @@ func messagesWithoutImages(messages []Message) []Message {
 		}
 	}
 	return out
+}
+
+// ImagesDroppedNote names images a message carries that the model will not be
+// shown, so it is told the attachment exists but could not be shown to it
+// rather than being left to reason about a picture it never received. reason
+// is the clause naming why they were dropped; names are the attachments, with
+// an empty one called "image".
+func ImagesDroppedNote(reason string, names []string) string {
+	seen := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = "image"
+		}
+		seen = append(seen, name)
+	}
+	return fmt.Sprintf("%s %s — %s, so %s not shown to you. Rely on the text results instead.",
+		imagesDroppedMarker, strings.Join(seen, ", "), reason, pluralWere(len(seen)))
 }
 
 func pluralWere(n int) string {

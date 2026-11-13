@@ -46,7 +46,8 @@ type Sender struct {
 	// asksPermission makes a relay sender ask a permission prompt the way an
 	// interactive one does, questions aside: the woken turn's sender
 	// (NewWakeRelaySender).
-	asksPermission bool
+	asksPermission  bool
+	questionPending func(sessionID string, pending bool)
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time
@@ -195,11 +196,36 @@ func (s *Sender) SetCWD(cwd string) {
 	s.cwd = strings.TrimSpace(cwd)
 }
 
+// SetQuestionPendingCallback installs an optional notification for the lifetime of
+// interactive question waits. The callback is called once after a wait is registered
+// and once after it is unregistered; it carries no question data.
+func (s *Sender) SetQuestionPendingCallback(callback func(sessionID string, pending bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.questionPending = callback
+}
+
+func (s *Sender) notifyQuestionPending(sessionID string, pending bool) {
+	s.mu.Lock()
+	callback := s.questionPending
+	s.mu.Unlock()
+	if callback != nil {
+		callback(sessionID, pending)
+	}
+}
+
 func wireBridgeSession(bridge *Sender, st *session.State) {
 	if bridge != nil && st != nil {
 		bridge.SetSessionDir(st.GetPersistedSessionDir())
 		bridge.SetCWD(st.GetCWD())
 	}
+}
+
+func (s *Server) configureSender(bridge *Sender) *Sender {
+	if bridge != nil {
+		bridge.SetQuestionPendingCallback(s.publishQuestionPending)
+	}
+	return bridge
 }
 
 // SendSessionUpdate forwards agent chunks to SSE when streaming.
@@ -264,7 +290,7 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 
 // broadcastEditApplied fans a filesystem write out to connected native editor clients.
 func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
-	ideEvents.broadcast(ideEvent{
+	ideEvents.Broadcast(ideEvent{
 		Type:       "edit_applied",
 		ToolCallID: u.ToolCallID,
 		SessionID:  sessionID,
@@ -468,7 +494,15 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	}
 	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
-		return nil, err
+		if _, merr := json.Marshal(params); merr != nil {
+			// A marshal failure means the prompt never left the process;
+			// waiting for an answer nobody saw would only hang the turn.
+			return nil, err
+		}
+		// A dead client socket is not fatal: the frame still reached the
+		// composer relay through the tee, the answer arrives through POST
+		// /foxxycode/sessions/{id}/permission on a connection of its own, and a
+		// watcher can pick the prompt up there.
 	}
 	select {
 	case res := <-ch:
@@ -487,7 +521,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 // pushes it to native editor clients so they can render an inline Accept/Reject preview.
 // No-op for non-write tools or when no IDE client is connected.
 func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON string) {
-	if !ideEvents.hasSubscribers() {
+	if !ideEvents.HasSubscribers() {
 		return
 	}
 	s.mu.Lock()
@@ -497,7 +531,7 @@ func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON
 	if !ok || err != nil {
 		return
 	}
-	ideEvents.broadcast(ideEvent{
+	ideEvents.Broadcast(ideEvent{
 		Type:       "edit_proposed",
 		ToolCallID: toolCallID,
 		SessionID:  sessionID,
@@ -519,9 +553,20 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 	}
 	params.SessionID, params.RequestID = sid, rid
 	ch := registerQuestionWait(params)
-	defer unregisterQuestionWait(sid, rid)
+	s.notifyQuestionPending(sid, true)
+	defer func() {
+		unregisterQuestionWait(sid, rid)
+		s.notifyQuestionPending(sid, false)
+	}()
 	if err := s.writeNamedEventJSON("question", params); err != nil {
-		return nil, err
+		if _, merr := json.Marshal(params); merr != nil {
+			// Same rule as in RequestPermission: only a payload that never
+			// existed as an event aborts the wait.
+			return nil, err
+		}
+		// A dead client socket must not fail the question: the frame still
+		// reached the composer relay through the tee, and the answer arrives
+		// through POST /foxxycode/sessions/{id}/question, not through this stream.
 	}
 	select {
 	case res := <-ch:

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 import { QuestionPromptSection } from "./QuestionPromptSection";
 import type { FoxxyCodeQuestionPayload } from "./questionTypes";
+import { OpenRailScreen } from "../nav/railEscape.fakes";
 
 afterEach(() => {
   cleanup();
@@ -145,6 +146,39 @@ test("Escape skips the question", async () => {
 
   await waitFor(() => expect(resolved).toHaveBeenCalledTimes(1));
   expect(resolved.mock.calls[0]?.[0]).toMatchObject({ skipped: true });
+});
+
+// Escape folding a picker of the composer, which stays usable while the card
+// waits, is that picker's: the questions stay.
+test("an Escape the composer's picker took does not skip the question", async () => {
+  const resolved = vi.fn();
+  renderPrompt(resolved);
+
+  const composer = document.createElement("textarea");
+  composer.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") e.preventDefault();
+  });
+  document.body.appendChild(composer);
+  fireEvent.keyDown(composer, { key: "Escape" });
+  await Promise.resolve();
+
+  expect(resolved).not.toHaveBeenCalled();
+  composer.remove();
+});
+
+// A screen of the rail (History, Settings...) is over the chat: its Escape
+// closes it and goes no further, and the questions under it stay.
+test("an Escape that closes a screen of the rail does not skip the question", async () => {
+  const resolved = vi.fn();
+  const closeHistory = vi.fn();
+  render(<OpenRailScreen id="history" onClose={closeHistory} />);
+  renderPrompt(resolved);
+
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  await Promise.resolve();
+
+  expect(closeHistory).toHaveBeenCalledTimes(1);
+  expect(resolved).not.toHaveBeenCalled();
 });
 
 // Cross-review: a control reached with the keyboard keeps its own Return, inside

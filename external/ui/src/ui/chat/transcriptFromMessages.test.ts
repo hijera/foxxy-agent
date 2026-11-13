@@ -245,3 +245,47 @@ test("tool previews enrich only the rows of the page", () => {
   expect(tool).toMatchObject({ kind: "read", resultText: "short", durationMs: 2000 });
   expect(mapped.items.filter((it) => it.type === "tool_call")).toHaveLength(1);
 });
+
+test("a tool result carries the pictures its call showed the model", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "look" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [{ id: "r1", type: "function", function: { name: "read", arguments: '{"path":"shot.png"}' } }],
+    },
+    {
+      role: "tool",
+      tool_call_id: "r1",
+      content: "shot.png: PNG image, 4x3, 83 bytes. The picture is attached for you to look at.",
+      files: [{ name: "shot.png", mime_type: "image/png", preview_url: "/p/thumbnail", url: "/p" }],
+    },
+    { role: "assistant", content: "red" },
+  ];
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  const tool = items.find((it) => it.type === "tool_call");
+  expect(tool).toMatchObject({
+    toolCallId: "r1",
+    images: [{ name: "shot.png", mimeType: "image/png", previewUrl: "/p/thumbnail", url: "/p" }],
+  });
+  expect(shape(items)).toEqual(["user:look", "tool:r1:completed", "answer:red"]);
+});
+
+test("a tool result without pictures names none", () => {
+  const msgs = history("U S T A");
+  const { items } = transcriptItemsFromMessages({
+    messages: msgs,
+    window: windowAt(msgs, 0),
+    uiLog: undefined,
+    newId,
+    reasoningDurations: new Map(),
+  });
+  const tool = items.find((it) => it.type === "tool_call");
+  expect(tool && "images" in tool).toBe(false);
+});

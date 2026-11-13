@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/textutil"
 )
 
 // maxOutputBytes bounds the stored recent-output tail per terminal. The IDE
@@ -63,7 +65,7 @@ func Set(terminals []Terminal) {
 		if tm.Name == "" {
 			continue
 		}
-		tm.Output = capTail(tm.Output, maxOutputBytes)
+		tm.Output = textutil.TailBytes(tm.Output, maxOutputBytes)
 		cleaned = append(cleaned, tm)
 	}
 	mu.Lock()
@@ -86,20 +88,4 @@ func Reset() {
 	mu.Lock()
 	current = Snapshot{}
 	mu.Unlock()
-}
-
-// capTail returns the last maxBytes bytes of s (on a rune boundary) when s
-// exceeds the cap, otherwise s unchanged.
-func capTail(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	tail := s[len(s)-maxBytes:]
-	// Trim a possibly-split leading rune so the result stays valid UTF-8.
-	for i := 0; i < len(tail) && i < 4; i++ {
-		if tail[i]&0xC0 != 0x80 { // first non-continuation byte
-			return tail[i:]
-		}
-	}
-	return tail
 }

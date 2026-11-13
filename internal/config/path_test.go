@@ -38,12 +38,12 @@ func TestParseUCICommandGrammar(t *testing.T) {
 		{line: "set logger.level='debug'", want: UCICommand{Op: "set", Path: "logger.level", Value: "debug"}},
 		{line: "add_list skills.dirs=/opt/skills", want: UCICommand{Op: "add_list", Path: "skills.dirs", Value: "/opt/skills"}},
 		{line: "del_list skills.dirs=/opt/skills", want: UCICommand{Op: "del_list", Path: "skills.dirs", Value: "/opt/skills"}},
-		{line: "delete mcp_servers[name=old]", want: UCICommand{Op: "delete", Path: "mcp_servers[name=old]"}},
-		{line: "set mcp_servers[name=a.b].command=npx", want: UCICommand{Op: "set", Path: "mcp_servers[name=a.b].command", Value: "npx"}},
+		{line: "delete providers[name=old]", want: UCICommand{Op: "delete", Path: "providers[name=old]"}},
+		{line: "set providers[name=a.b].type=openai", want: UCICommand{Op: "set", Path: "providers[name=a.b].type", Value: "openai"}},
 		{line: "rename agent.max_turns=x", wantErr: "not supported"},
 		{line: "set agent.max_turns", wantErr: "expected"},
 		{line: "set =7", wantErr: "path before"},
-		{line: "delete mcp_servers[name=]", wantErr: "invalid selector"},
+		{line: "delete providers[name=]", wantErr: "invalid selector"},
 		{line: "set", wantErr: "must be"},
 	}
 	for _, tc := range cases {
@@ -64,8 +64,8 @@ func TestParseUCICommandGrammar(t *testing.T) {
 }
 
 func TestCommitUCICommandsSelectorSetAppendAndDelete(t *testing.T) {
-	paths := testPathConfig(t, "agent:\n  max_turns: 19\nmcp_servers: []\n")
-	cmds := mustParseUCI(t, `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`)
+	paths := testPathConfig(t, "agent:\n  max_turns: 19\nproviders: []\n")
+	cmds := mustParseUCI(t, `set providers[name=local]={"type":"openai","api_key":"test-key","api_base":"http://127.0.0.1:9/v1"}`)
 	result, err := CommitUCICommands(paths, cmds)
 	if err != nil {
 		t.Fatalf("CommitUCICommands set: %v", err)
@@ -73,15 +73,15 @@ func TestCommitUCICommandsSelectorSetAppendAndDelete(t *testing.T) {
 	if !result.Changed || result.Config.Agent.MaxTurns != 19 {
 		t.Fatalf("unrelated config was not preserved: %+v", result.Config.Agent)
 	}
-	if len(result.Config.MCPServers) != 1 || result.Config.MCPServers[0].Name != "context7" {
-		t.Fatalf("selector did not append named MCP: %+v", result.Config.MCPServers)
+	if len(result.Config.Providers) != 1 || result.Config.Providers[0].Name != "local" {
+		t.Fatalf("selector did not append the named provider: %+v", result.Config.Providers)
 	}
 
-	got, err := ReadConfigPath(paths, "mcp_servers[name=context7].args.1")
+	got, err := ReadConfigPath(paths, "providers[name=local].api_base")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Exists || got.Value != "@upstash/context7-mcp" {
+	if !got.Exists || got.Value != "http://127.0.0.1:9/v1" {
 		t.Fatalf("ReadConfigPath = %#v", got)
 	}
 
@@ -89,19 +89,19 @@ func TestCommitUCICommandsSelectorSetAppendAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit snapshot missing: %v", err)
 	}
-	if !strings.Contains(string(snapshot), "max_turns: 19") || strings.Contains(string(snapshot), "context7") {
+	if !strings.Contains(string(snapshot), "max_turns: 19") || strings.Contains(string(snapshot), "test-key") {
 		t.Fatalf("snapshot does not hold the previous config: %q", snapshot)
 	}
 
-	if _, err := CommitUCICommands(paths, mustParseUCI(t, "delete mcp_servers[name=context7]")); err != nil {
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "delete providers[name=local]")); err != nil {
 		t.Fatalf("CommitUCICommands delete: %v", err)
 	}
 	reloaded, err := LoadWithPaths(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.MCPServers) != 0 {
-		t.Fatalf("MCP selector was not deleted: %+v", reloaded.MCPServers)
+	if len(reloaded.Providers) != 0 {
+		t.Fatalf("provider selector was not deleted: %+v", reloaded.Providers)
 	}
 }
 
@@ -167,12 +167,9 @@ func TestReadConfigPathRedactsSecrets(t *testing.T) {
   - name: openai
     type: openai
     api_key: sk-secret
-mcp_servers:
-  - name: github
-    command: npx
-    env:
-      - name: GITHUB_TOKEN
-        value: gh-secret
+tools:
+  websearch:
+    brave_api_key: brave-secret
 httpserver:
   auth_token: http-secret
 `)
@@ -186,7 +183,7 @@ httpserver:
 			t.Fatal(err)
 		}
 		text := string(encoded)
-		for _, secret := range []string{"sk-secret", "gh-secret", "http-secret"} {
+		for _, secret := range []string{"sk-secret", "brave-secret", "http-secret"} {
 			if strings.Contains(text, secret) {
 				t.Fatalf("config_get leaked %q in %s", secret, text)
 			}
@@ -236,7 +233,7 @@ func TestReadConfigPathShowsProxyKeywords(t *testing.T) {
 func TestCommitRejectsUnknownSchemaPathWithoutWriting(t *testing.T) {
 	const original = "agent:\n  max_turns: 13\n"
 	paths := testPathConfig(t, original)
-	_, err := CommitUCICommands(paths, mustParseUCI(t, "set mcp_servers[name=demo].unknown=true"))
+	_, err := CommitUCICommands(paths, mustParseUCI(t, "set providers[name=demo].unknown=true"))
 	if err == nil || !strings.Contains(err.Error(), "unknown config path segment") {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,11 +256,11 @@ func TestUCICommandRedactedString(t *testing.T) {
 	}{
 		{line: "set providers.0.api_key=sk-secret", want: "set providers.0.api_key=<redacted>"},
 		{line: "set providers.0.api_key_command=vault read key", want: "set providers.0.api_key_command=<redacted>"},
-		{line: "set mcp_servers[name=x].env.0.value=tok-123", want: "set mcp_servers[name=x].env.0.value=<redacted>"},
+		{line: "set providers[name=x].api_key=tok-123", want: "set providers[name=x].api_key=<redacted>"},
 		{line: "set httpserver.auth_token='t0p'", want: "set httpserver.auth_token=<redacted>"},
 		{line: "set tools.websearch.brave_api_key=BSA-secret", want: "set tools.websearch.brave_api_key=<redacted>"},
 		{line: "add_list skills.dirs=/opt/skills", want: "add_list skills.dirs=/opt/skills"},
-		{line: "delete mcp_servers[name=x]", want: "delete mcp_servers[name=x]"},
+		{line: "delete providers[name=x]", want: "delete providers[name=x]"},
 		{line: "set agent.max_turns=20", want: "set agent.max_turns=20"},
 		// A proxy keyword is no secret: the prompt shows what is being set.
 		{line: "set providers.0.proxy=none", want: "set providers.0.proxy=none"},
@@ -281,12 +278,12 @@ func TestUCICommandRedactedString(t *testing.T) {
 	}
 
 	// Secrets embedded in a JSON object value are masked field by field.
-	cmd, err := ParseUCICommand(`set mcp_servers[name=x]={"command":"npx","env":[{"name":"K","value":"tok-embedded"}]}`)
+	cmd, err := ParseUCICommand(`set providers[name=x]={"type":"openai","api_key":"tok-embedded"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := cmd.RedactedString()
-	if strings.Contains(got, "tok-embedded") || !strings.Contains(got, "<redacted>") || !strings.Contains(got, "npx") {
+	if strings.Contains(got, "tok-embedded") || !strings.Contains(got, "<redacted>") || !strings.Contains(got, "openai") {
 		t.Fatalf("embedded secret not masked: %q", got)
 	}
 }
@@ -346,7 +343,7 @@ func TestCommitRollbackRestoresMissingFile(t *testing.T) {
 func TestDeleteMissingSelectorErrorsWithoutWriting(t *testing.T) {
 	const original = "agent:\n  max_turns: 13\n"
 	paths := testPathConfig(t, original)
-	_, err := CommitUCICommands(paths, mustParseUCI(t, "delete mcp_servers[name=missing]"))
+	_, err := CommitUCICommands(paths, mustParseUCI(t, "delete providers[name=missing]"))
 	if err == nil || !strings.Contains(err.Error(), "path does not exist") {
 		t.Fatalf("deleting a missing selector should error, got %v", err)
 	}
@@ -476,7 +473,7 @@ func TestConfigWritersSerializeFileAndRuntimeApplication(t *testing.T) {
 		})
 	}()
 	select {
-	case <-putDone:
+	case <-putDone: //nolint:errcheck // Only completion is needed here.
 		t.Fatal("second writer entered while the commit transaction still held the lock")
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -557,5 +554,147 @@ func TestCommitUCICommandsFreshConfigIsBlockStyleWithIntegers(t *testing.T) {
 	}
 	if m := cfg.FindModelEntry("devin/fam"); m == nil || m.MaxContextTokens != 1048576 {
 		t.Fatalf("model = %+v", m)
+	}
+}
+
+// Every value of tools.http_request.default_headers goes to every destination
+// the tool reaches, and one of them may be a credential: config_get shows the
+// model which headers are configured, never what they carry, the way it treats
+// the header values of an MCP server.
+func TestReadConfigPathRedactsDefaultHeaderValues(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  http_request:\n    default_headers:\n      Authorization: Bearer t0p-secret\n      User-Agent: probe/2\n")
+	for _, key := range []string{".", "tools.http_request", "tools.http_request.default_headers", "tools.http_request.default_headers.Authorization"} {
+		got, err := ReadConfigPath(paths, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(got.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "t0p-secret") || strings.Contains(string(encoded), "probe/2") || !got.Redacted {
+			t.Fatalf("config_get %s showed a header value: %s", key, encoded)
+		}
+		if key != "tools.http_request.default_headers.Authorization" && !strings.Contains(string(encoded), "Authorization") {
+			t.Fatalf("config_get %s hid which headers are configured: %s", key, encoded)
+		}
+	}
+}
+
+// An empty default header is no secret: config_get shows the model that the
+// header is left out rather than a placeholder a credential would get.
+func TestReadConfigPathShowsAnEmptyDefaultHeader(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  http_request:\n    default_headers:\n      User-Agent: \"\"\n      Authorization: Bearer t0p-secret\n")
+	got, err := ReadConfigPath(paths, "tools.http_request.default_headers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, ok := got.Value.(map[string]interface{})
+	if !ok {
+		t.Fatalf("value = %#v", got.Value)
+	}
+	if headers["User-Agent"] != "" || headers["Authorization"] != RedactedValue {
+		t.Fatalf("config_get showed %v, want the empty User-Agent as it is and Authorization hidden", headers)
+	}
+}
+
+// A header is a key of a map, not a field of a struct: config_set addresses it
+// by its name, sets it, and deletes it again, and the staged command names the
+// header without its value.
+func TestCommitUCICommandsSetsAndDeletesADefaultHeader(t *testing.T) {
+	paths := testPathConfig(t, "logger:\n  level: info\n")
+	cmds := mustParseUCI(t, "set tools.http_request.default_headers.User-Agent=Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0")
+	if shown := cmds[0].RedactedString(); strings.Contains(shown, "Mozilla") || !strings.Contains(shown, "default_headers.User-Agent") {
+		t.Errorf("the staged command reads %q", shown)
+	}
+	if _, err := CommitUCICommands(paths, cmds); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Tools.HTTPRequest.DefaultHeaders["User-Agent"]; got != "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0.0.0" {
+		t.Fatalf("User-Agent = %q after the set", got)
+	}
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, `set tools.http_request.default_headers={"Accept":"application/json","User-Agent":"probe/2"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "delete tools.http_request.default_headers.User-Agent")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"Accept": "application/json"}; len(cfg.Tools.HTTPRequest.DefaultHeaders) != 1 || cfg.Tools.HTTPRequest.DefaultHeaders["Accept"] != want["Accept"] {
+		t.Fatalf("default headers = %v, want %v", cfg.Tools.HTTPRequest.DefaultHeaders, want)
+	}
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "set tools.http_request.default_headers.Host=api.internal")); err == nil {
+		t.Fatal("a Host default header was committed")
+	}
+}
+
+// A key of a map that reads as a number is still a key, not a list position:
+// config_get and a staged command hide its value like any other default
+// header's, and the positions of a list still drop out of the path.
+func TestConfigPathKeysKeepANumericKeyOfAMap(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  http_request:\n    default_headers:\n      \"123\": Bearer t0p-secret\n")
+	got, err := ReadConfigPath(paths, "tools.http_request.default_headers.123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(got.Value)
+	if !got.Redacted || strings.Contains(string(encoded), "t0p-secret") {
+		t.Fatalf("config_get showed the value of a numeric header: %s", encoded)
+	}
+	cmds := mustParseUCI(t, "set tools.http_request.default_headers.123=Bearer t0p-secret")
+	if shown := cmds[0].RedactedString(); strings.Contains(shown, "t0p-secret") {
+		t.Fatalf("the staged command reads %q", shown)
+	}
+	tokens, err := parseDottedConfigPath("httpserver.remotes.0.headers.1.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := configPathKeys(tokens); strings.Join(keys, ".") != "httpserver.remotes.headers.value" {
+		t.Fatalf("keys of a path through lists = %v", keys)
+	}
+	// A name where a list wants a position stays in the path, so a secret it
+	// names is still judged one.
+	tokens, err = parseDottedConfigPath("providers.api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := configPathKeys(tokens); !configSecretPath(keys) {
+		t.Fatalf("providers.api_key lost its secret shape: %v", keys)
+	}
+}
+
+// config_get shows <redacted> where a secret stands. Staging that word back is
+// no value: a commit that would write it over a secret - a header of
+// default_headers, a key - is refused and the secret stays.
+func TestCommitRefusesTheRedactedPlaceholderForASecret(t *testing.T) {
+	paths := testPathConfig(t, "tools:\n  http_request:\n    default_headers:\n      Authorization: Bearer t0p-secret\n")
+	for _, line := range []string{
+		"set tools.http_request.default_headers.Authorization=<redacted>",
+		`set tools.http_request.default_headers={"Authorization":"<redacted>","Accept":"application/json"}`,
+		"set tools.websearch.brave_api_key=<redacted>",
+		`set providers[api_key=<redacted>]={"name":"demo","type":"openai"}`,
+		"set tools.http_request.default_headers=<redacted>",
+	} {
+		_, err := CommitUCICommands(paths, mustParseUCI(t, line))
+		if err == nil || !strings.Contains(err.Error(), "<redacted>") {
+			t.Errorf("%s: error = %v, want a refusal naming the placeholder", line, err)
+		}
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Tools.HTTPRequest.DefaultHeaders["Authorization"]; got != "Bearer t0p-secret" {
+		t.Fatalf("Authorization = %q after the refused commits", got)
+	}
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "set tools.http_request.default_headers.Accept=application/json")); err != nil {
+		t.Fatalf("an ordinary value was refused: %v", err)
 	}
 }

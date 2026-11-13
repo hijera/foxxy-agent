@@ -240,7 +240,14 @@ func UISchemaMap() map[string]interface{} {
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex", "devin"},
 		},
 		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints."),
-		"api_key":  providerAPIKey,
+		"user_agent": map[string]interface{}{
+			"type":        "string",
+			"title":       "User-Agent",
+			"description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.",
+			"enum":        []string{"", "openai", "anthropic", "foxxycode"},
+			"default":     "",
+		},
+		"api_key": providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		"timeout_ms": intProp("Request timeout ms",
@@ -262,7 +269,7 @@ func UISchemaMap() map[string]interface{} {
 		"max_context_tokens": intProp("Context window (tokens)",
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
-			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
+			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
@@ -278,58 +285,6 @@ func UISchemaMap() map[string]interface{} {
 			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
 			true),
 	}
-	envProps := map[string]interface{}{
-		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
-		"value": strProp("Value", "Variable value."),
-	}
-	headerProps := map[string]interface{}{
-		"name":  strProp("Header name", "HTTP header name for MCP HTTP transports."),
-		"value": strProp("Header value", "HTTP header value."),
-	}
-	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
-		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
-		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd."),
-		"args": map[string]interface{}{
-			"type":        "array",
-			"title":       "Arguments",
-			"description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
-			"items":       map[string]interface{}{"type": "string"},
-		},
-		"env": map[string]interface{}{
-			"type":        "array",
-			"title":       "Environment",
-			"description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
-			"items": map[string]interface{}{
-				"type":                 "object",
-				"properties":           envProps,
-				"required":             []interface{}{"name", "value"},
-				"additionalProperties": false,
-			},
-		},
-		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd."),
-		"headers": map[string]interface{}{
-			"type":        "array",
-			"title":       "HTTP headers",
-			"description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
-			"items": map[string]interface{}{
-				"type":                 "object",
-				"properties":           headerProps,
-				"required":             []interface{}{"name", "value"},
-				"additionalProperties": false,
-			},
-		},
-		"insecure_skip_verify": boolProp("Ignore SSL certificate errors",
-			"Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks."),
-		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
-		"disabled_tools": map[string]interface{}{
-			"type":        "array",
-			"title":       "Disabled tools",
-			"description": "Tool names of this server hidden from the agent.",
-			"items":       map[string]interface{}{"type": "string"},
-		},
-	}
-
 	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
 	telegramUserGroupProps := map[string]interface{}{
 		"name": strProp("Group name", "Name referenced by access as group:<name>."),
@@ -392,7 +347,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -405,9 +360,10 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
 			map[string]interface{}{
-				"model": strProp("Default model", "Logical model id from the models list used when the client omits a model."),
+				"queue_mode": map[string]interface{}{"type": "string", "title": "Queue mode", "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.", "enum": []interface{}{"steer", "after_turn"}},
+				"model":      strProp("Default model", "Logical model id from the models list used when the client omits a model."),
 				"max_turns": intProp("Max turns",
-					"Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit."),
+					"Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap."),
 				"llm_retry_max": intProp("LLM retry max",
 					"Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
@@ -432,6 +388,12 @@ func UISchemaMap() map[string]interface{} {
 					"When the provider cuts an answer that already has text - the stream stalls, drops or fails with a 5xx - keep the text and ask the model to carry on from where it stopped. Off, the turn ends at the cut, keeps the text and says why."),
 				"llm_continue_max": intProp("Continuation limit",
 					"How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut)."),
+				"llm_continue_background_max": intProp("Background continuation limit", "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit."),
+				"llm_continue_background_delays_ms": map[string]interface{}{
+					"type": "array", "title": "Background continuation delays ms",
+					"description": "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.",
+					"items":       map[string]interface{}{"type": "integer"},
+				},
 				"llm_continue_stall_delays_ms": map[string]interface{}{
 					"type":        "array",
 					"title":       "Continuation delays ms",
@@ -449,7 +411,7 @@ func UISchemaMap() map[string]interface{} {
 				"loop_guard": boolProp("Loop guard",
 					"Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through."),
 				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
-					"Consecutive identical tool calls before the loop guard steps in (0 disables the check)."),
+					"Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check."),
 				"loop_stream_repeat_cycles": intProp("Loop stream repeat cycles",
 					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
 				"loop_tool_cycle_repeats": intProp("Loop tool cycle repeats",
@@ -470,9 +432,9 @@ func UISchemaMap() map[string]interface{} {
 					"Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits."),
 			},
 			[]string{
-				"model", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
+				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "llm_stall_retry", "llm_stall_retry_delays_ms",
-				"llm_stall_retry_max_wait_ms", "llm_continue", "llm_continue_max", "llm_continue_stall_delays_ms",
+				"llm_stall_retry_max_wait_ms", "llm_continue", "llm_continue_max", "llm_continue_background_max", "llm_continue_background_delays_ms", "llm_continue_stall_delays_ms",
 				"llm_continue_error_delays_ms", "llm_continue_retry_after_max_ms",
 				"loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles",
 				"loop_tool_cycle_repeats", "loop_stuck_action", "loop_nudge_max",
@@ -611,7 +573,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key"},
 					nil),
 				"http_request": objectSchema("HTTP requests",
-					"Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
+					"Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
 					map[string]interface{}{
 						"allowlist": map[string]interface{}{
 							"type":        "array",
@@ -619,8 +581,14 @@ func UISchemaMap() map[string]interface{} {
 							"description": "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.",
 							"items":       map[string]interface{}{"type": "string"},
 						},
+						"default_headers": map[string]interface{}{
+							"type":                 "object",
+							"title":                "Default headers",
+							"description":          "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.",
+							"additionalProperties": map[string]interface{}{"type": "string"},
+						},
 					},
-					[]string{"allowlist"},
+					[]string{"allowlist", "default_headers"},
 					nil),
 			},
 			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background", "preview_server", "websearch", "http_request"},
@@ -636,13 +604,13 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Definition directories",
-					"description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"description": "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"project_trust": map[string]interface{}{
 					"type":        "string",
 					"title":       "Project definitions",
-					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
 					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
 				},
 				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
@@ -678,31 +646,27 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
 			nil),
-		"mcp_servers": map[string]interface{}{
-			"type":        "array",
-			"title":       "MCP servers",
-			"description": "Model Context Protocol servers started or contacted for new sessions.",
-			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers", "insecure_skip_verify", "disabled", "disabled_tools"},
-				[]string{"name"}),
-		},
+		// mcp.project_trust is deliberately absent here: it is edited in the
+		// MCP servers tab next to the servers it governs (POST
+		// /foxxycode/mcp/project-trust), not as a settings-document section. It
+		// still round-trips through GET/PUT /foxxycode/config like httpserver.
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
 			map[string]interface{}{
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
+					"description": "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
 					"items":       map[string]interface{}{"type": "string"},
 				},
-				"sources": map[string]interface{}{
-					"type":        "array",
-					"title":       "Remote skill sources",
-					"description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.",
-					"items":       map[string]interface{}{"type": "string"},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project marketplaces",
+					"description": "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
 				},
 				"auto_discovery": boolProp("Auto-discovery", "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true."),
 			},
-			[]string{"dirs", "sources", "auto_discovery"},
+			[]string{"dirs", "project_trust", "auto_discovery"},
 			nil),
 		"memory": objectSchema("Memory copilot", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
@@ -717,7 +681,7 @@ func UISchemaMap() map[string]interface{} {
 				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
 				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
-				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20)."),
+				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20)."),
 				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
@@ -732,11 +696,12 @@ func UISchemaMap() map[string]interface{} {
 				"engine": map[string]interface{}{
 					"type":        "string",
 					"title":       "Compaction engine",
-					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
-					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
+					"description": "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
+					"enum":        []string{CompactionEngineFoxxyCode, CompactionEngineOpenCode},
 				},
-				"enable": boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
-				"model":  strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
+				"enable":      boolProp("Enabled", "Master switch for manual and automatic compaction. Defaults to true."),
+				"auto_enable": boolProp("Automatic compaction", "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true."),
+				"model":       strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
@@ -757,7 +722,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "keep_recent", "min_result_bytes", "start_percent"},
 					nil),
 			},
-			[]string{"engine", "enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
+			[]string{"engine", "enable", "auto_enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
@@ -793,12 +758,12 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt", "per_provider"},
 			nil),
-		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
+		"instructions": objectSchema("Instructions", "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.",
 			map[string]interface{}{
 				"files": map[string]interface{}{
 					"type":        "array",
 					"title":       "Instruction files",
-					"description": "Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to [\"AGENTS.md\", \"DESIGN.md\"]; the agent home has its own pair, read ahead of this list whenever it exists.",
+					"description": "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 			},
@@ -911,7 +876,7 @@ func UISchemaMap() map[string]interface{} {
 	rootOrder := []string{
 		"providers", "models",
 		"agent", "compaction", "memory", "autocomplete", "title",
-		"tools", "mcp_servers", "skills", "subagents", "hooks", "browser", "vcs",
+		"tools", "skills", "subagents", "hooks", "browser", "vcs",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions", "ui", "debug",
 	}
@@ -944,18 +909,22 @@ func toIfaceOrder(keys []string) []interface{} {
 //
 //	httpserver - the surface the UI itself is served from; editing it there
 //	             would let the page cut its own connection.
-//	mcp        - edited in the MCP servers tab (POST /foxxycode/mcp/project-trust),
-//	             next to the servers the policy governs.
+//	mcp        - project_trust is edited in the MCP servers tab (POST
+//	             /foxxycode/mcp/project-trust), next to the servers the policy
+//	             governs; idle_timeout_seconds is set in the file and survives
+//	             every save of this form.
 //	swarm      - a relay's own deployment: bind address, credentials for a whole
 //	             fleet, and the parents this process joins. It is set in the file
 //	             or on the command line, not from a page one of its nodes serves.
 //	rules      - project rule discovery is a workspace concern; the Settings form
 //	             edits the user-global file, where it rarely needs touching.
+//	revision   - identifies the configuration read by GET and returned with PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
 	"swarm":      {},
 	"rules":      {},
+	"revision":   {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

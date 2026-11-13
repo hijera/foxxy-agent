@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+// @ts-ignore -- shared source composition is plain JavaScript.
+import { readStyleSource } from "../../postcss-fork-styles.mjs";
 import { UI_THEME_IDS } from "./theme/themeCookie";
 
 // <html data-effects="reduced"> (ui/theme/uiEffects.ts; the default in the IntelliJ
@@ -15,8 +14,10 @@ import { UI_THEME_IDS } from "./theme/themeCookie";
 // title kept it 5.4% busy with the panel merely open, 0.3% without it. The glass
 // panels lose their 52px backdrop blur too, and turn opaque in the colour they showed.
 
-const cssPath = join(dirname(fileURLToPath(import.meta.url)), "../styles.css");
-const css = readFileSync(cssPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+// The composed stylesheet: styles.css with every styles/fork/ feature expanded
+// at its marker. A fork rule can animate or blur like any other, so the scan
+// reads that and not the shared file alone.
+const css: string = readStyleSource().replace(/\/\*[\s\S]*?\*\//g, "");
 
 const REDUCED = '[data-effects="reduced"]';
 

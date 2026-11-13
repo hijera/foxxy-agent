@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/svn"
 )
 
 // ToolSet is an allowlist of tool names passed to the LLM. Empty or nil means unrestricted
@@ -61,15 +62,6 @@ var planToolNames = []string{
 	// Filing the session writes nothing but the session's own title and tags,
 	// and a planning session is one that earns a name as it goes.
 	"session_describe",
-	// Read-only Subversion inspection, mirroring the read-only git commands the
-	// planner can already run through run_command. Registered only when
-	// vcs.svn is enabled and a client is installed; an unregistered name simply
-	// never appears in the definitions.
-	"svn_info",
-	"svn_status",
-	"svn_diff",
-	"svn_log",
-	"svn_list",
 }
 
 var docsToolNames = []string{
@@ -137,7 +129,10 @@ func ToolSetForMode(mode string, noSelfRun bool) ToolSet {
 			}
 			out = append(out, n)
 		}
-		return out
+		// Read-only Subversion inspection lives with the tools themselves:
+		// svn.ReadOnlyToolNames carries why the planner gets them and why an
+		// unregistered name is harmless.
+		return append(out, svn.ToolsForMode(mode)...)
 	case "docs":
 		names = docsToolNames
 	case "ask":

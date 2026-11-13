@@ -32,7 +32,7 @@ func ReadTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
-			Description: "Read a file as text, or list a directory's entries. Text in another encoding (UTF-16, a legacy code page) is converted to UTF-8; a binary file (an image, a PDF, an archive) is refused with its type and size instead of its bytes. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
+			Description: "Read a file as text, or list a directory's entries. Text in another encoding (UTF-16, a legacy code page) is converted to UTF-8. A PNG, JPEG, GIF or WebP image (told by its content, not its name) is shown to you as a picture when your model accepts images: use it to look at a screenshot, a diagram or a rendered page instead of guessing from its name; up to 3.75 MB and 8000 pixels a side, a GIF as its first frame. Any other binary file (a PDF, an archive), and a picture your model cannot take, is refused with its type and size instead of its bytes. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -99,9 +99,19 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return listDirContent(path, args.Recursive, args.ShowHidden)
 	}
 
+	// A picture over the limit is refused by its size on disk, before the
+	// whole file is loaded to be refused anyway.
+	if st.Size() > readImageMaxBytes {
+		if kind := sniffFileHead(path); readImageFormats[kind] != "" {
+			return "", oversizedImage(args.Path, kind, st.Size(), env)
+		}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read: %w", err)
+	}
+	if kind := sniffKind(data); readImageFormats[kind] != "" {
+		return readImage(args.Path, path, data, kind, env)
 	}
 
 	if kind := sniffKind(data); !strings.HasPrefix(kind, "text/") && kind != "application/octet-stream" {

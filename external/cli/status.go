@@ -40,6 +40,11 @@ const (
 	// because the provider produced no output. The console is the surface most likely
 	// to be left staring at a spinner for minutes, so it says so explicitly.
 	statusRetryingModel = "Provider is not responding, retrying"
+	// statusConnectingMCP is the step of a turn sent while the session's
+	// configured MCP servers are still connecting in the background: the
+	// turn waits for its tool list. The SPA has no twin, since no web
+	// surface defers the connect.
+	statusConnectingMCP = "Connecting MCP servers"
 )
 
 // liveStatus is the current step of a running turn. counts says the step shows a clock

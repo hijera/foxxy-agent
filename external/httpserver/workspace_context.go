@@ -19,8 +19,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
-	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
 )
 
 // workspaceContextPayload builds the JSON body shared by the context GET and
@@ -41,6 +41,9 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 	}
 	if info.IsGitRepo {
 		payload["repo_root"] = info.RepoRoot
+		if info.BaseBranch != "" {
+			payload["base_branch"] = info.BaseBranch
+		}
 		payload["branch"] = info.Branch
 		payload["branches"] = info.Branches
 		wts := make([]map[string]interface{}, 0, len(info.Worktrees))
@@ -86,7 +89,7 @@ func (s *Server) svnEnabled() bool {
 // describeSVN inspects cwd with the configured svn client. It returns an empty
 // Info when Subversion support is disabled.
 func (s *Server) describeSVN(ctx context.Context, cwd string) svnws.Info {
-	return toolsvn.DescribeFor(ctx, s.activeCfg(), cwd)
+	return svn.DescribeFor(ctx, s.activeCfg(), cwd)
 }
 
 // foxxycodeWorkspaceContextGet reports the workspace state for ?path= when given
@@ -112,6 +115,13 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 			return
 		}
 		cwd = resolved
+		if id := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); id != "" {
+			if err := s.mgr.RecoverSessionWorkspace(r.Context(), id); err != nil {
+				s.log.Warn("workspace context recovery deferred", "session", id, "error", err)
+			} else if st := s.mgr.SessionByID(id); st != nil {
+				cwd = st.GetCWD()
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.workspaceContextPayload(r.Context(), cwd))
@@ -127,9 +137,9 @@ const workspaceDrivesPath = ":drives:"
 // drivesListingPayload renders the volume level: one row per drive root, and
 // no level above it (path == parent, so the picker hides its ".." row).
 func drivesListingPayload(drives []string) map[string]interface{} {
-	folders := make([]map[string]string, 0, len(drives))
+	folders := make([]map[string]interface{}, 0, len(drives))
 	for _, root := range drives {
-		folders = append(folders, map[string]string{
+		folders = append(folders, map[string]interface{}{
 			"name": strings.TrimRight(root, `\/`),
 			"path": root,
 		})
@@ -146,7 +156,7 @@ func drivesListingPayload(drives []string) map[string]interface{} {
 // folderListingPayload renders a real directory. The parent of a filesystem
 // root is promoted to the volume level when the host has drives, which is what
 // lets a Windows session walk up out of `C:\` and into another drive.
-func folderListingPayload(abs string, folders []map[string]string, drives []string) map[string]interface{} {
+func folderListingPayload(abs string, folders []map[string]interface{}, drives []string) map[string]interface{} {
 	parent := filepath.Dir(abs)
 	if parent == abs && len(drives) > 0 {
 		parent = workspaceDrivesPath
@@ -160,8 +170,9 @@ func folderListingPayload(abs string, folders []map[string]string, drives []stri
 }
 
 // foxxycodeWorkspaceFoldersGet lists subfolders of ?path= (default: session cwd)
-// for the workspace folder picker. Hidden folders and node_modules are skipped.
-// ?path=:drives: lists the machine's drive roots instead.
+// for the workspace folder picker. node_modules is always skipped; hidden
+// folders are included only when ?show_hidden=true. ?path=:drives: lists the
+// machine's drive roots instead.
 func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request) {
 	dir := strings.TrimSpace(r.URL.Query().Get("path"))
 	drives := s.hostDrives()
@@ -187,26 +198,54 @@ func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Req
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
 		return
 	}
+	// Stat above follows a symlink only to verify that its final target is a
+	// directory. Resolve it for the listing so a pasted symlink path arrives at
+	// the actual directory and cannot be mistaken for a regular folder later.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
-	folders := make([]map[string]string, 0, len(entries))
+	showHidden := r.URL.Query().Get("show_hidden") == "true"
+	folders := make([]map[string]interface{}, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
 		name := e.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" {
+		if name == "node_modules" || (!showHidden && strings.HasPrefix(name, ".")) {
 			continue
 		}
-		folders = append(folders, map[string]string{
+		path := filepath.Join(abs, name)
+		row := map[string]interface{}{
 			"name": name,
-			"path": filepath.Join(abs, name),
-		})
+			"path": path,
+		}
+		if strings.HasPrefix(name, ".") {
+			row["hidden"] = true
+		}
+		if e.Type()&os.ModeSymlink != 0 {
+			// Do not expose an arbitrary symlink as a navigable folder. os.Stat
+			// follows it only after detecting the link, and accepts it only when
+			// its final target is a directory.
+			targetInfo, err := os.Stat(path)
+			if err != nil || !targetInfo.IsDir() {
+				continue
+			}
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				continue
+			}
+			row["symlink"] = true
+			row["target"] = target
+		} else if !e.IsDir() {
+			continue
+		}
+		folders = append(folders, row)
 	}
-	sort.Slice(folders, func(i, j int) bool { return folders[i]["name"] < folders[j]["name"] })
+	sort.Slice(folders, func(i, j int) bool {
+		return folders[i]["name"].(string) < folders[j]["name"].(string)
+	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(folderListingPayload(abs, folders, drives))
 }
@@ -278,7 +317,7 @@ func (s *Server) foxxycodeWorkspaceFoldersPost(w http.ResponseWriter, r *http.Re
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]string{}, s.hostDrives()))
+	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]interface{}{}, s.hostDrives()))
 }
 
 // hostDrives lists the machine's drive roots, tolerating a server built
@@ -403,6 +442,16 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 		return http.StatusBadRequest, fmt.Errorf("workspace is not a git repository: %s", cwd)
 	}
 	branch = strings.TrimSpace(branch)
+	if useWorktree {
+		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch)
+		if err != nil {
+			return http.StatusConflict, err
+		}
+		if err := s.mgr.SetSessionWorkspace(ctx, st, path); err != nil {
+			return http.StatusBadRequest, err
+		}
+		return 0, nil
+	}
 	if branch == info.Branch {
 		return 0, nil
 	}
@@ -414,16 +463,6 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 			return 0, nil
 		}
 	}
-	if useWorktree {
-		path, _, err := gitws.EnsureWorktree(info.RepoRoot, branch)
-		if err != nil {
-			return http.StatusConflict, err
-		}
-		if err := s.mgr.SetSessionWorkspace(ctx, st, path); err != nil {
-			return http.StatusBadRequest, err
-		}
-		return 0, nil
-	}
 	if err := gitws.Checkout(cwd, branch); err != nil {
 		return http.StatusConflict, err
 	}
@@ -433,64 +472,23 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 	return 0, nil
 }
 
-// svnWorkingCopyAt reports whether dir itself is an existing svn working copy
-// root (not merely a folder below one).
-func svnWorkingCopyAt(ctx context.Context, dir string, opts svnws.Options) bool {
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return false
-	}
-	info := svnws.Describe(ctx, dir, opts)
-	return info.IsSVNRepo && !info.Nested
-}
-
-// applySVNBranchSwitch moves the session to an SVN branch. Subversion has no
-// worktrees, so separateFolder checks the branch out into its own folder under
-// <home>/worktrees/<wc>/ and moves the session there - the branch-folder
-// workflow. Otherwise the working copy is switched in place.
+// applySVNBranchSwitch retains HTTP/session policy around the domain operation.
 func (s *Server) applySVNBranchSwitch(ctx context.Context, st *session.State, branch string, separateFolder bool) (int, error) {
-	cwd := st.GetCWD()
-	if !s.svnEnabled() {
-		return http.StatusConflict, fmt.Errorf("subversion support is disabled (vcs.svn.enable)")
-	}
-	opts := toolsvn.OptionsFor(s.activeCfg())
-	info := svnws.Describe(ctx, cwd, opts)
-	if !info.Available {
-		return http.StatusConflict, fmt.Errorf("svn client not found; install Subversion or set vcs.svn.binary")
-	}
-	if !info.IsSVNRepo {
-		return http.StatusBadRequest, fmt.Errorf("workspace is not an svn working copy: %s", cwd)
-	}
-	branch = strings.TrimSpace(branch)
-	if branch == info.Branch && !separateFolder {
-		return 0, nil
-	}
-	url, err := svnws.BranchURL(info, branch)
+	result, err := svn.SwitchBranch(ctx, s.activeCfg(), st.GetCWD(), branch, separateFolder)
 	if err != nil {
+		var workspaceErr *svn.WorkspaceError
+		if errors.As(err, &workspaceErr) && workspaceErr.Conflict {
+			return http.StatusConflict, err
+		}
 		return http.StatusBadRequest, err
 	}
-
-	if separateFolder {
-		dest := filepath.Join(info.WCRoot, ".foxxycode", "branches", svnws.BranchDirName(branch))
-		if cfg := s.activeCfg(); cfg != nil && strings.TrimSpace(cfg.Paths.Home) != "" {
-			dest = filepath.Join(cfg.Paths.Home, "worktrees",
-				filepath.Base(info.WCRoot), svnws.BranchDirName(branch))
-		}
-		// An existing checkout of that branch is reused instead of re-fetched.
-		// The folder has to be a working copy in its own right: Describe would
-		// otherwise resolve an enclosing working copy above it.
-		if !svnWorkingCopyAt(ctx, dest, opts) {
-			if _, err := svnws.Checkout(ctx, opts, url, dest, ""); err != nil {
-				return http.StatusConflict, err
-			}
-		}
-		if err := s.mgr.SetSessionWorkspace(ctx, st, dest); err != nil {
+	if result.Path != "" {
+		if err := s.mgr.SetSessionWorkspace(ctx, st, result.Path); err != nil {
 			return http.StatusBadRequest, err
 		}
-		return 0, nil
 	}
-	if _, err := svnws.Switch(ctx, cwd, opts, url); err != nil {
-		return http.StatusConflict, err
+	if result.Reload {
+		s.mgr.ReloadSessionWorkspace(ctx, st)
 	}
-	s.mgr.ReloadSessionWorkspace(ctx, st)
 	return 0, nil
 }

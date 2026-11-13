@@ -9,9 +9,9 @@
 # "origin": "local" is written in this repository and is left alone.
 #
 # Only the files a delivered skill needs are copied: SKILL.md, its references/
-# tree, the README a reader opens next to it, and the LICENSE that has to travel
-# with a redistributed copy. Plugin manifests for other agents, editor folders
-# and dotfiles stay upstream.
+# and scripts/ trees, the README a reader opens next to it, and the LICENSE that
+# has to travel with a redistributed copy. Plugin manifests for other agents,
+# tests, CI, editor folders and dotfiles stay upstream.
 #
 # Usage:
 #   scripts/vendor-bundled-skills.sh [options]
@@ -82,10 +82,14 @@ copy_skill() {
     for extra in README.md LICENSE; do
         [ -f "$src/$extra" ] && cp "$src/$extra" "$dst/$extra"
     done
-    if [ -d "$src/references" ]; then
-        cp -R "$src/references" "$dst/references"
-        find "$dst/references" -name '.git*' -prune -exec rm -rf {} + 2>/dev/null || true
-    fi
+    local tree
+    for tree in references scripts; do
+        if [ -d "$src/$tree" ]; then
+            cp -R "$src/$tree" "$dst/$tree"
+            find "$dst/$tree" \( -name '.git*' -o -name '__pycache__' -o -name '*.pyc' \) -prune \
+                -exec rm -rf {} + 2>/dev/null || true
+        fi
+    done
     return 0
 }
 
@@ -112,6 +116,35 @@ while read -r name repo ref; do
 
     staged="$tmp/staged-$name"
     copy_skill "$src" "$staged"
+    if [ "$name" = "crossreview" ]; then
+        # Keep the universal helper's host identity and roster paths consistent
+        # with the binary that delivers this reviewed vendored copy.
+        python3 - "$staged" "$root/scripts" <<'PY'
+import pathlib
+import sys
+sys.path.insert(0, sys.argv[2])
+from upstream_branding import normalize
+
+root = pathlib.Path(sys.argv[1])
+for path in root.rglob("*"):
+    if not path.is_file() or path.name in {"README.md", "LICENSE"}:
+        continue
+    data = normalize(path.read_bytes(), upstream=True, paths=(str(path.relative_to(root)),))
+    data = data.replace(b"https://foxxycode.dev/docs/features/subagents#built-ins",
+                        b"https://github.com/hijera/foxxy-agent/blob/main/docs/features/subagents.md#built-ins")
+    data = data.replace(b"https://foxxycode.dev", b"https://hijera.github.io/foxxy-agent")
+    path.write_bytes(data)
+readme = root / "README.md"
+if readme.exists():
+    notice = (
+        "> This vendored distribution uses FoxxyCode: `--host foxxycode`, "
+        "`${FOXXYCODE_HOME}/crossreview.json` and `.foxxycode/crossreview.json`. "
+        "Its executable instructions are in [SKILL.md](SKILL.md); "
+        "the upstream README and attribution follow below.\n\n"
+    )
+    readme.write_text(notice + readme.read_text(encoding="utf-8"), encoding="utf-8")
+PY
+    fi
     version=$(skill_version "$staged/SKILL.md")
     [ -n "$version" ] || { echo "vendor-bundled-skills: $name has no version in its SKILL.md frontmatter" >&2; exit 1; }
 

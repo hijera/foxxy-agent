@@ -29,7 +29,7 @@
  *   FOXXYCODE_PORT_BASE     first of three loopback ports (default 19870)
  *   FOXXYCODE_BUDGET_SCALE  multiplies every time budget (a slow machine: 2)
  *   FOXXYCODE_SCENARIOS     a comma list of scenarios to run (open, scroll, phone,
- *                       edit, retry, prompt, short, two-browsers, swarm); all
+ *                       resize, edit, retry, prompt, short, two-browsers, swarm); all
  *                       by default
  *   FOXXYCODE_E2E_KEEP=1    leave the stand running after the checks, for a look
  *
@@ -487,6 +487,9 @@ function scrollAndMeasure(page, steps, dy) {
 const messagesReads = (requests, sid) =>
   requests.filter((u) => u.includes(`/foxxycode/sessions/${sid}/messages`)).map((u) => new URL(u).search);
 
+const isInitialTailRead = (query) =>
+  query === "?limit=60" || query === "?limit=60&activate_mcp=1";
+
 // --------------------------------------------------------------- scenarios
 
 async function scenarioOpen(label, viewport) {
@@ -498,7 +501,7 @@ async function scenarioOpen(label, viewport) {
   const heap = await heapMB(cdp);
   const reads = messagesReads(requests, LONG);
   metric(label, { newestVisibleMs: ms, longestTaskMs: longest, rows: t.rows, dom: t.dom, heapMB: heap });
-  check(`${label}: the session opens on its newest page, not the whole history`, reads[0] === "?limit=60", `first read ${reads[0]}`);
+  check(`${label}: the session opens on its newest page, not the whole history`, isInitialTailRead(reads[0]), `first read ${reads[0]}`);
   check(`${label}: the newest message is on screen within ${BUDGET.newestVisibleMs} ms`, ms <= BUDGET.newestVisibleMs, `${ms} ms`);
   check(`${label}: the transcript opens at the newest message`, t.fromBottom <= 2, `${t.fromBottom} px above the end`);
   if (CHROMIUM) check(`${label}: no task blocks the page longer than ${BUDGET.longestTaskMs} ms`, longest <= BUDGET.longestTaskMs, `longest ${longest} ms`);
@@ -565,6 +568,41 @@ async function scenarioPhone() {
   metric(label, { scrollFrameP95Ms: up.p95, maxRows: up.maxRows });
   check(`${label}: the document scrolls without a jump on the stacked shell`, up.jumps === 0, `${up.jumps} jumps, worst ${up.worstDrift}px`);
   check(`${label}: the window stays bounded`, up.maxRows <= BUDGET.maxRows, `${up.maxRows} rows`);
+  await context.close();
+}
+
+async function scenarioResize() {
+  const { context, page } = await openPage({ width: 1280, height: 900 }, { throttle: 1 });
+  await openAndTime(page, `${NODE}/#/s/${LONG}`);
+  const widths = [468, 390, 599, 600, 834, 1199, 1200, 1280];
+  const settle = () => page.evaluate(() => new Promise(resolve => {
+    let frames = 6;
+    const tick = () => --frames > 0 ? requestAnimationFrame(tick) : resolve();
+    requestAnimationFrame(tick);
+  }));
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await settle();
+    const t = await readTranscript(page);
+    check(`resize ${width}: newest message stays visible`, t.fromBottom <= 4 && t.text.includes(NEWEST), `${t.fromBottom}px from bottom`);
+  }
+  await scrollAndMeasure(page, 40, -300);
+  const anchor = await page.evaluate(() => {
+    const top = document.querySelector(".chat-scroll").getBoundingClientRect().top;
+    const row = [...document.querySelectorAll(".messages-inner > [data-row-id]")].find(el => el.getBoundingClientRect().bottom > top);
+    return { id: row.dataset.rowId, offset: row.getBoundingClientRect().top - top };
+  });
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await settle();
+    const drift = await page.evaluate(({ id, offset }) => {
+      const row = [...document.querySelectorAll(".messages-inner > [data-row-id]")].find(el => el.dataset.rowId === id);
+      if (!row) return null;
+      const top = matchMedia("(max-width: 1199px)").matches ? 0 : document.querySelector(".chat-scroll").getBoundingClientRect().top;
+      return Math.round(Math.abs(row.getBoundingClientRect().top - top - offset));
+    }, anchor);
+    check(`resize ${width}: inspected row keeps its position`, drift !== null && drift <= 4, `${drift}px drift`);
+  }
   await context.close();
 }
 
@@ -723,7 +761,7 @@ async function scenarioSwarm() {
   });
   const ms = await openAndTime(p, `${RELAY}/#/s/${LONG}`);
   const viaMount = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/messages`)).map((u) => new URL(u).search);
-  check(`${label}: the page is read through the relay's mount`, viaMount[0] === "?limit=60", viaMount.join(" "));
+  check(`${label}: the page is read through the relay's mount`, isInitialTailRead(viaMount[0]), viaMount.join(" "));
   const up = await scrollAndMeasure(p, 100, -300);
   const older = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/messages?limit=80&before=`));
   const tools = reqs.filter((u) => u.startsWith(`${mount}/foxxycode/sessions/${LONG}/tool-calls?from=`));
@@ -740,6 +778,7 @@ const SCENARIOS = [
   ["open", () => scenarioOpen("open 1280", { width: 1280, height: 900 })],
   ["scroll", scenarioScroll],
   ["phone", scenarioPhone],
+  ["resize", scenarioResize],
   ["edit", scenarioEditIndex],
   ["retry", scenarioRetry],
   ["prompt", scenarioPrompt],

@@ -83,7 +83,7 @@ func (s *pluginFeatureState) startServer() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		return err
 	}
 	sessRoot := filepath.Join(s.root, "sessions")
@@ -226,7 +226,7 @@ func initializePluginScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a chat session$`, s.newSession)
 	sc.Step(`^a local marketplace "([^"]*)" publishing skill "([^"]*)" at version "([^"]*)"$`, s.givenLocalMarketplace)
 	sc.Step(`^I have added the marketplace "([^"]*)" over chat$`, s.addMarketplaceOverChat)
-	sc.Step(`^I send the plugin prompt "(.*)"$`, s.sendPluginPrompt)
+	sc.Step(`^I (?:have )?sen[dt] the plugin prompt "(.*)"$`, s.sendPluginPrompt)
 	sc.Step(`^the plugin response mentions "([^"]*)"$`, s.responseMentions)
 	sc.Step(`^the "/plugin" command is part of the transcript$`, s.transcriptShowsPluginCommand)
 }
