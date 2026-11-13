@@ -130,14 +130,14 @@ func matchDecodedLines(ctx context.Context, filePath, content string, matcher *r
 	return nil
 }
 
-// nativeGlob is the built-in file-listing engine used when no system ripgrep
-// is available.
-func nativeGlob(ctx context.Context, root, pattern, storeRoot string) ([]string, error) {
+// nativeGlob is the built-in file-listing engine used whenever the turn
+// confines its reads and when no system ripgrep is available.
+func nativeGlob(ctx context.Context, root, pattern, storeRoot string, allowPath func(string) bool) ([]string, error) {
 	if err := validateSearchGlob(pattern); err != nil {
 		return nil, err
 	}
 	var paths []string
-	err := walkSearchFiles(ctx, root, pattern, storeRoot, nil, func(filePath string) error {
+	err := walkSearchFiles(ctx, root, pattern, storeRoot, allowPath, func(filePath string) error {
 		paths = append(paths, filePath)
 		return nil
 	})
@@ -179,6 +179,11 @@ func walkSearchFiles(ctx context.Context, root, pattern, storeRoot string, allow
 		if filePath == root {
 			return nil
 		}
+		// The allow check cannot be one atomic step with the visit that
+		// follows it: PathInWorkspace resolves symlinks and the walker lists
+		// real entries, so a path swapped between the two is an inherent
+		// check-then-act window - not reachable by the remote callers this
+		// confinement is for, and the walker never descends a symlink.
 		if allowPath != nil && !allowPath(filePath) {
 			if entry.IsDir() {
 				return filepath.SkipDir

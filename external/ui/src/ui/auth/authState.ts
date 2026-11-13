@@ -28,9 +28,11 @@ export type AuthState = {
    * The Mini App sign-in of an admin did not end in a session: "not_kept"
    * when the server opened one and the browser did not keep its cookie (a
    * Mini App in a frame of another site), "retry" when the launch was
-   * refused (used before, too old) and the Mini App has to be opened again.
+   * refused (used before, too old) and the Mini App has to be opened again,
+   * "unavailable" when the server runs no Telegram bot at all and no retry
+   * can help.
    */
-  telegramProblem: "" | "not_kept" | "retry";
+  telegramProblem: "" | "not_kept" | "retry" | "unavailable";
   /**
    * Whether the server has been asked yet. The app waits for it rather than
    * rendering and then yanking itself away to a sign-in screen.
@@ -107,6 +109,10 @@ async function signInWithTelegram(initData: string): Promise<boolean> {
     });
     if (res.status === 403) {
       telegramRefused = true;
+    } else if (res.status === 400) {
+      // The server runs no Telegram bot with a token: opening the Mini App
+      // again cannot help, so the page says so instead of asking for a retry.
+      telegramProblem = "unavailable";
     } else if (!res.ok) {
       telegramProblem = "retry";
     }

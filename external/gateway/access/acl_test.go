@@ -93,6 +93,12 @@ func TestKeyIsAdmin(t *testing.T) {
 		"tg:chat:-1:user:7": true, "tg:chat:-1:user:8": false,
 		"tg:chat:-1": false, "tg:chat:-1:admin": true,
 		"$last_model": false, "tg:user:x": false,
+		// The parser is prefix-agnostic; the Pachca adapter rides the same
+		// table so a cross-adapter divergence cannot slip in.
+		"pachca:user:7": true, "pachca:user:8": false,
+		"pachca:chat:600:user:7": true, "pachca:chat:600:user:8": false,
+		"pachca:chat:600": false, "pachca:chat:600:admin": true,
+		"pachca:user:x": false,
 	}
 	for key, want := range cases {
 		if got := access.KeyIsAdmin(key, p); got != want {

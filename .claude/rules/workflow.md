@@ -25,6 +25,7 @@ paths:
   - ".codex/**"
   - ".zcode/**"
   - ".opencode/**"
+  - ".kimi-code/**"
 ---
 
 # Workflow (features, bugs, finish)

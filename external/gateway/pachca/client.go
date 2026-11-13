@@ -41,17 +41,20 @@ type Client struct {
 	sleep func(ctx context.Context, d time.Duration) error
 }
 
-// NewClient returns a client for base (the API root, without a trailing slash).
-func NewClient(base, token string, hc *http.Client) *Client {
+// NewClient returns a client for base (the API root, without a trailing
+// slash). The http client carries the operator's proxy settings, so a nil one
+// is refused rather than silently replaced with a default that would reach
+// Pachca without it.
+func NewClient(base, token string, hc *http.Client) (*Client, error) {
 	if hc == nil {
-		hc = http.DefaultClient
+		return nil, fmt.Errorf("pachca: nil http client; build one with proxyutil.BuildHTTPClient")
 	}
 	return &Client{
 		base:  strings.TrimRight(strings.TrimSpace(base), "/"),
 		token: token,
 		http:  hc,
 		sleep: sleepCtx,
-	}
+	}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

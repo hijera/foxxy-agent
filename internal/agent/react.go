@@ -2363,9 +2363,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if st := sessionStatePtr(a.state); st != nil {
 		if r := st.GetTurnRestriction(); r != nil {
 			env.Confined = r.ConfineToWorkspace
-			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
-				return "", err
-			}
 			if env.Confined {
 				cwd, home := env.CWD, a.cfg.Paths.Home
 				env.ReadPathAllowed = func(p string) bool { return session.PathInWorkspace(p, cwd, home) }
@@ -2404,6 +2401,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A restricted turn refuses a tool it does not name, or a path outside its
+	// working directory, before hooks and permission run: a replayed or
+	// hallucinated call must not reach either. The refusal goes through the
+	// same bookkeeping as every other outcome, so the client's card completes.
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
+				a.finishToolCall(sessionDir, sessionID, tc, err.Error(), nil, "cancelled")
+				return err.Error(), nil
+			}
+		}
+	}
 
 	// A child may only call what its effective tool set admits: the
 	// advertised definitions are filtered the same way, so this catches a

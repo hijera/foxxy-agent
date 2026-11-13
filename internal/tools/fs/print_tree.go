@@ -67,6 +67,12 @@ func executePrintTree(_ context.Context, argsJSON string, env *tooling.Env) (str
 	if strings.TrimSpace(args.Path) != "" {
 		root = ResolvePath(args.Path, env.CWD)
 	}
+	// A confined turn keeps every printed entry inside its working directory:
+	// the root is rejected outright and the walk prunes forbidden subtrees
+	// before they are listed.
+	if env.ReadPathAllowed != nil && !env.ReadPathAllowed(root) {
+		return "", fmt.Errorf("print_tree: path is outside the permitted workspace")
+	}
 	st, err := os.Stat(root)
 	if err != nil {
 		return "", fmt.Errorf("print_tree: %w", err)
@@ -88,7 +94,7 @@ func executePrintTree(_ context.Context, argsJSON string, env *tooling.Env) (str
 	b.WriteString(root)
 	b.WriteByte('\n')
 	count := 0
-	truncated := walkTree(&b, root, "", depth, store, &count)
+	truncated := walkTree(&b, root, "", depth, store, env.ReadPathAllowed, &count)
 	out := strings.TrimRight(b.String(), "\n")
 	if truncated {
 		out += fmt.Sprintf("\n\n(truncated at %d entries)", printTreeMaxEntries)
@@ -98,7 +104,7 @@ func executePrintTree(_ context.Context, argsJSON string, env *tooling.Env) (str
 
 // walkTree renders the children of dir with the given line prefix, descending up
 // to depthLeft more levels. It returns true when the entry cap was reached.
-func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store string, count *int) bool {
+func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store string, allowPath func(string) bool, count *int) bool {
 	if depthLeft <= 0 {
 		return false
 	}
@@ -107,11 +113,16 @@ func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store strin
 		return false
 	}
 
-	// Hide the FoxxyCode session store and skip noise directories.
+	// Hide the FoxxyCode session store and skip noise directories. A confined
+	// turn prunes every path its allow list denies, so a forbidden subtree is
+	// never read or listed at all.
 	var kept []os.DirEntry
 	for _, e := range entries {
 		full := filepath.Join(dir, e.Name())
 		if store != "" && isWithinDir(full, store) {
+			continue
+		}
+		if allowPath != nil && !allowPath(full) {
 			continue
 		}
 		if e.IsDir() {
@@ -154,7 +165,7 @@ func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store strin
 		b.WriteString(name)
 		b.WriteByte('\n')
 		if e.IsDir() {
-			if walkTree(b, filepath.Join(dir, e.Name()), childPrefix, depthLeft-1, store, count) {
+			if walkTree(b, filepath.Join(dir, e.Name()), childPrefix, depthLeft-1, store, allowPath, count) {
 				return true
 			}
 		}

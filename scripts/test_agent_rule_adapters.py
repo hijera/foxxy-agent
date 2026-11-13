@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -223,8 +224,83 @@ class AdapterContractTest(unittest.TestCase):
     def test_python_adapter_delivery_is_interprocess_safe(self):
         for source, host_dir in ((CODEX, ".codex"), (ZCODE, ".zcode"), (KIMI, ".kimi-code")):
             outputs = run_concurrent_deliveries(source, host_dir)
-            self.assertEqual(1, len(outputs))
+            self.assertGreaterEqual(len(outputs), 1)
             self.assertIn("Every provider request follows its proxy.", outputs[0])
+            # Whatever the lock contention lets through, no process may send
+            # anything but the one rule body.
+            for output in outputs:
+                self.assertEqual(outputs[0], output)
+            if os.name != "nt":
+                # POSIX flock waits without a budget, so exactly-once holds
+                # deterministically. Windows degrades to the documented
+                # fail-open when the msvcrt lock budget runs out on a loaded
+                # machine.
+                self.assertEqual(1, len(outputs))
+
+    def test_unterminated_frontmatter_with_dash_run_is_not_a_rule(self):
+        # "----" inside the frontmatter is rule text, not a closing fence: a
+        # file with no real fence is malformed and stays out, the way the
+        # OpenCode plugin's parser reads it.
+        for name, path in (("codex", CODEX), ("zcode", ZCODE), ("kimi", KIMI)):
+            module = load_module(f"{name}_fence", path)
+            with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+                root = Path(tmp)
+                rules_dir = root / "rules"
+                rules_dir.mkdir()
+                (rules_dir / "dashes.mdc").write_text(
+                    "---\n"
+                    "description: Unterminated\n"
+                    "alwaysApply: true\n"
+                    "----\n"
+                    "NO FENCE MARKER\n",
+                    encoding="utf-8",
+                )
+                context = run_hook_optional(
+                    module,
+                    rules_dir,
+                    root / f"state-{name}",
+                    {"hook_event_name": "SessionStart", "source": "startup"},
+                )
+                self.assertIsNone(context)
+
+    def test_dash_run_inside_frontmatter_before_a_real_fence(self):
+        # A "----" line the frontmatter carries is skipped; the real fence
+        # below it closes the frontmatter and the body follows it intact.
+        for name, path in (("codex", CODEX), ("zcode", ZCODE), ("kimi", KIMI)):
+            module = load_module(f"{name}_fence_body", path)
+            with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+                root = Path(tmp)
+                rules_dir = root / "rules"
+                rules_dir.mkdir()
+                (rules_dir / "dashes.mdc").write_text(
+                    "---\n"
+                    "description: Dashes in frontmatter\n"
+                    "alwaysApply: true\n"
+                    "----\n"
+                    "---\n\n"
+                    "FENCE BODY MARKER\n",
+                    encoding="utf-8",
+                )
+                context = run_hook(
+                    module,
+                    rules_dir,
+                    root / f"state-{name}",
+                    {"hook_event_name": "SessionStart", "source": "startup"},
+                )
+                self.assertIn("FENCE BODY MARKER", context)
+
+    def test_list_valued_path_field_names_every_file(self):
+        # A list under a known path field ("paths": ["a", "b"]) keeps the
+        # field name on the way down, in every adapter's walk.
+        for name, path in (("codex", CODEX), ("zcode", ZCODE), ("kimi", KIMI)):
+            module = load_module(f"{name}_listpaths", path)
+            with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+                root = Path(tmp)
+                rules_dir = root / "rules"
+                rules_dir.mkdir()
+                list_rule(rules_dir)
+                context = run_pretool(module, rules_dir, root / f"state-{name}", {"paths": ["internal/llm/openai.go"]})
+                self.assertIn("Every provider request follows its proxy.", context)
 
     def test_provider_proxy_rule_is_emitted_by_python_adapters(self):
         codex = load_module("codex_emit", CODEX)

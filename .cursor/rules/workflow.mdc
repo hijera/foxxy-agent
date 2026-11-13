@@ -1,6 +1,6 @@
 ---
 description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks, the comment on an issue a merge closes
-globs: **/*.go, docs/**/*.md, README.md, CONTRIBUTING.md, DESIGN.md, AGENTS.md, config.example.yaml, examples/**, go.mod, go.sum, .golangci.yml, Dockerfile, Dockerfile.*, external/ui/**/*, features/**/*.feature, Makefile, scripts/**, packaging/**, .github/**, .cursor/rules/**, .claude/rules/**, .codex/**, .zcode/**, .opencode/**
+globs: **/*.go, docs/**/*.md, README.md, CONTRIBUTING.md, DESIGN.md, AGENTS.md, config.example.yaml, examples/**, go.mod, go.sum, .golangci.yml, Dockerfile, Dockerfile.*, external/ui/**/*, features/**/*.feature, Makefile, scripts/**, packaging/**, .github/**, .cursor/rules/**, .claude/rules/**, .codex/**, .zcode/**, .opencode/**, .kimi-code/**
 alwaysApply: false
 ---
 

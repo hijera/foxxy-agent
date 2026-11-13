@@ -268,6 +268,7 @@ skills-vendor-check:
 # Test every repository adapter that attaches Cursor rules to another host.
 test-agent-rules:
 	python -m unittest -v scripts/test_agent_rule_adapters.py
+	python -m unittest discover -s .kimi-code/tests -v
 	$(MAKE) test-opencode-rules
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.

@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -60,17 +61,21 @@ STATE_DIR = Path(os.environ.get("ZCODE_RULES_STATE_DIR") or default_state_dir(RE
 # and avoid treating arbitrary string values as paths.
 PATH_FIELDS = frozenset(
     {
-        "file_path",
-        "path",
-        "notebook_path",
-        "source",
         "destination",
+        "destination_path",
+        "directory",
+        "file",
+        "file_path",
+        "fileName",
+        "filePath",
         "new_path",
+        "notebook_path",
         "old_path",
         "old_string_path",
-        "filePath",
-        "fileName",
-        "directory",
+        "path",
+        "paths",
+        "source",
+        "target",
     }
 )
 
@@ -298,16 +303,36 @@ def flow_line_continues(value: str) -> bool:
     return quote == '"' and value.endswith("\\")
 
 
+def frontmatter_end(text: str) -> tuple[int, int] | None:
+    """Locate the closing frontmatter fence.
+
+    The fence is a line of its own: "\n---" followed by optional spaces and
+    an end of line, the shape the OpenCode plugin's parser accepts too. A longer
+    dash run inside the frontmatter ("----") is rule text, not the fence, so the
+    scan keeps looking for a later one.
+    """
+    index = text.find("\n---", 3)
+    while index >= 0:
+        cursor = index + 4
+        while cursor < len(text) and text[cursor] in " 	":
+            cursor += 1
+        if cursor >= len(text) or text.startswith(("\n", "\r\n"), cursor):
+            return index, cursor
+        index = text.find("\n---", index + 1)
+    return None
+
+
 def parse_rule(path: Path) -> Rule | None:
     """Read one `.mdc` file. Frontmatter is flat, so no YAML dependency."""
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
         return None
-    end = text.find("\n---", 3)
-    if end < 0:
+    fence = frontmatter_end(text)
+    if fence is None:
         return None
+    end, after = fence
     head = text[3:end]
-    body = text[end + 4 :].strip()
+    body = text[after:].strip()
 
     description, globs, always = "", [], False
     lines = head.splitlines()
@@ -422,7 +447,18 @@ def session_lock(session_id: str):
                 handle.write(b"\0")
                 handle.flush()
             handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            # LK_LOCK gives up after ten one-second retries. Under the burst
+            # of a busy editor the budget can run out on a loaded machine, and
+            # the caller would fall open; keep waiting a while longer first.
+            deadline = time.monotonic() + 30.0
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(1.0)
         else:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -491,16 +527,20 @@ def collect_target_paths(tool_input: object) -> list[str]:
     """
     found: list[str] = []
 
-    def walk(node: object) -> None:
+    def walk(node: object, key: str = "") -> None:
         if isinstance(node, dict):
-            for key, value in node.items():
-                if key in PATH_FIELDS and isinstance(value, str) and value:
+            for child_key, value in node.items():
+                if child_key in PATH_FIELDS and isinstance(value, str) and value:
                     found.append(value)
                 else:
-                    walk(value)
+                    walk(value, child_key)
         elif isinstance(node, list):
+            # A list under a known path field ("paths": ["a", "b"]) keeps
+            # the field name, the way the Codex adapter walks its payload.
             for item in node:
-                walk(item)
+                walk(item, key)
+        elif key in PATH_FIELDS and node:
+            found.append(node)
 
     walk(tool_input)
 

@@ -40,7 +40,9 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     ? t("auth.signIn.telegramNotAdmin")
     : auth.telegramProblem === "retry"
       ? t("auth.signIn.telegramRetry")
-      : "";
+      : auth.telegramProblem === "unavailable"
+        ? t("auth.signIn.telegramUnavailable")
+        : "";
   const telegramNotKept = auth.telegramProblem === "not_kept";
 
   const submit = async (ev: React.FormEvent) => {

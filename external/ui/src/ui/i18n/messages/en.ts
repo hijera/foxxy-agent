@@ -77,6 +77,8 @@ export const messagesEn: Record<string, string> = {
     "Only the bot's admins can open FoxxyCode from Telegram.",
   "auth.signIn.telegramRetry":
     "Telegram's sign-in did not go through. Close the Mini App and open it again.",
+  "auth.signIn.telegramUnavailable":
+    "This server runs no Telegram bot, so the Mini App cannot open FoxxyCode here.",
   "auth.signOut.action": "Sign out",
   "auth.signOut.tooltipUser": "Sign out ({user})",
 

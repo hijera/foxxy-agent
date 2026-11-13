@@ -122,7 +122,7 @@ func TestServeRunsThePachcaBotAsASubsystemOfItsOwn(t *testing.T) {
 			continue
 		}
 		found = true
-		if sub.ConfigKey != "gateways.pachca.enable" || sub.BuildTag != "gateway" || !sub.NeedsSessions {
+		if sub.ConfigKey != "gateways.pachca.enable" || sub.BuildTag != "gateway.pachca" || !sub.NeedsSessions {
 			t.Fatalf("pachca subsystem descriptor: %+v", sub)
 		}
 		c := &config.Config{}

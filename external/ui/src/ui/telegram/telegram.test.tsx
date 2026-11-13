@@ -198,6 +198,31 @@ describe("bridge", () => {
     expect(seen).toHaveLength(2);
   });
 
+  test("dispose takes away what the bridge created and restores what was there", () => {
+    const bridge = createTelegramBridge(window);
+    dispose = () => bridge.dispose();
+    expect((window as unknown as { Telegram?: unknown }).Telegram).toBeDefined();
+    bridge.dispose();
+    dispose = null;
+    expect((window as unknown as { Telegram?: unknown }).Telegram).toBeUndefined();
+    expect((window as unknown as { TelegramGameProxy?: unknown }).TelegramGameProxy).toBeUndefined();
+    expect(
+      (window as unknown as { TelegramGameProxy_receiveEvent?: unknown }).TelegramGameProxy_receiveEvent,
+    ).toBeUndefined();
+
+    (window as unknown as { Telegram?: unknown }).Telegram = { WebView: { version: "9.0" } };
+    const second = createTelegramBridge(window);
+    const installed = (window as unknown as { Telegram?: { Expanded?: number } }).Telegram;
+    // Fields a client adds between install and dispose survive the restore.
+    if (installed) {
+      installed.Expanded = 2;
+    }
+    second.dispose();
+    const after = (window as unknown as { Telegram?: { WebView?: unknown; Expanded?: number } }).Telegram;
+    expect(after?.WebView).toEqual({ version: "9.0" });
+    expect(after?.Expanded).toBe(2);
+  });
+
   test("in a web client's iframe events go to the parent, and only the parent is heard", () => {
     const parentPost = vi.fn();
     const fakeParent = { postMessage: parentPost } as unknown as Window;

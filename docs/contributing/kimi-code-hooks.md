@@ -12,7 +12,7 @@ Kimi Code reads the repository's `AGENTS.md`, but it does not interpret the `glo
 
 | Event | Matcher | What is injected |
 |---|---|---|
-| `SessionStart` | `startup\|resume` | every rule whose frontmatter has `alwaysApply: true` |
+| `SessionStart` | `startup\|resume\|clear\|compact` | every rule whose frontmatter has `alwaysApply: true` |
 | `PreToolUse` | `^(Edit\|Write)$` | rules whose `globs` cover a file in the pending tool call |
 
 Both handlers run the same script and branch on `hook_event_name` from the JSON payload. Kimi Code passes `Edit` and `Write` paths in `tool_input.path`; the script also recognizes common nested path fields so the payload can evolve without changing the matcher.

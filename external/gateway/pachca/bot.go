@@ -160,7 +160,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	if base != config.DefaultPachcaAPIBase {
 		b.log.Info("pachca: api base override", "base", base)
 	}
-	client := NewClient(base, token, hc)
+	client, err := NewClient(base, token, hc)
+	if err != nil {
+		return fmt.Errorf("pachca: %w", err)
+	}
 
 	info, err := client.TokenInfo(ctx)
 	if err != nil {

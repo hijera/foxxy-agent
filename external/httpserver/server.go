@@ -82,7 +82,10 @@ type Server struct {
 	// the config but keeps this process - never signs anybody out.
 	sessions *webauth.SessionStore
 	// tgSessions holds the browsers a Telegram admin opened as the bot's Mini
-	// App (auth_telegram.go), and tgReplay the launches already used.
+	// App (auth_telegram.go), and tgReplay the launches already used. The
+	// replay set lives in this process only: a restart forgets it, so a
+	// launch captured inside its one-hour window could sign in again until
+	// the window closes.
 	tgSessions *webauth.SessionStore
 	tgReplay   webauth.ReplayGuard
 	// loginThrottle slows repeated wrong passwords per source address.

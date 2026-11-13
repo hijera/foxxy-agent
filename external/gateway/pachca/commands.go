@@ -72,7 +72,12 @@ func modelButtons(models []config.ModelEntry, current string) [][]Button {
 			label = "• " + label
 		}
 		if len(label) > buttonDataMax {
-			label = label[:buttonDataMax]
+			// The limit is counted in runes by the API; a byte slice would
+			// split a multi-byte model id into invalid UTF-8.
+			runes := []rune(label)
+			if len(runes) > buttonDataMax {
+				label = string(runes[:buttonDataMax])
+			}
 		}
 		rows = append(rows, []Button{{Text: label, Data: actionModel + ":" + buttonValue(actionModel, m.Model)}})
 	}

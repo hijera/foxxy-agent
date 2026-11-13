@@ -551,7 +551,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// it rebuilds this bot alone and the Telegram one keeps running.
 			Kind:          serve.KindGatewayPachca,
 			ConfigKey:     "gateways.pachca.enable",
-			BuildTag:      "gateway",
+			BuildTag:      "gateway.pachca",
 			Available:     gateway.PachcaAvailable,
 			NeedsSessions: true,
 			Enabled:       func(c *config.Config) bool { return c.Gateways.Pachca.Enabled },

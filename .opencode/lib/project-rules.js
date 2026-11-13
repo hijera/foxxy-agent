@@ -14,11 +14,17 @@ const MUTATING_TOOLS = new Set([
 const PATH_KEYS = new Set([
   "destination",
   "destinationpath",
+  "directory",
   "file",
   "filename",
   "filepath",
+  "newpath",
+  "notebookpath",
+  "oldpath",
+  "oldstringpath",
   "path",
   "paths",
+  "source",
   "target",
   "targetpath",
 ])

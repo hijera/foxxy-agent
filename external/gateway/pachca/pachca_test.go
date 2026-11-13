@@ -9,6 +9,7 @@ package pachca
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -30,6 +31,24 @@ type testEnv struct {
 	p      *poller
 }
 
+// newTestClient builds a client against a test server. The proxy transport a
+// real start builds is unnecessary here, but a client must never be nil.
+func newTestClient(base, token string) *Client {
+	c, err := NewClient(base, token, &http.Client{})
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+// NewClient refuses a nil http client: the operator's proxy settings ride on
+// it, and a silent default would reach Pachca without them.
+func TestNewClientRefusesNilHTTPClient(t *testing.T) {
+	if c, err := NewClient("https://pachca.test", "t", nil); err == nil || c != nil {
+		t.Fatalf("nil http client accepted: %v, %v", c, err)
+	}
+}
+
 func newTestEnv(t *testing.T, opts pachcafake.Options, cfg *config.PachcaGatewayConfig) *testEnv {
 	t.Helper()
 	opts.Token = bddToken
@@ -45,7 +64,7 @@ func newTestEnv(t *testing.T, opts pachcafake.Options, cfg *config.PachcaGateway
 	runner := newScriptRunner()
 	b := New(cfg, runner, t.TempDir(), base, "", "", nil)
 	b.apiBase = srv.URL
-	c := NewClient(srv.URL, bddToken, nil)
+	c := newTestClient(srv.URL, bddToken)
 	c.sleep = func(context.Context, time.Duration) error { return nil }
 	b.selfID = fake.BotUserID()
 	b.nickname = "foxxycode_bot"

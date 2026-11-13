@@ -422,4 +422,20 @@ describe("Telegram Mini App sign-in that does not end in a session", () => {
     expect(state.telegramProblem).toBe("retry");
     expect(state.telegramRefused).toBe(false);
   });
+
+  it("says the server has no Telegram bot when the sign-in is not available", async () => {
+    await openAsMiniApp();
+    respond = (url) =>
+      url === "/foxxycode/auth/telegram"
+        ? jsonResponse(400, { error: "Telegram sign-in is not available on this server" })
+        : jsonResponse(200, {
+            login_required: false,
+            auth_required: true,
+            authenticated: false,
+            telegram_login: true,
+          });
+    const state = await refreshAuthState();
+    expect(state.telegramProblem).toBe("unavailable");
+    expect(state.telegramRefused).toBe(false);
+  });
 });

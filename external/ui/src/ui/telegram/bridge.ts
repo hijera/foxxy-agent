@@ -149,6 +149,12 @@ export function createTelegramBridge(win: Window = window): TelegramBridge {
     webView: w.Telegram?.WebView,
     gameProxy: w.TelegramGameProxy,
     gameProxyReceive: w.TelegramGameProxy_receiveEvent,
+    // The bridge installs onto objects that may not exist yet; what it
+    // created itself it takes away on dispose, so a probe after it never
+    // mistakes an empty shell for a Telegram client.
+    hadTelegram: w.Telegram !== undefined,
+    hadGameProxy: w.TelegramGameProxy !== undefined,
+    hadGameProxyReceive: w.TelegramGameProxy_receiveEvent !== undefined,
   };
   w.Telegram = { ...(w.Telegram ?? {}), WebView: { ...(w.Telegram?.WebView ?? {}), receiveEvent: receive } };
   w.TelegramGameProxy = { ...(w.TelegramGameProxy ?? {}), receiveEvent: receive };
@@ -174,11 +180,23 @@ export function createTelegramBridge(win: Window = window): TelegramBridge {
     dispose() {
       handlers.clear();
       win.removeEventListener("message", onMessage);
-      if (w.Telegram) {
-        w.Telegram.WebView = previous.webView;
+      if (previous.hadTelegram) {
+        if (w.Telegram) {
+          w.Telegram.WebView = previous.webView;
+        }
+      } else {
+        delete w.Telegram;
       }
-      w.TelegramGameProxy = previous.gameProxy;
-      w.TelegramGameProxy_receiveEvent = previous.gameProxyReceive;
+      if (previous.hadGameProxy) {
+        w.TelegramGameProxy = previous.gameProxy;
+      } else {
+        delete w.TelegramGameProxy;
+      }
+      if (previous.hadGameProxyReceive) {
+        w.TelegramGameProxy_receiveEvent = previous.gameProxyReceive;
+      } else {
+        delete w.TelegramGameProxy_receiveEvent;
+      }
     },
   };
 }

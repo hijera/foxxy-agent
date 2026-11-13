@@ -58,9 +58,9 @@ function resetSessions() {
       overrides: [{ setting: "model", value: BETA, turnsLeft: 0, active: true }],
     },
   };
-	version = 10;
-	posted = [];
-	newChatModelOffersOff = false;
+  version = 10;
+  posted = [];
+  newChatModelOffersOff = false;
 }
 
 const json = (body: unknown, status = 200) =>

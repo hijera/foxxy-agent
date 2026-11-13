@@ -197,6 +197,29 @@ test("YAML-list globs activate the provider rule", async (t) => {
   )
 })
 
+test("payload path keys beyond filePath activate the provider rule", async (t) => {
+  const root = await fixture(t)
+  const hooks = await createProjectRulesHooks({ repoRoot: root, directory: root })
+
+  await hooks["tool.execute.before"](
+    { tool: "read", sessionID: "session-alt-path", callID: "call-1" },
+    { args: { source: "internal/llm/openai.go" } },
+  )
+  assert.match(
+    await systemText(hooks, "session-alt-path"),
+    /Every provider request follows its configured proxy/,
+  )
+
+  await hooks["tool.execute.before"](
+    { tool: "read", sessionID: "session-list-arg", callID: "call-2" },
+    { args: { paths: ["cmd/foxxycode/providers.go"] } },
+  )
+  assert.match(
+    await systemText(hooks, "session-list-arg"),
+    /Every provider request follows its configured proxy/,
+  )
+})
+
 test("the first direct edit is retried after scoped rules are activated", async (t) => {
   const root = await fixture(t)
   const hooks = await createProjectRulesHooks({ repoRoot: root, directory: root })

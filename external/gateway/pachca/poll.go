@@ -36,6 +36,8 @@ const (
 	// pagesPerTick keeps a tick within Pachca's ~5 requests / 2 s for the
 	// events history.
 	pagesPerTick = 4
+	// stallWarnEvery is how many passes a stuck event repeats its warning on.
+	stallWarnEvery = 5
 )
 
 // mark is a position in the events history.
@@ -136,6 +138,11 @@ type poller struct {
 	started   time.Time
 	sawEvent  bool
 	warnedLog bool
+	// stalledID/stalledPasses watch an event the dispatcher cannot resolve,
+	// so a persistently failing one is said out loud instead of starving
+	// every event behind it in silence.
+	stalledID     string
+	stalledPasses int
 }
 
 // pollLoop reads the history every poll interval until ctx ends. Turns run
@@ -220,8 +227,23 @@ func (p *poller) tick(ctx, turnCtx context.Context) error {
 			return nil
 		}
 		if !p.b.handleEvent(ctx, turnCtx, p.c, e) {
+			// The event stays above the watermark and the next pass retries
+			// it: the right behavior for a transient chat or parent lookup
+			// failure. One that fails on every pass would starve everything
+			// behind it in silence, so it is named in the log, every few
+			// passes, until it resolves.
+			if p.stalledID != e.ID {
+				p.stalledID, p.stalledPasses = e.ID, 1
+			} else {
+				p.stalledPasses++
+				if p.stalledPasses%stallWarnEvery == 0 {
+					p.b.log.Warn("pachca: an event keeps failing to dispatch; the events behind it stay unhandled until it resolves",
+						"event", e.ID, "event_type", e.EventType, "passes", p.stalledPasses)
+				}
+			}
 			return nil
 		}
+		p.stalledID, p.stalledPasses = "", 0
 		p.ack(ctx, e)
 	}
 	return nil
