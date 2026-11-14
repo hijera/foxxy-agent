@@ -16,10 +16,10 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 
 Agent sessions expose a typed configuration tool family with staged, uci-like semantics:
 
-- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields (including `api_key_command`), MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields (including `api_key_command`) and environment and header values (an `env` or `headers` entry, a `default_headers` value) are returned as `<redacted>`; the MCP server list of the HTTP API shows the values of both mcp.json files the same way.
 - `config_set` **stages** UCI-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file. Unknown schema paths and commands that would make the config invalid are rejected at staging time. Echoed command lists mask secret-shaped values as `<redacted>`; the staged store keeps the original values.
 - `config_changes` lists the staged commands that a commit would apply (secrets redacted).
-- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev` (an empty document when the config file did not exist yet, so the first commit stays reversible), writes atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. Because a commit can start MCP processes and change the permission policy itself, it prompts for tool permission in both `ask` and `accept_edits` modes - only `tools.permission_mode: bypass` skips the dialog - and the prompt lists the staged commands with secrets redacted. The agent is additionally instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept; if even that restore fails, the staged list stays consumed so a blind retry cannot replay it.
+- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev` (an empty document when the config file did not exist yet, so the first commit stays reversible), writes atomically, and hot-reloads skills, rules, built-in tools, and the MCP trust policy. Because a commit can start MCP processes (a changed `mcp.project_trust`) and change the permission policy itself, it prompts for tool permission in both `ask` and `accept_edits` modes - only `tools.permission_mode: bypass` skips the dialog - and the prompt lists the staged commands with secrets redacted. The agent is additionally instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept; if even that restore fails, the staged list stays consumed so a blind retry cannot replay it.
 - `config_revert` discards staged commands (all of them, or those under one path).
 - `config_rollback` restores the pre-commit snapshot over the active file (swapping the two, so a second rollback undoes the first) and hot-reloads. It carries the same permission policy as `config_commit`, and the agent warns the user before calling it.
 
@@ -28,15 +28,15 @@ Commands and paths are dotted like OpenWrt's `uci` CLI, with a selector for name
 | Command | Meaning |
 |---|---|
 | `set agent.max_turns=40` | Set a mapping field |
-| `set mcp_servers[name=context7]={"command":"npx"}` | Select a sequence object by scalar field; append it when setting if absent |
+| `set providers[name=openrouter]={"type":"openai"}` | Select a sequence object by scalar field; append it when setting if absent |
 | `add_list skills.dirs=/opt/skills` | Append a sequence entry |
 | `del_list skills.dirs=/opt/skills` | Remove a matching sequence entry |
-| `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `delete providers[name=openrouter]` | Delete a field or entry |
 | `skills.dirs.0` (path form) | Sequence index |
 
 The root path (`.` or `/`) is read-only. Values are JSON for objects and arrays; string-typed fields take the literal text. Staged commands persist in the session bundle, so they survive restarts and HTTP permission resumes.
 
-The bundled `/configure-foxxycode` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
+The bundled `/configure-foxxycode` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and the MCP trust policy. MCP servers are not part of this file (see [`mcp`](#mcp)).
 
 ## Field reference
 
@@ -53,6 +53,7 @@ API credentials and transport selection for upstream LLM vendors. When api_key i
 | `providers[].name` | string |  | Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter. |
 | `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints, "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "codex" for ChatGPT OAuth against the official Codex backend, or "devin" for a Devin account; see https://hijera.github.io/foxxy-agent/features/devin.md. |
 | `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1; for type "anthropic" use an Anthropic-compatible gateway. For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types "codex" and "devin", which always use their official endpoints. |
+| `providers[].user_agent` | string, one of `""`, `openai`, `anthropic`, `foxxycode` | "" | Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); foxxycode sends Foxxycode/<running version>. Applies to completions and model listing. Ignored for other provider types. |
 | `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type "codex", which signs in with ChatGPT. |
 | `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type "codex", which takes no key. |
 | `providers[].proxy` | string | inherit | inherit (the default, also empty) follows HTTP_PROXY/HTTPS_PROXY and NO_PROXY, or the operating system proxy when no environment proxy is set. none connects directly. An http, https, socks5 or socks5h URL overrides the inherited proxy while preserving NO_PROXY and loopback bypass. The setting covers completions, model lists, account usage and sign-in. Percent-encode special characters in proxy credentials. |
@@ -71,7 +72,7 @@ Named model entries the agent and UI can select.
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
 | `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
-| `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
+| `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, kimi-* except the non-thinking kimi-k2-instruct checkpoints, including vendor-namespace ids such as moonshotai/kimi-k2-thinking, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
 | `models[].stream` | boolean | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
 
@@ -83,7 +84,7 @@ Defaults for the main agent loop (model id and safety caps).
 |-----|------|---------|-------------|
 | `agent.queue_mode` | string, one of `steer`, `after_turn` |  | Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use. |
 | `agent.model` | string |  | Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (foxxycode -p, foxxycode acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty. |
-| `agent.max_turns` | integer | 0 | Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it. |
+| `agent.max_turns` | integer | 165 | Cap on the ReAct steps (LLM calls) of one prompt turn. Defaults to 165; set 0 to disable the cap. A turn that reaches the cap ends with a notice that names it. |
 | `agent.llm_retry_max` | integer | 10 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. Interrupted-answer continuations keep their separate llm_continue_max budget and do not consume max_turns. |
 | `agent.llm_retry_base_ms` | integer | 1000 | Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, "Limit resets at" / "retry in Ns" body phrases) overrides the exponential backoff, capped at 60s. |
 | `agent.llm_min_interval_ms` | integer | 0 | Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers). |
@@ -98,11 +99,11 @@ Defaults for the main agent loop (model id and safety caps).
 | `agent.llm_continue_error_delays_ms` | list of integers | [5000,20000] | Pause before each continuation after a provider failure cut the answer - a 5xx the retry wrapper could not ride out, a stream that dropped mid-answer - in milliseconds. The last entry repeats. A failure before any text is waited out by the llm_stall_retry ladder instead, and a limit (429) by the retry wrapper and wait_for_limit_reset. |
 | `agent.llm_continue_retry_after_max_ms` | integer | 120000 | Longest pause a provider may ask for (Retry-After) before a cut answer is carried on: a longer ask than llm_continue_error_delays_ms is honoured up to this. An explicit 0 ignores Retry-After. |
 | `agent.loop_guard` | boolean | true | Runaway-loop protection: cut a streamed response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through. |
-| `agent.loop_tool_repeat_limit` | integer | 3 | Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check. |
+| `agent.loop_tool_repeat_limit` | integer | 2 | Consecutive identical tool calls in successive ReAct responses (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check. |
 | `agent.loop_stream_repeat_cycles` | integer | 5 | Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check. |
 | `agent.loop_tool_cycle_repeats` | integer | 3 | Repetitions of the same sequence of tool calls before the loop guard steps in. This is what catches a model rotating through several calls (read A, read B, read A, ...) instead of repeating one; a lap that varies slightly still counts. 0 disables the cycle check. |
 | `agent.loop_stuck_action` | string, one of `quarantine`, `stop` | quarantine | What the loop guard does once a tool loop has survived every nudge. "quarantine" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; "stop" ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
-| `agent.loop_nudge_max` | integer | 2 | How many times one turn may be nudged back on track before the loop guard stops it with a notice. |
+| `agent.loop_nudge_max` | integer | 1 | How many times one turn may be nudged back on track before the loop guard stops it with a notice. |
 | `agent.wait_for_limit_reset` | boolean | false | Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or "Limit resets at"); the turn lock and the client stream stay open while it waits, so it is off by default. |
 | `agent.wait_for_limit_reset_max_ms` | integer | 14400000 | Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits. |
 | `agent.llm_continue_background_max` | integer | 5 | Continuation budget per delegated subagent or scheduled run. Default 5; explicit 0 disables continuations. Memory children use llm_continue_max. Continuations do not consume max_turns; llm_continue disables both policies. |
@@ -143,11 +144,11 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here; a file the rules block already carries, such as the root AGENTS.md or DESIGN.md, adds no second copy when it is listed. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
+Files the operator adds to the system prompt (AGENTS.md convention), after the documents every session reads anyway: the AGENTS.md and DESIGN.md of the agent home, then those of the session folder, and the nested ones of a folder a tool enters, none of which is named here or can be turned off. A file already in the prompt is not read twice. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `instructions.files` | list of strings | ["AGENTS.md","DESIGN.md"] | Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. |
+| `instructions.files` | list of strings | [] | Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. An entry naming a document the prompt already carries is skipped. |
 
 ### `skills`
 
@@ -155,40 +156,18 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `skills.dirs` | list of strings | ["~/.agents/skills","${FOXXYCODE_HOME}/skills","${CWD}/.foxxycode/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime. |
-| `skills.sources` | list of strings |  | Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md. |
+| `skills.dirs` | list of strings | [] | Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included). |
+| `skills.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for the project's .foxxycode/marketplaces.json, which travels with the checkout: "ask" (default) leaves its sources and marketplaces out of every sync until the operator approves that exact entry for that workspace; "allow" treats them like the operator's own ${FOXXYCODE_HOME}/marketplaces.json; "deny" never uses them (they are listed as switched off). What they install goes to ${FOXXYCODE_HOME}/skills. The project's skill folders (.foxxycode/skills, .agents/skills) are not affected. Skill marketplaces are not declared in config.yaml: they live in ${FOXXYCODE_HOME}/marketplaces.json and the project's .foxxycode/marketplaces.json, and an old skills.sources list is moved into the home file on load. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md#project-marketplaces-and-trust. |
 | `skills.auto_discovery` | boolean | true | Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true. |
 
 ### `rules`
 
-Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
+Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file; .mdc files are Cursor rules, .md files Claude Code rules. The AGENTS.md and DESIGN.md documents are not rules in this sense and none of these settings turns them off. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `rules.auto_discover` | boolean | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. |
-
-### `mcp_servers`
-
-Model Context Protocol servers connected for every new session.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `mcp_servers` | list of objects |  | Model Context Protocol servers connected for every new session. |
-| `mcp_servers[].type` | string, one of `stdio`, `http`, `sse` |  | Transport. "stdio" (default when empty; url-only entries default to "http") runs a local command; "http" speaks streamable HTTP to url (with automatic legacy-SSE fallback); "sse" forces the legacy HTTP+SSE transport. |
-| `mcp_servers[].name` | string |  | Stable id referenced by the agent; must be unique in this list. |
-| `mcp_servers[].command` | string |  | Executable for stdio transport (leave empty when using an http url). ${CWD} expands to the session cwd. |
-| `mcp_servers[].args` | list of strings |  | Argv passed after command for stdio servers. ${CWD} expands to the session cwd. |
-| `mcp_servers[].env` | list of objects |  | Extra environment variables for the stdio child process. |
-| `mcp_servers[].env[].name` | string |  | Environment variable name. |
-| `mcp_servers[].env[].value` | string |  | Environment variable value. ${CWD} expands to the session cwd. |
-| `mcp_servers[].url` | string |  | HTTP(S) endpoint when type is "http". ${CWD} expands to the session cwd. |
-| `mcp_servers[].headers` | list of objects |  | Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd. |
-| `mcp_servers[].headers[].name` | string |  | HTTP header name. |
-| `mcp_servers[].headers[].value` | string |  | HTTP header value. |
-| `mcp_servers[].insecure_skip_verify` | boolean |  | Accept the TLS certificate of an "http"/"sse" server without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. |
-| `mcp_servers[].disabled` | boolean |  | Skip connecting this server without removing its definition. |
-| `mcp_servers[].disabled_tools` | list of strings |  | Tool names of this server hidden from the agent. |
+| `rules.auto_discover` | boolean | true | Scan the rule folders automatically: ${FOXXYCODE_HOME}/rules and the project folder of the session CWD. The AGENTS.md and DESIGN.md documents are read either way. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex. Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. agents, which used to switch the nested AGENTS.md files, no longer affects them (they are always read); it is still accepted, and a list holding only agents loads no rule folder. |
 
 ### `mcp`
 
@@ -250,8 +229,8 @@ User-defined child agents the model can delegate to with spawn_agent. Definition
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `subagents.enable` | boolean | true | Register the spawn_agent tool and list the subagent catalog in the system prompt. |
-| `subagents.dirs` | list of strings | ["${FOXXYCODE_HOME}/agents","${CWD}/.claude/agents","${CWD}/.foxxycode/agents"] | Definition directories, lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust. |
-| `subagents.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for definitions found inside the workspace, which travel with the checkout: "ask" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust with the session workspace as cwd); "allow" treats them like the operator's own files; "deny" never reads them. |
+| `subagents.dirs` | list of strings | [] | Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy. |
+| `subagents.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for definitions found inside the workspace, which travel with the checkout: "ask" loads them but refuses to spawn one until the operator approved that exact file for that workspace (the shield in Settings -> Subagents, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust with the session workspace as cwd); "allow" treats them like the operator's own files; "deny" never reads them. |
 | `subagents.max_concurrent` | integer | 4 | How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default. |
 | `subagents.max_depth` | integer | 1 | How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further; 0 forbids spawning everywhere. Omit for the default. |
 | `subagents.default_timeout_seconds` | integer | 1800 | Hard limit for one run whose definition and call give no timeout. Capped by tools.background.max_timeout_seconds. 0 uses the default. |
@@ -596,7 +575,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 ### `instructions`
 
-Instruction files appended to the prompt (`config.Instructions`, `internal/config/instructions.go`). The default list is the operator's own `${FOXXYCODE_HOME}/AGENTS.md`, read in every workspace, followed by the project's `AGENTS.md`; writing a list replaces it. See [rules.md](../features/rules.md#your-own-instructions-and-rules).
+Instruction files the operator adds to the prompt (`config.Instructions`, `internal/config/instructions.go`). The list is empty by default and only adds: the `AGENTS.md` and `DESIGN.md` of the agent home, of the session folder and of the folders a tool enters are read whether or not it names them, and its files come after them, in the order listed. An entry naming a file the prompt already carries, such as the session folder's own `AGENTS.md`, is skipped. See [rules.md](../features/rules.md#agentsmd-and-designmd).
 
 ### `skills`
 
@@ -606,31 +585,19 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 
 Rules discovery (`config.Rules`, `internal/config/rules.go`), from the workspace folders and from the operator's own `${FOXXYCODE_HOME}/rules`. See [rules.md](../features/rules.md).
 
-### `mcp_servers`
-
-MCP servers connected for every new session (`[]config.MCPServerConfig`, `internal/config/mcp_servers.go`).
-
-```yaml
-mcp_servers:
-  - name: filesystem
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
-    disabled_tools: ["write_file"]
-```
-
-Servers can also be declared in Cursor-compatible mcp.json files: the user-global
-`${FOXXYCODE_HOME}/mcp.json` (`~/.foxxycode/mcp.json` by default, like Cursor's
-`~/.cursor/mcp.json`; together with this `mcp_servers` list it forms the "global"
-scope) and the project-local `<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
-`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
-per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `${FOXXYCODE_HOME}/mcp.json` < `./.foxxycode/mcp.json`. Entries from the
-project-local file need a workspace approval before they are started - see
-[`mcp`](#mcp) and `docs/features/mcp.md`.
-
 ### `mcp`
 
 MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
+
+The servers themselves are not declared in `config.yaml`. They live in two Cursor-compatible
+files, a single `mcpServers` object keyed by server name (`env` and `headers` are JSON
+objects, per-tool switches use `disabledTools`): the user-global `${FOXXYCODE_HOME}/mcp.json`
+(`~/.foxxycode/mcp.json` by default, like Cursor's `~/.cursor/mcp.json`, the "global" scope) and
+the project-local `<workspace>/.foxxycode/mcp.json` (the "local" scope), which wins a name over
+the global file and whose entries need a workspace approval before they are started. An old
+`mcp_servers` list in `config.yaml` is moved into `${FOXXYCODE_HOME}/mcp.json` on the next load,
+with a `config.yaml.bak-<time>` copy of the file kept, and `foxxycode -t` reports it as a warning.
+See [mcp.md](../features/mcp.md).
 
 Added for [issue #80](https://github.com/hijera/foxxy-agent/issues/80).
 Approvals are recorded in `~/.foxxycode/mcp-trust.json`, keyed by the canonical workspace path

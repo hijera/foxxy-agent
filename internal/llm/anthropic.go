@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // anthropicProvider implements Provider using the Anthropic API.
@@ -35,8 +36,11 @@ func (p *anthropicProvider) withTuning(in ProviderInput) *anthropicProvider {
 	return p
 }
 
-func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
+func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent string) *anthropicProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0), option.WithMiddleware(diagnosticMiddleware)}
+	if userAgent == "foxxycode" {
+		opts = append(opts, option.WithHeader("User-Agent", "Foxxycode/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -248,18 +252,20 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// whose JSON stops short surfaces here as a syntax error at the end
 		// of its input: a cut inside the event (issue #384), held to the
 		// truncation contract of the branch below - the delivered text and
-		// thinking next to the error, no tool_use blocks, whose input may be
-		// cut mid-JSON, the decoder's error kept as the cause. With nothing
-		// delivered the truncation error goes back alone, unlike the stall
+		// thinking and whole tool calls next to the error, with unfinished
+		// tool_use blocks excluded and the decoder's error kept as the cause.
+		// With nothing delivered the truncation error goes back alone, unlike the stall
 		// branch, whose transport wrapper carries the guard's own error: here
 		// the decoder's error is the more specific cause.
 		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
 			truncErr := fmt.Errorf("anthropic stream: %w", trunc)
-			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+			whole := WholeToolCalls(finalizeAnthropicToolUses())
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" || len(whole) > 0 {
 				return &Response{
 					Content:            fullContent,
 					Reasoning:          thinkingBuf.String(),
 					ReasoningSignature: thinkingSig,
+					ToolCalls:          whole,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
 					CachedInputTokens:  cachedInputTokens,

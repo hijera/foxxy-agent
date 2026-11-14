@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func cutStub(t *testing.T, body string) (Provider, *atomic.Int32, func()) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, body)
 	}))
-	return newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, ""), calls, srv.Close
+	return newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, "", ""), calls, srv.Close
 }
 
 // TestOpenAIStreamCutKeepsWholeToolCalls: the stream ends after one call
@@ -179,7 +180,7 @@ func TestOpenAIStreamTransportCutKeepsWholeToolCalls(t *testing.T) {
 		_ = conn.Close()
 	}))
 	defer srv.Close()
-	p := newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, "")
+	p := newOpenAIProvider("test-model", "", srv.URL, nil, 0, 0, "", "")
 
 	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
 	if err == nil {
@@ -215,7 +216,27 @@ func TestOpenAIStreamCutWithNoWholeCallReturnsNothing(t *testing.T) {
 // tool_use block whose input JSON arrived whole and drops the one cut
 // mid-JSON.
 func TestAnthropicStreamCutKeepsWholeToolCalls(t *testing.T) {
-	body := anthropicStreamPrefix +
+	testAnthropicStreamCutKeepsWholeToolCalls(t, "", true)
+}
+
+// The decoder must preserve calls that arrived before an event cut mid-JSON,
+// including when no answer text preceded the call.
+func TestAnthropicStreamCutMidFrameKeepsWholeToolCalls(t *testing.T) {
+	for _, withText := range []bool{false, true} {
+		t.Run(fmt.Sprintf("with_text_%t", withText), func(t *testing.T) {
+			testAnthropicStreamCutKeepsWholeToolCalls(t,
+				"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_\n\n", withText)
+		})
+	}
+}
+
+func testAnthropicStreamCutKeepsWholeToolCalls(t *testing.T, tail string, withText bool) {
+	t.Helper()
+	prefix := anthropicStreamPrefix
+	if !withText {
+		prefix = prefix[:strings.LastIndex(prefix, "event: content_block_delta")]
+	}
+	body := prefix +
 		"event: content_block_start\n" +
 		"data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"run_command\",\"input\":{}}}\n\n" +
 		"event: content_block_delta\n" +
@@ -224,7 +245,7 @@ func TestAnthropicStreamCutKeepsWholeToolCalls(t *testing.T) {
 		"data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"read\",\"input\":{}}}\n\n" +
 		"event: content_block_delta\n" +
 		"data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\"}}\n\n"
-	p, done := anthropicStreamStub(t, body)
+	p, done := anthropicStreamStub(t, body+tail)
 	defer done()
 
 	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})

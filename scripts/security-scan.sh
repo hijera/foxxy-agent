@@ -217,6 +217,30 @@ if want_scanner semgrep; then
           --sarif --output "$OUT/semgrep.sarif" .; then
       log "semgrep: SARIF pass failed"
       status=1
+    # semgrep keeps a finding an inline `nosemgrep` suppressed in the SARIF,
+    # marked with a `suppressions` entry, and code scanning raises it as an
+    # alert all the same, while the JSON report (and the gate below) leaves it
+    # out. Drop it from the SARIF too, so the documented inline suppression
+    # holds on the pull request; semgrep.json still says what was scanned.
+    elif ! python3 - "$OUT/semgrep.sarif" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+with open(path) as f:
+    doc = json.load(f)
+dropped = 0
+for run in doc.get("runs", []):
+    results = run.get("results", [])
+    kept = [r for r in results if not r.get("suppressions")]
+    dropped += len(results) - len(kept)
+    run["results"] = kept
+with open(path, "w") as f:
+    json.dump(doc, f)
+print(f"semgrep: {dropped} finding(s) suppressed inline left out of the SARIF")
+PY
+    then
+      log "semgrep: could not leave the suppressed findings out of the SARIF"
+      status=1
     fi
   fi
 fi

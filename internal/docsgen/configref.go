@@ -66,7 +66,7 @@ func (o *orderedProps) UnmarshalJSON(b []byte) error {
 // schema adds later are appended alphabetically.
 var topLevelOrder = []string{
 	"providers", "models", "agent", "autocomplete", "prompts", "instructions", "skills", "rules",
-	"mcp_servers", "mcp", "tools", "subagents", "hooks", "logger", "sessions",
+	"mcp", "tools", "subagents", "hooks", "logger", "sessions",
 	"compaction", "title", "memory", "httpserver", "swarm", "ui", "scheduler", "gateways",
 	"browser", "vcs", "debug",
 }

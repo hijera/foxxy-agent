@@ -336,7 +336,31 @@ func (v *schemaValidator) mapping(path string, n *yaml.Node, s *schemaNode) {
 	}
 }
 
+// movedKeys are the keys that left config.yaml for a file of their own. The
+// loader moves them there on the next start (legacy_keys.go), so a check
+// warns about one instead of calling it unknown.
+var movedKeys = map[string]struct{ message, fix, doc string }{
+	"mcp_servers": {
+		message: "mcp_servers is no longer read from config.yaml",
+		fix: "MCP servers live in ${FOXXYCODE_HOME}/mcp.json and the project's .foxxycode/mcp.json; " +
+			"the next start moves this list into ${FOXXYCODE_HOME}/mcp.json (a name the file already has is kept) " +
+			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://github.com/hijera/foxxy-agent/blob/main/docs/features/mcp.md#moving-from-configyaml",
+	},
+	"skills.sources": {
+		message: "skills.sources is no longer read from config.yaml",
+		fix: "skill marketplaces live in ${FOXXYCODE_HOME}/marketplaces.json and the project's .foxxycode/marketplaces.json; " +
+			"the next start moves this list into the sources of ${FOXXYCODE_HOME}/marketplaces.json " +
+			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://github.com/hijera/foxxy-agent/blob/main/docs/features/skills.md#marketplaces-and-sources",
+	},
+}
+
 func (v *schemaValidator) unknownKey(path string, k *yaml.Node, s *schemaNode) {
+	if moved, ok := movedKeys[join(path, k.Value)]; ok {
+		v.at(k, SeverityWarning, join(path, k.Value), moved.message, moved.fix, moved.doc)
+		return
+	}
 	allowed := s.propertyNames()
 	where := "at the top level"
 	if path != "" {

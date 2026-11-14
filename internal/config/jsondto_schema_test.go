@@ -66,7 +66,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	want := []interface{}{
 		"providers", "models",
 		"agent", "compaction", "memory", "autocomplete", "title",
-		"tools", "mcp_servers", "skills", "subagents", "hooks", "browser", "vcs",
+		"tools", "skills", "subagents", "hooks", "browser", "vcs",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions", "ui", "debug",
 	}
@@ -137,6 +137,9 @@ models:
 
 agent:
   model: "openai/gpt-4o"
+
+skills:
+  project_trust: allow
 `
 	p := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(p, []byte(yml), 0o644); err != nil {
@@ -159,6 +162,11 @@ agent:
 	if cfg2.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("model %q", cfg2.Agent.Model)
 	}
+	// skills.project_trust must survive the JSON DTO round-trip so the
+	// settings form can view and persist it (not just skills.dirs).
+	if cfg2.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in JSON round-trip: %q", cfg2.Skills.ProjectTrust)
+	}
 	yb, err := config.MarshalConfigYAML(cfg2)
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +181,9 @@ agent:
 	}
 	if cfg3.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("yaml round-trip model %q", cfg3.Agent.Model)
+	}
+	if cfg3.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in yaml round-trip: %q", cfg3.Skills.ProjectTrust)
 	}
 }
 
