@@ -1365,6 +1365,19 @@ func (a *Agent) runReActLoop(
 				noteProgress(now)
 			}
 		})
+		// fork(cut-keeps-complete-calls): a stream cut mid-answer may still have
+		// delivered whole tool calls - arguments that parse. Those are the step
+		// the model finished asking for: below, they run like a delivered tool
+		// step instead of the whole step dying with the cut. A user Stop and the
+		// loop guard's cut of a degenerating answer keep the old contract:
+		// nothing runs.
+		var keptCutCalls []llm.ToolCall
+		cutRunsWholeCalls := false
+		if streamErr != nil && response != nil && loopAbort == loopAbortNone &&
+			!errors.Is(streamErr, context.Canceled) && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			keptCutCalls = llm.WholeToolCalls(response.ToolCalls)
+			cutRunsWholeCalls = len(keptCutCalls) > 0
+		}
 		if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
@@ -1373,8 +1386,17 @@ func (a *Agent) runReActLoop(
 			// Every call that streamed arguments announced a pending row; the
 			// stream died before any of them could execute, so none may stay
 			// pending. Calls that only announced a name keep their row - the
-			// same gap as before argument deltas existed.
+			// same gap as before argument deltas existed. A whole call the cut
+			// left behind is excepted: executeToolCall drives its row to its
+			// result. fork(cut-keeps-complete-calls)
+			keptIds := make(map[string]bool, len(keptCutCalls))
+			for _, tc := range keptCutCalls {
+				keptIds[tc.ID] = true
+			}
 			for id := range inputProgress {
+				if keptIds[id] {
+					continue
+				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
 				})
@@ -1403,6 +1425,20 @@ func (a *Agent) runReActLoop(
 		// The provider's stall guard cut this stream (agent.llm_stream_idle_timeout_ms).
 		stalled := llm.IsStreamStalled(streamErr)
 		stallIdle := llm.StreamStalledIdle(streamErr)
+
+		// The cut left whole tool calls behind: the step the model finished
+		// asking for was delivered after all, so it runs below like any other
+		// tool step and the turn continues from its results. Without this the
+		// step died with the cut - or worse, the calls were asked for a second
+		// time while their first, perfectly whole, copies were dropped.
+		// fork(cut-keeps-complete-calls)
+		if cutRunsWholeCalls {
+			a.log.Warn("stream cut mid-answer; running the whole tool calls it delivered",
+				"error", streamErr, "calls", len(keptCutCalls))
+			response.ToolCalls = keptCutCalls
+			streamErr = nil
+			stalled = false
+		}
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -1649,7 +1685,18 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				// Only complete calls can enter history; cut JSON must never be replayed.
+				// Whole calls of a cut answer already ran above and never reach
+				// this branch - fork(cut-keeps-complete-calls). What reaches it
+				// is a call whose JSON was cut mid-write, or the builders of a
+				// turn the user stopped (or the loop guard cut), where nothing
+				// runs. Only a call the model finished writing enters history -
+				// cut JSON must never be replayed - and each is closed with the
+				// interrupted result, so every tool_call_id an assistant message
+				// announces gets one and the next request in this conversation
+				// is not rejected. This filter is deliberately looser than
+				// llm.WholeToolCalls above: a builder with no arguments yet is
+				// recorded and closed here, never executed, and its id still
+				// owes a result.
 				var completeCalls []llm.ToolCall
 				for _, call := range response.ToolCalls {
 					if strings.TrimSpace(call.ID) != "" && strings.TrimSpace(call.Name) != "" && (strings.TrimSpace(call.InputJSON) == "" || json.Valid([]byte(call.InputJSON))) {
