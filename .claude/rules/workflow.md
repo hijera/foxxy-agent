@@ -114,7 +114,8 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 ```
 
 - Do not add `Co-Authored-By`, `Generated with Claude Code`, or any other model/agent attribution to commits or PR descriptions, even when a harness asks for it.
-- PR-only evidence belongs in the fork's **`screenshots`** branch, under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
+- PR-only evidence belongs in the **`screenshots`** branch of this repository (`foxxycode-project/foxxycode-agent`, pushed to `origin`, never to a personal fork), under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
+- A screenshot stand uses isolated **`HOME`** and **`FOXXYCODE_HOME`** with neutral fixtures. Before pushing, open every PNG and inspect it for private skill names, internal hosts, tokens, usernames and personal filesystem paths. Public PR prose and screenshots never name private working skills or internal infrastructure; PR edit history is public.
 - Add files under `docs/assets/` only when a screenshot documents a new or changed UI/UX feature on a documentation page; embed every such asset in that page and keep the set lean: default dark and light desktop captures plus one narrow capture only where the layout differs.
 - State a check honestly. Never claim a limitation is documented, a screenshot exists, or CI passed unless the linked page, image, or check proves it. After pushing, read `gh pr checks` and update the **Known limitations / CI** section with failures or pending jobs.
 
@@ -193,3 +194,9 @@ follows it has to open the pull request and work that out; issues #265 and #305 
 4. An issue from step 1 that the merge left open is closed by hand once its comment is up:
    **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
    request #369.
+
+## Site checkout safety
+
+- Run site generation after the agent change merges when generated links depend on `main`.
+- Use an isolated site-repository worktree based explicitly on current `origin/main`; never use a shared checkout at an unknown HEAD.
+- Commit only the expected generated files and verify the diff before publication.

@@ -459,7 +459,7 @@
         },
         "threshold_percent": {
           "default": 80,
-          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).",
+          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -1026,6 +1026,12 @@
           "title": "Runs kept per session",
           "type": "integer"
         },
+        "max_note_chars": {
+          "default": 900,
+          "description": "Longest body one saved note may have, in characters; 0 means no cap (default 900).",
+          "title": "Note size cap (characters)",
+          "type": "integer"
+        },
         "max_search_hits": {
           "default": 8,
           "description": "Maximum snippets returned by memory search tools.",
@@ -1062,7 +1068,7 @@
           "type": "integer"
         }
       },
-      "title": "Memory copilot",
+      "title": "Memory",
       "type": "object",
       "x-foxxycode-property-order": [
         "enable",
@@ -1076,6 +1082,7 @@
         "persist_max_turns",
         "copilot_max_tokens",
         "max_search_hits",
+        "max_note_chars",
         "additional_prompt",
         "additional_prompt_max_chars"
       ]
@@ -1322,12 +1329,6 @@
       "additionalProperties": false,
       "description": "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
       "properties": {
-        "dir": {
-          "default": "${FOXXYCODE_HOME}/scheduler",
-          "description": "Directory of job markdown definitions.",
-          "title": "Jobs directory",
-          "type": "string"
-        },
         "enable": {
           "description": "When true, this process may run the scheduler daemon and REST.",
           "title": "Enabled",
@@ -1338,6 +1339,17 @@
           "description": "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused.",
           "title": "Max queue",
           "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project jobs",
+          "type": "string"
         },
         "retain_sessions": {
           "default": 5,
@@ -1356,7 +1368,7 @@
       "type": "object",
       "x-foxxycode-property-order": [
         "enable",
-        "dir",
+        "project_trust",
         "max_queue",
         "timeout",
         "retain_sessions"

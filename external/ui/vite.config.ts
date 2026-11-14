@@ -26,8 +26,22 @@ const syntaxLicensePlugin: Plugin = {
   enforce: "post",
   generateBundle(_options, bundle) {
     for (const output of Object.values(bundle)) {
-      if (output.type === "chunk") output.code += `\n${syntaxLicenseBanner}\n`;
+      // The grammars are bundled into the entry; the lazy chunks carry their
+      // own libraries' notices.
+      if (output.type === "chunk" && output.isEntry) output.code += `\n${syntaxLicenseBanner}\n`;
     }
+  },
+};
+
+// KaTeX's stylesheet lists every font three times (woff2, woff, ttf), and Vite
+// emits whatever a stylesheet names, so the binary would embed all sixty files.
+// Every browser the SPA supports reads woff2: keep that source only.
+const katexWoff2OnlyPlugin: Plugin = {
+  name: "katex-woff2-only",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/[\\/]katex[\\/]dist[\\/]katex(\.min)?\.css$/.test(id)) return null;
+    return code.replace(/,\s*url\([^)]*\.woff\)\s*format\("woff"\)\s*,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g, "");
   },
 };
 
@@ -35,7 +49,7 @@ export default defineConfig({
   root: "src",
   publicDir: path.resolve(import.meta.dirname, "public"),
   ...(cacheDir ? { cacheDir } : {}),
-  plugins: [react(), syntaxLicensePlugin],
+  plugins: [react(), syntaxLicensePlugin, katexWoff2OnlyPlugin],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time
     // (JCEF baseline, see docs/contributing/intellij-embedding.md). Applies in dev too.
@@ -71,15 +85,11 @@ export default defineConfig({
     // Lightning CSS (Vite 8 default) can drop unprefixed `backdrop-filter` when `-webkit-backdrop-filter`
     // is present, which breaks blur in Firefox (and some stacks). Esbuild preserves both declarations.
     cssMinify: "esbuild",
-    // Every asset the bundle imports must be inlined, whatever its size.
-    // scripts-sync-to-go.mjs ships index.html, styles.css and app.js and
-    // nothing else, so an asset Vite emits as its own file is missing from the
-    // go:embed set and 404s at runtime. That is not hypothetical: when the
-    // brand mark became a traced fox the wordmarks grew past the 4 KB default
-    // and the sign-in screen - the one page a browser sees before it has any
-    // credential, so it cannot fetch anything anyway - rendered a broken image.
-    // The sync script fails the build on an unexpected file in dist/ as well.
-    assetsInlineLimit: () => true,
+    // Brand and other content assets must be inlined: the sign-in screen cannot
+    // fetch anything before it has a credential. KaTeX fonts are the exception:
+    // they are loaded on demand from content-hashed files under chunks/, which
+    // scripts-sync-to-go.mjs embeds alongside the lazy renderers.
+    assetsInlineLimit: (file) => !/\.(woff2?|ttf)$/.test(file),
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
@@ -91,10 +101,16 @@ export default defineConfig({
           if (assetInfo.name === "style.css") {
             return "styles.css";
           }
+          // KaTeX's fonts: fetched from the chunk folder on first use.
+          if (/\.(woff2?|ttf)$/.test(assetInfo.name || "")) {
+            return "chunks/[name]-[hash][extname]";
+          }
           return "[name][extname]";
         },
-        chunkFileNames: "app.js",
-        inlineDynamicImports: true,
+        // The renderers loaded on demand (Mermaid, KaTeX) and what they share.
+        // Content-hashed, so ui.Handler() lets a browser keep them for good;
+        // app.js itself keeps its fixed name.
+        chunkFileNames: "chunks/[name]-[hash].js",
       },
     },
   },

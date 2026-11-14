@@ -374,6 +374,7 @@ export const schemaTextRu: Record<string, string> = {
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
 
   // Memory
+  "Memory": "Память",
   "Long-term memory": "Долговременная память",
   "Optional memory subagent (requires the memory build tag and a provider).":
     "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
@@ -412,6 +413,9 @@ export const schemaTextRu: Record<string, string> = {
   "Max search hits": "Макс. результатов поиска",
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
+  "Note size cap (characters)": "Предел размера заметки (символы)",
+  "Longest body one saved note may have, in characters; 0 means no cap (default 900).":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
 
   // Compaction
   "Automatic context compaction": "Автоматическое сжатие контекста",
@@ -434,6 +438,8 @@ export const schemaTextRu: Record<string, string> = {
   "Threshold percent": "Порог, %",
   "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
     "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (foxxycode) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
   "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
     "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
@@ -474,6 +480,9 @@ export const schemaTextRu: Record<string, string> = {
     "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
+  "Project jobs": "Проектные задания",
+  "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.":
+    "Задания в .foxxycode/scheduler рабочей папки приходят вместе с репозиторием. ask: показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). allow: запускать как свои. deny: никогда не запускать.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",

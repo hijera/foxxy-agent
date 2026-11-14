@@ -724,7 +724,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -1337,7 +1337,7 @@ func (s *Server) handleResponsesCreateOnce(w http.ResponseWriter, r *http.Reques
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata)}
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,

@@ -9,6 +9,12 @@
 
 ## Unreleased — 2026-11-15
 
+**Diagrams and formulas in answers.**
+Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed.
+
+**Project jobs and memory.**
+The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`: running one requires approval of the exact file, and the legacy `scheduler.dir` is migrated automatically. Memory's `max_note_chars` setting limits note length in characters; truncation works correctly with Cyrillic text and reports that it happened.
+
 **Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
 
 **Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
