@@ -1,4 +1,5 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
+import { NotificationSettings } from "./NotificationSettings";
 import {
   GeneralSendModePicker,
   GeneralStatusLinePicker,
@@ -344,6 +345,7 @@ export function SettingsSection(props: {
       <>
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
         <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
+        <NotificationSettings doc={doc} setDoc={setDoc} />
       </>
     );
   }

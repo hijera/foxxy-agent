@@ -13,7 +13,7 @@ export async function submitPermissionChoice(
 ): Promise<void> {
   const sid = sessionId.trim();
   const tcid = toolCallId.trim();
-  await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/permission`, {
+  const res = await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/permission`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -21,4 +21,5 @@ export async function submitPermissionChoice(
     },
     body: JSON.stringify({ toolCallId: tcid, optionId }),
   });
+  if (!res.ok) throw new Error(`Permission answer failed: ${res.status}`);
 }

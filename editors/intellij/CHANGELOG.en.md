@@ -7,7 +7,11 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-12
+## Unreleased — 2026-11-14
+
+**Chat notifications.** Permissions, questions, ready plans and finished tasks appear in IDE notification balloons with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. In IntelliJ the standard signal is played by the IDE itself (the system notification sound); a custom file plays inside the chat panel. Radio options switch between the Windows system notification sound (ding) and a custom file.
+
+## 0.3.47 — 2026-11-12
 
 **Guidance for Kimi models.**
 Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.

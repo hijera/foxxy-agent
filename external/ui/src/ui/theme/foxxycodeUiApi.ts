@@ -7,6 +7,7 @@ import {
 } from "../i18n/i18n";
 import type { UiLocale } from "../i18n/localeCookie";
 import { emitFileMention } from "../skills/fileMentionBus";
+import { receiveNotificationAction } from "../desktop/hostNotifications";
 
 /**
  * Stable global API for host embeddings (IntelliJ/PhpStorm plugin via JCEF).
@@ -20,6 +21,8 @@ import { emitFileMention } from "../skills/fileMentionBus";
  */
 export type FoxxyCodeUiApi = {
   readonly version: 1;
+  /** Complete an action belonging to a live notification, once. */
+  notificationAction(id: string, action: string): void;
   /** Applies + persists a theme. Returns false (and changes nothing) on unknown ids. */
   setTheme(theme: string): boolean;
   getTheme(): UiThemeMode;
@@ -91,6 +94,7 @@ export function installFoxxyCodeUiApi(): void {
   });
 
   window.foxxycodeUi = {
+    notificationAction: receiveNotificationAction,
     version: 1,
     setTheme(theme: string): boolean {
       if (!isValidTheme(theme)) {
