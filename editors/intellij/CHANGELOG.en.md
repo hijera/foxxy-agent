@@ -7,7 +7,14 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-12
+## Unreleased — 2026-11-14
+
+- An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
+- A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
+- Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet.
+- A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
+
+## 0.3.47 — 2026-11-12
 
 **Guidance for Kimi models.**
 Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.

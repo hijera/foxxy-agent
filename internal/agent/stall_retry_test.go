@@ -144,6 +144,70 @@ func TestTrimToResumeBoundary(t *testing.T) {
 			want: "1. First rule.\n2. Second rule.\n",
 		},
 		{
+			// The proxy drops the terminal marker, not the text: a trailing
+			// line that arrived whole must stay, or the answer loses it
+			// outright (the model continues with the NEXT line instead of
+			// rewriting the dropped one).
+			name: "a completed last line is kept whole",
+			in:   "1. First rule.\n2. Second rule.",
+			want: "1. First rule.\n2. Second rule.",
+		},
+		{
+			name: "a bracket alone does not finish the last line",
+			in:   "Wrap up\nSee the docs (config.yaml)",
+			want: "Wrap up\n",
+		},
+		{
+			name: "a formatted sentence keeps its punctuation boundary",
+			in:   "First rule.\n**The second rule.**",
+			want: "First rule.\n**The second rule.**",
+		},
+		{
+			name: "closed bold text does not complete a list item",
+			in:   "First rule.\n2. **Safety**",
+			want: "First rule.\n",
+		},
+		{
+			name: "a bare list marker does not complete a list item",
+			in:   "First rule.\n2.",
+			want: "First rule.\n",
+		},
+		{
+			name: "a closed inline code span does not complete a line",
+			in:   "First rule.\nCall `parse(input)`",
+			want: "First rule.\n",
+		},
+		{
+			name: "a closing code fence is kept whole",
+			in:   "```go\nreturn nil\n```",
+			want: "```go\nreturn nil\n```",
+		},
+		{
+			name: "a completed code line ending in a brace is kept whole",
+			in:   "Apply the fix\n\treturn nil\n}",
+			want: "Apply the fix\n\treturn nil\n}",
+		},
+		{
+			name: "a completed last line ending in a quote is kept whole",
+			in:   "He said it\nto be \"finished.\"",
+			want: "He said it\nto be \"finished.\"",
+		},
+		{
+			name: "a completed last line with trailing spaces is kept whole",
+			in:   "1. First rule.\n2. Second rule.  ",
+			want: "1. First rule.\n2. Second rule.  ",
+		},
+		{
+			name: "a trailing line that reads cut still goes",
+			in:   "1. First rule.\n2. Second ru",
+			want: "1. First rule.\n",
+		},
+		{
+			name: "a completed single-line sentence is kept whole",
+			in:   "All done.",
+			want: "All done.",
+		},
+		{
 			name: "empty stays empty",
 			in:   "",
 			want: "",

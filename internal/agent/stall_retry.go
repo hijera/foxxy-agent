@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -248,6 +249,33 @@ func (a *Agent) waitForStalledProvider(ctx context.Context, s *stallRetry, sessi
 	return true, false
 }
 
+// lineReadsComplete reports whether a trailing line reads as a finished line
+// rather than a fragment the stream cut mid-write. Closing formatting alone
+// is not a boundary: "2. **Safety**" can still be the start of a list item.
+func lineReadsComplete(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		// Nothing after the line end: nothing was cut.
+		return true
+	}
+	// A standalone closing brace or code fence ends a structural line.
+	if line == "}" || line == "```" || line == "~~~" {
+		return true
+	}
+	// Preserve sentence punctuation inside a closing quote or Markdown span,
+	// but do not mistake the quote/span itself for a completed sentence.
+	line = strings.TrimRight(line, "»\"'”’)]}`*_ \t\r")
+	r, _ := utf8.DecodeLastRuneInString(line)
+	if !strings.ContainsRune(".!?…", r) {
+		return false
+	}
+	// A bare ordered-list marker ("2.") has not delivered its item yet.
+	if r == '.' && strings.Trim(line[:len(line)-1], "0123456789") == "" {
+		return false
+	}
+	return true
+}
+
 // trimToResumeBoundary cuts a stalled partial answer back to a point the model can
 // resume from cleanly.
 //
@@ -259,15 +287,26 @@ func (a *Agent) waitForStalledProvider(ctx context.Context, s *stallRetry, sessi
 //
 // Dropping the unfinished trailing line makes both model behaviours safe: whether
 // it repeats that line or starts the next one, the text joins up exactly once.
+// A trailing line that reads complete stays whole instead: a cut that took only
+// the tail of the stream must not cost a line the model will never write again -
+// it carries on with the NEXT line, and the dropped one is gone for good.
 // Prose with no line breaks falls back to the last sentence end. A partial with
 // neither is left alone - keeping text the user watched arrive beats discarding
 // all of it to avoid a seam.
 func trimToResumeBoundary(s string) string {
-	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+	i := strings.LastIndexByte(s, '\n')
+	line := s
+	if i >= 0 {
+		line = s[i+1:]
+	}
+	if lineReadsComplete(line) {
+		return s
+	}
+	if i >= 0 {
 		return s[:i+1]
 	}
-	if i := strings.LastIndexAny(s, ".!?"); i >= 0 && i+1 < len(s) {
-		return s[:i+1]
+	if j := strings.LastIndexAny(s, ".!?"); j >= 0 && j+1 < len(s) {
+		return s[:j+1]
 	}
 	return s
 }
@@ -275,12 +314,12 @@ func trimToResumeBoundary(s string) string {
 // persistStalledMessage stores the partial assistant message from a stream the
 // stall guard cut, and reports whether anything was worth keeping.
 //
-// Tool calls are deliberately dropped. On a cancelled stream the readers hand
-// back every builder they had, including one whose JSON arguments were cut
-// mid-write; and every tool_call_id an assistant message announces must get a
-// result, or OpenAI-compatible endpoints reject the next request in the
-// conversation. Replaying an invalid call is worse than losing it - the same
-// choice openai_stream.go already makes for a truncated stream.
+// Tool calls are deliberately dropped. The whole ones never reach here - the
+// loop runs them like a delivered tool step (fork(cut-keeps-complete-calls)) -
+// so what is left are calls whose JSON arguments were cut mid-write; and every
+// tool_call_id an assistant message announces must get a result, or
+// OpenAI-compatible endpoints reject the next request in the conversation.
+// Replaying an invalid call is worse than losing it.
 func (a *Agent) persistStalledMessage(
 	response *llm.Response,
 	reasoningBuf *strings.Builder,

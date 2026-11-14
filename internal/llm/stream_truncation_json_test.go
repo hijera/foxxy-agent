@@ -2,7 +2,8 @@ package llm
 
 // Events and frames cut inside their JSON (issue #384): on every streaming
 // provider such a cut is a truncation - the delivered text and reasoning come
-// back next to the error, no tool call of the unfinished answer is returned,
+// back next to the error, a call whose arguments arrived whole is kept and runs
+// while a call cut mid-JSON is not returned (fork(cut-keeps-complete-calls)),
 // the request is retried only while nothing reached the caller, and the
 // decoder's error stays reachable - while a frame that is not JSON at all
 // stays a final error that is never retried, whatever its text holds.
@@ -124,11 +125,13 @@ func TestStreamDecodeTruncation(t *testing.T) {
 
 // TestCodexStreamCutInsideJSONEvent pins issue #384 on the Codex path: a framed
 // event whose JSON stops short is a truncation, not a raw decoder error. The
-// delivered text and reasoning come back next to the error, no tool call of the
-// unfinished answer is returned, the request is retried only while nothing
-// reached the caller (Complete never emits, so it is retried), and the
-// decoder's error stays reachable for logs. A malformed event that names a byte
-// the server sent is not a cut and keeps the transport contract.
+// delivered text and reasoning come back next to the error, the request is
+// retried only while nothing reached the caller (Complete never emits, so it is
+// retried), and the decoder's error stays reachable for logs. A call the cut
+// left whole is kept and runs - fork(cut-keeps-complete-calls) - while one
+// whose arguments were still being written is not returned. A malformed event
+// that names a byte the server sent is not a cut and keeps the transport
+// contract.
 func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 	text := func(w io.Writer, s string) { sse(w, "response.output_text.delta", map[string]any{"delta": s}) }
 	reasoning := func(w io.Writer, s string) {
@@ -157,8 +160,12 @@ func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 		wantResp      bool // a partial response next to the error
 		wantContent   string
 		wantReasoning string
-		wantNamed     bool   // the callback saw the call announced before the cut
-		wantToolChunk bool   // the callback saw a finished call (announce-only: never in the response)
+		wantNamed     bool // the callback saw the call announced before the cut
+		wantToolChunk bool // the callback saw a finished call
+		// wantWholeCall: that finished call arrived whole, so it is kept next to
+		// the error and the loop runs it - fork(cut-keeps-complete-calls). An
+		// announce-only call never arrives whole and stays out either way.
+		wantWholeCall bool
 		wantMsg       string // a fragment of the error text
 	}{
 		// The SDK decoder appends a newline to the data line, so the cut
@@ -186,7 +193,7 @@ func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 			named(w)
 			finished(w)
 			sseRaw(w, "response.completed", `{"type":"response.completed","response":{"status":"compl`)
-		}}, wantErr: true, wantTruncated: true, wantRequests: 1, wantResp: true, wantContent: "Let me look", wantNamed: true, wantToolChunk: true},
+		}}, wantErr: true, wantTruncated: true, wantRequests: 1, wantResp: true, wantContent: "Let me look", wantNamed: true, wantToolChunk: true, wantWholeCall: true},
 		{name: "terminal event cut inside a number", scripts: []script{func(w io.Writer) {
 			text(w, "Let me look")
 			sseRaw(w, "response.completed", `{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":1e`)
@@ -290,8 +297,18 @@ func TestCodexStreamCutInsideJSONEvent(t *testing.T) {
 			if resp.Content != tc.wantContent || resp.Reasoning != tc.wantReasoning {
 				t.Errorf("partial = %q / reasoning %q, want %q / %q", resp.Content, resp.Reasoning, tc.wantContent, tc.wantReasoning)
 			}
-			if len(resp.ToolCalls) != 0 || resp.StopReason != "" {
-				t.Errorf("partial carries tool calls %+v and stop reason %q; an unfinished answer must run nothing", resp.ToolCalls, resp.StopReason)
+			if tc.wantWholeCall {
+				// The call arrived whole before the cut: it is the step the model
+				// finished asking for, so it comes back next to the error and the
+				// loop runs it - fork(cut-keeps-complete-calls). The answer still
+				// has no stop reason: it never completed.
+				if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_1" ||
+					resp.ToolCalls[0].Name != "run_command" || resp.ToolCalls[0].InputJSON != `{"command":"ls"}` ||
+					!json.Valid([]byte(resp.ToolCalls[0].InputJSON)) || resp.StopReason != "" {
+					t.Errorf("partial carries tool calls %+v and stop reason %q; want the whole call kept", resp.ToolCalls, resp.StopReason)
+				}
+			} else if len(resp.ToolCalls) != 0 || resp.StopReason != "" {
+				t.Errorf("partial carries tool calls %+v and stop reason %q; a call cut mid-JSON is not returned", resp.ToolCalls, resp.StopReason)
 			}
 		})
 	}

@@ -137,9 +137,10 @@ func TestProgressNotFiredOnKeepaliveFrames(t *testing.T) {
 // widening resilient.go's guarded callback, would silently disable retries for
 // every truncated or transport-failed stream.
 func TestProgressChunkDoesNotSetEmitted(t *testing.T) {
-	// Tool-argument frames only, then the connection closes with neither a
-	// finish_reason nor [DONE]: a truncated stream that delivered nothing.
-	script := toolArgFrame("{\"q\":") + toolArgFrame("\"go\"}")
+	// Incomplete tool-argument frames only, then the connection closes with
+	// neither a finish_reason nor [DONE]: no whole call can reach the agent.
+	// A completed JSON value is covered by TestOpenAIStreamCutWithWholeCallIsNotReplayed.
+	script := toolArgFrame("{\"q\":") + toolArgFrame("\"go")
 
 	var hits atomic.Int32
 	srv := sseStub(t, script, &hits)

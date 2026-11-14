@@ -7,7 +7,15 @@
 
 # Изменения в расширении FoxxyCode для VS Code
 
-## Unreleased — 2026-11-12
+## Unreleased — 2026-11-14
+
+top, stamped by `make vscode-package`, which changelog gets which change) are in
+  .claude/rules/release-changelog.md and README.md § Changelog.
+-->
+
+# Изменения в расширении FoxxyCode для VS Code
+
+## 0.3.47 — 2026-11-12
 
 **Подсказки для моделей Kimi.**
 Модели Kimi и Moonshot (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, идентификаторы с пространством имён вроде `moonshotai/Kimi-K2-Instruct`) получают отдельный системный промпт: доводить задачу до проверенного результата, делать точечные правки без лишних церемоний, дисциплинированно вызывать инструменты и коротко отчитываться о сделанном. Работает и через NeuralDeep, и через OpenAI-совместимый API. Для версий Kimi K2 Instruct без режима размышлений сохраняется этот промпт, но недоступные уровни reasoning не предлагаются.

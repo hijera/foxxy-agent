@@ -14,8 +14,9 @@ Feature: Truncated LLM streams surface as errors
   of the input, and the OpenAI-compatible reader, which also dispatches a last
   frame the server closed without a blank line, meets the same error on a
   body cut inside a data: line. In every case the text already delivered is
-  kept, no tool call of the unfinished answer runs, and the request is not
-  sent again once deltas reached the caller.
+  kept, and a tool call whose arguments arrived whole is kept and runs while
+  a call cut mid-JSON does not run; the request is not sent again once deltas
+  or a whole tool call reached the caller.
 
   Scenario: A stream cut after text deltas fails and keeps the partial text
     Given an "openai" provider pointed at a stub server that cuts the stream after text deltas
@@ -23,6 +24,19 @@ Feature: Truncated LLM streams surface as errors
     Then the call fails with a truncation error
     And the partial response preserves text "Hello fr"
     And the stub server received 1 request
+
+  Scenario: A stream cut after a whole tool call keeps the call
+    Given an "openai" provider pointed at a stub server that cuts the stream after a whole tool call
+    When a streaming completion is requested
+    Then the call fails with a truncation error
+    And the partial response keeps tool call "run_command" with arguments {"command":"ls"}
+    And the provider receives only one request
+
+  Scenario: A stream cut inside tool call arguments keeps no call
+    Given an "openai" provider pointed at a stub server that cuts the stream inside tool call arguments
+    When a streaming completion is requested
+    Then the call fails with a truncation error
+    And the partial response keeps no tool calls
 
   Scenario: A stream with a finish_reason but no [DONE] marker succeeds
     Given an "openai" provider pointed at a stub server that ends the stream with a finish_reason but no [DONE] marker
