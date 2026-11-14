@@ -1133,49 +1133,58 @@ export function App() {
     // stopped is quieted, and a later normally-finished one still alerts.
     const generation = turnActivity.generation(sid);
     const notificationId = `done_${sid}_${generation}`;
-    // Read a bounded snapshot independently of the visible transcript. Its
-    // end-of-turn rebase can supersede loadMessages while this read is pending.
-    void fetchJSON<{ messages: RawSessionMessage[]; window?: unknown }>(
-      `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery({ kind: "tail" })}`,
-      { headers: { [HDR]: sid } },
-    ).then((res) => {
-      // Re-read after the fetch: a Stop can land while it is in flight, and its
-      // marker only appears after the cancel round-trip (stopPendingBySidRef
-      // covers that window).
-      if (
-        stopPendingBySidRef.current.has(sid) ||
-        stoppedTurnBySidRef.current.get(sid) === generation ||
-        !res.ok || !res.data ||
-        turnActivity.get(sid) === true
-      )
-        return;
-      const messages = res.data.messages || [];
-      const rows = transcriptItemsFromMessages({
-        messages,
-        window: parseTranscriptWindow(res.data.window, messages.length),
-        uiLog: undefined,
-        newId,
-        reasoningDurations: reasoningDurationMsByContentRef.current,
-      }).items;
-      dismissSessionNotifications(sid);
-      const { reply, plans } = finishedTurnContent(rows);
-      const plan = plans.find((it) => it.type === "plan_document" && !notifiedPlanKeysRef.current.has(`${sid}:${it.slug}`));
-      if (plan?.type === "plan_document") {
-        notifiedPlanKeysRef.current.add(`${sid}:${plan.slug}`);
-        void notifyHost({ id: `plan_${sid}_${plan.slug}`, sessionId: sid,
-          body: `${t("desktopNotify.planReadyTitle")}\n${plan.name || plan.overview}`, actions: [{ id: "run", label: t("desktopNotify.runPlan"), run: () => {
-            openSessionFromRoute(sid);
-            void loadMessages(sid).then(() => setPendingNotificationPlan({ sessionId: sid, slug: plan.slug }));
-          } }] });
-      } else {
-        const stableId = reply?.type === "assistant_message" && reply.createdAtUtc ? `done_${sid}_${encodeURIComponent(reply.createdAtUtc)}` : notificationId;
-        const excerpt = reply?.type === "assistant_message" && reply.content.trim()
-          ? `${t("desktopNotify.finished")}\n${plainTurnExcerpt(reply.content)}`
-          : t("desktopNotify.finished");
-        void notifyHost({ id: stableId, sessionId: sid,
-          body: excerpt, actions: [] });
-      }
-    });
+    const read = (attempt: number): void => {
+      if (!appMountedRef.current) return;
+      // Read a bounded snapshot independently of the visible transcript. Its
+      // end-of-turn rebase can supersede loadMessages while this read is pending.
+      void fetchJSON<{ messages: RawSessionMessage[]; window?: unknown }>(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/messages${transcriptPageQuery({ kind: "tail" })}`,
+        { headers: { [HDR]: sid } },
+      ).then((res) => {
+        // Re-read after the fetch: a Stop can land while it is in flight, and its
+        // marker only appears after the cancel round-trip (stopPendingBySidRef
+        // covers that window).
+        if (
+          !appMountedRef.current ||
+          stopPendingBySidRef.current.has(sid) ||
+          stoppedTurnBySidRef.current.get(sid) === generation ||
+          turnActivity.generation(sid) !== generation ||
+          turnActivity.get(sid) === true
+        )
+          return;
+        if (!res.ok || !res.data) {
+          if (attempt < 3) window.setTimeout(() => read(attempt + 1), 250 * attempt);
+          return;
+        }
+        const messages = res.data.messages || [];
+        const rows = transcriptItemsFromMessages({
+          messages,
+          window: parseTranscriptWindow(res.data.window, messages.length),
+          uiLog: undefined,
+          newId,
+          reasoningDurations: reasoningDurationMsByContentRef.current,
+        }).items;
+        dismissSessionNotifications(sid);
+        const { reply, plans } = finishedTurnContent(rows);
+        const plan = plans.find((it) => it.type === "plan_document" && !notifiedPlanKeysRef.current.has(`${sid}:${it.slug}`));
+        if (plan?.type === "plan_document") {
+          notifiedPlanKeysRef.current.add(`${sid}:${plan.slug}`);
+          void notifyHost({ id: `plan_${sid}_${plan.slug}`, sessionId: sid,
+            body: `${t("desktopNotify.planReadyTitle")}\n${plan.name || plan.overview}`, actions: [{ id: "run", label: t("desktopNotify.runPlan"), run: () => {
+              openSessionFromRoute(sid);
+              void loadMessages(sid).then(() => setPendingNotificationPlan({ sessionId: sid, slug: plan.slug }));
+            } }] });
+        } else {
+          const stableId = reply?.type === "assistant_message" && reply.createdAtUtc ? `done_${sid}_${encodeURIComponent(reply.createdAtUtc)}` : notificationId;
+          const excerpt = reply?.type === "assistant_message" && reply.content.trim()
+            ? `${t("desktopNotify.finished")}\n${plainTurnExcerpt(reply.content)}`
+            : t("desktopNotify.finished");
+          void notifyHost({ id: stableId, sessionId: sid,
+            body: excerpt, actions: [] });
+        }
+      });
+    };
+    read(1);
   }
 
   /** Reads the queue as it stands, for a tab that attaches to a turn already running. */

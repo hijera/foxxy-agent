@@ -1,4 +1,5 @@
 import { isEditorEmbed } from "../embedShell";
+import { onEnvironmentSwitch } from "../env/remoteEnv";
 import {
   getNotificationPreferences,
   onNotificationPreferences,
@@ -75,6 +76,11 @@ onNotificationPreferences(() => {
     !getNotificationPreferences().sound
   )
     stopNotificationSound();
+});
+
+onEnvironmentSwitch(() => {
+  for (const id of pending.keys()) dismissHostNotification(id);
+  delivered.clear();
 });
 
 export function dismissHostNotification(id: string): void {

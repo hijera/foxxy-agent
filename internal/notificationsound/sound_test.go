@@ -67,3 +67,25 @@ func TestMP3WithoutID3(t *testing.T) {
 		t.Fatalf("untagged MP3 rejected: %v", err)
 	}
 }
+
+type closeErrorSoundFile struct {
+	bytes.Buffer
+	name     string
+	closeErr error
+}
+
+func (f *closeErrorSoundFile) Name() string { return f.name }
+func (f *closeErrorSoundFile) Close() error { return f.closeErr }
+
+func TestStoreReportsCloseError(t *testing.T) {
+	home := t.TempDir()
+	closeErr := errors.New("close failed")
+	original := createSoundTemp
+	t.Cleanup(func() { createSoundTemp = original })
+	createSoundTemp = func(root string) (stagedSoundFile, error) {
+		return &closeErrorSoundFile{name: filepath.Join(root, ".sound-test"), closeErr: closeErr}, nil
+	}
+	if _, err := Store(home, "alert.mp3", append([]byte("ID3"), make([]byte, 64)...)); !errors.Is(err, closeErr) {
+		t.Fatalf("close error = %v, want %v", err, closeErr)
+	}
+}

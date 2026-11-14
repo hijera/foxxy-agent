@@ -1,4 +1,5 @@
 // Standard chime and custom MP3/WAV playback for host notifications and previews.
+import { onEnvironmentSwitch } from "../env/remoteEnv";
 import {
   getNotificationPreferences,
   onNotificationPreferences,
@@ -144,6 +145,15 @@ onNotificationPreferences(() => {
   if (!prefs.enabled || !prefs.sound || prefs.soundFile !== previousFile)
     stopNotificationSound();
   previousFile = prefs.soundFile;
+});
+onEnvironmentSwitch(() => {
+  stopNotificationSound();
+  cachedFile = "";
+  cachedAudio = null;
+  cachedDataFile = "";
+  cachedData = null;
+  previousFile = "";
+  playingPreview = false;
 });
 window.addEventListener("focus", () => {
   if (!playingPreview && !getNotificationPreferences().whenFocused)

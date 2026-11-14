@@ -1,3 +1,5 @@
+import { onEnvironmentSwitch } from "../env/remoteEnv";
+
 export type NotificationPreferences = {
   enabled: boolean;
   sound: boolean;
@@ -37,3 +39,5 @@ export function onNotificationPreferences(cb: () => void): () => void {
     listeners.delete(cb);
   };
 }
+
+onEnvironmentSwitch(() => applyNotificationConfig({}));

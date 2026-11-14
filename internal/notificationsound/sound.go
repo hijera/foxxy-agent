@@ -42,6 +42,16 @@ func Format(data []byte) (string, error) {
 	}
 }
 
+type stagedSoundFile interface {
+	io.Writer
+	io.Closer
+	Name() string
+}
+
+var createSoundTemp = func(root string) (stagedSoundFile, error) {
+	return os.CreateTemp(root, ".sound-*")
+}
+
 // Store uses a content digest and a safe name; uploaded names cannot choose a path.
 func Store(home, name string, data []byte) (string, error) {
 	kind, err := Format(data)
@@ -71,7 +81,7 @@ func Store(home, name string, data []byte) (string, error) {
 	path := filepath.Join(root, fmt.Sprintf("%x-%s.%s", sha256.Sum256(data), stem, kind))
 	// Content-addressed writes stage through a temp file: a concurrent read of
 	// the same digest never observes a truncated upload.
-	tmp, err := os.CreateTemp(root, ".sound-*")
+	tmp, err := createSoundTemp(root)
 	if err != nil {
 		return "", err
 	}
@@ -80,12 +90,11 @@ func Store(home, name string, data []byte) (string, error) {
 	cerr := tmp.Close()
 	if werr == nil && cerr == nil {
 		werr = os.Rename(tmpName, path)
+	} else if werr == nil {
+		werr = cerr
 	}
 	if werr != nil {
 		_ = os.Remove(tmpName)
-		if cerr != nil {
-			return "", cerr
-		}
 		return "", werr
 	}
 	return path, nil
