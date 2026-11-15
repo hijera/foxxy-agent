@@ -9,7 +9,13 @@
 # FoxxyCode for VS Code changes
 
 
-## Unreleased — 2026-11-13
+## Unreleased — 2026-11-14
+
+**Codex replies survive keepalive events.**
+Service heartbeats no longer interrupt a response with an empty-JSON error or repeatedly restart a long editor-assistant request. Malformed events and genuinely truncated responses still fail.
+
+**Mini Apps verify actual command results.**
+Source replay compares recorded stdout for calculations and file hashes captured when a command finishes. A conversational explanation no longer makes a successful calculator or converter fail verification.
 
 **The browser shuts down gracefully.**
 Chrome finishes writing its profile before its processes are released. Repeated closes share one shutdown, preventing temporary-profile cleanup from racing background writes.

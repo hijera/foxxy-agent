@@ -197,6 +197,15 @@ func (e *BuiltinToolExecutor) executeCommandProfile(ctx context.Context, req Too
 	if err != nil {
 		return nil, err
 	}
+	// File metadata is source evidence; workflow result references keep the
+	// command's stdout contract, independently of the recording envelope.
+	var recorded struct {
+		Object string `json:"object"`
+		Stdout string `json:"stdout"`
+	}
+	if json.Unmarshal([]byte(out), &recorded) == nil && recorded.Object == "foxxycode.command_result" {
+		return recorded.Stdout, nil
+	}
 	return out, nil
 }
 

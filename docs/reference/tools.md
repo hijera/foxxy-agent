@@ -63,6 +63,15 @@ Each [`commands` configuration](config.md#commands) entry registers a tool with
 its own typed parameters. These tools run a fixed binary through argv without a
 shell; a missing binary returns installation guidance.
 
+Scalar command tools return stdout. If a command produces a regular file for an
+`output_path`, `output_file`, `destination_path`, `destination_file`,
+`target_path` or `target_file` parameter, the chat tool returns a
+`foxxycode.command_result` JSON object with `stdout` and an `artifacts` manifest
+(relative path, SHA-256 and size). Only workspace-confined files are recorded,
+up to 16 files, 256 MiB per file and 512 MiB total. Mini App workflow result
+references continue to receive stdout; the manifest supplies private source
+verification evidence.
+
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
 | `cmd_<name>` | Run one configured command profile ([Mini Apps](../features/mini-apps.md#external-commands)) | Profile-defined file, enum, integer, flag and patterned string parameters | `ask` or `allow` from the profile; Mini Apps require `allow` | agent, debug |

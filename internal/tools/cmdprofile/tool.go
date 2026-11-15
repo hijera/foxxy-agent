@@ -114,7 +114,7 @@ func execute(ctx context.Context, spec cmdprofile.ProfileSpec, argsJSON string, 
 		}
 		return "", err
 	}
-	return out, nil
+	return recordCommandArtifacts(spec, params, cwd, out)
 }
 
 func installHint(spec cmdprofile.ProfileSpec) string {

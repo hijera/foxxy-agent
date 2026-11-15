@@ -127,7 +127,7 @@ func (s *miniAppsCommandsState) completedCommandSession() error {
 		Messages: []llm.Message{
 			{Role: llm.RoleUser, Content: "Convert source-clip.mp4 to out-clip.mp3 with the fast mode"},
 			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "enc-call", Name: "run_command", InputJSON: argsJSON}}},
-			{Role: llm.RoleTool, ToolCallID: "enc-call", Content: "converted"},
+			{Role: llm.RoleTool, ToolCallID: "enc-call", Content: "The clip is converted."},
 			{Role: llm.RoleAssistant, Content: "The clip is converted."},
 		},
 	}
@@ -141,7 +141,7 @@ func (s *miniAppsCommandsState) completedCommandSession() error {
 	if err := session.WriteToolCallArgs(sessionDir, "enc-call", argsJSON); err != nil {
 		return err
 	}
-	if err := session.WriteToolCallResult(sessionDir, "enc-call", "converted"); err != nil {
+	if err := session.WriteToolCallResult(sessionDir, "enc-call", "The clip is converted."); err != nil {
 		return err
 	}
 	return session.MarkToolCallFinished(sessionDir, "enc-call", "run_command", "builtin", "completed")

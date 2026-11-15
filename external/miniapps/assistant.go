@@ -80,6 +80,8 @@ The draft must remain a valid schema v1 Mini App. Preserve schema_version, kind,
 
 The browser renders the declarative interface directly. Use display.title, display.description, display.submit_label, and display.layout (form-result or stacked). Inputs support ui.order, ui.group, descriptions, textarea, enum/select, numeric bounds, and file/files upload controls with validation.extensions, media_types, max_files and max_total_bytes. File inputs carry upload ids at launch and resolve to confined workspace paths; never ask the user for an absolute server path. A destination filename is a string input, not an upload. Declare generated files as outputs with type file, a workspace-relative value (or an inputs reference to its filename), and renderer audio/image/video/download. Text, JSON and table renderers are available for ordinary outputs. Use existing command profiles for converters. Do not generate HTML, JavaScript or React code. Keep source-file verification explicit: the operator supplies a test upload, which remains private authoring evidence.
 
+Command-profile steps expose stdout as a string at steps.<step_id>.outputs.result, even when the string contains JSON. Bind that whole value for text or JSON output. Never invent nested references such as .outputs.result.formula or .outputs.result.stdout for these steps. Generated-file outputs refer to workspace-relative filenames instead.
+
 Current draft JSON:
 ` + string(draftJSON),
 	}}

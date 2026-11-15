@@ -57,6 +57,13 @@ Feature: Truncated LLM streams surface as errors
     Then the call succeeds with the complete text "Hello from server"
     And the reported stop reason is "end_turn"
 
+  Scenario: Codex keepalive frames do not interrupt a response
+    Given a "codex" provider pointed at a stub server that sends keepalive frames before completing
+    When a streaming completion is requested
+    Then the call succeeds with the complete text "Hello from server"
+    And the reported stop reason is "end_turn"
+    And the stub server received 1 request
+
   Scenario: A Codex response stopped at its output cap reports max_tokens
     Given a "codex" provider pointed at a stub server that stops the response at its output cap
     When a streaming completion is requested

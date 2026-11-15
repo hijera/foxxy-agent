@@ -48,6 +48,21 @@ Distillation converts a matching `run_command` into a typed command-profile step
 File parameters become operator inputs. A proposed profile must reproduce the
 original argument tokens; pipelines, redirects and shell operators are refused.
 
+The command-line importer accepts a deliberately small syntax, including inside
+quoted arguments. For an inline calculator or parser, first register its fixed
+code as a reviewed command profile and invoke its `cmd_<name>` tool in a clean
+session. Do not feed a shell script, heredoc or a multiline `python -c` call to
+the importer. The profile's arguments remain typed values, never user-supplied
+program code.
+
+Source verification compares scalar commands with their recorded stdout, not
+with the assistant's conversational explanation. When a command creates a
+conventionally named destination file, its tool result records the file's path,
+size and SHA-256 immediately after execution. The replay checks those recorded
+bytes. To verify file contents from an older session without recorded file
+evidence, run the source command again; distillation never substitutes the
+current workspace's file contents for missing historical evidence.
+
 An embedded profile requires approval on the machine running the workflow. The
 confirmation names its content hash, resolved binary and argument template.
 Approval is stored in `<home>/command-trust.json`, bound to the hash and binary
@@ -80,6 +95,11 @@ Inputs use `ui.order`, optional `ui.group`, descriptions and typed controls:
 text, multiline text, numbers, booleans, enums, dates, secrets and file uploads.
 The editor assistant can update these declarations without generating executable
 HTML or JavaScript. The input editor also exposes File and Files types.
+
+A command step exposes stdout as a string at
+`steps.<step_id>.outputs.result`, including when that string contains JSON. Bind
+the whole result for a text or JSON preview; nested properties such as
+`.outputs.result.formula` are not available on that string.
 
 File inputs provide both a chooser and drag-and-drop. Uploads are bound to the
 app, input, exact draft revision or release version. The host checks file

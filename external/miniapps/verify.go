@@ -137,14 +137,18 @@ func VerifyReplay(_ context.Context, app MiniApp, evidence SourceEvidence, run R
 	report.Expected = sanitizeVerificationValue(expected)
 	report.Actual = sanitizeVerificationValue(actual)
 	valuesMatch := replayValuesEqual(expected, actual)
+	strictCommandResult := evidence.Metrics["accepted_result_kind"] == "command_stdout"
 	sourceEvidenceOK := (valuesMatch && (artifactCount == 0 || artifactOK)) || (!valuesMatch && artifactCount > 0 && artifactOK)
+	if strictCommandResult {
+		sourceEvidenceOK = valuesMatch && artifactOK
+	}
 	if sourceEvidenceOK && explicitExpectedOK {
 		report.Status = VerificationPassed
 		report.Passed = true
 		return report
 	}
 	report.Status = VerificationFailed
-	if !valuesMatch && (artifactCount == 0 || !artifactOK) {
+	if !valuesMatch && (strictCommandResult || artifactCount == 0 || !artifactOK) {
 		report.Discrepancies = append(report.Discrepancies, Discrepancy{
 			Path: "/outputs/result", Kind: "result_mismatch", Severity: "error",
 			Message:  "replay result differs from the accepted source result",

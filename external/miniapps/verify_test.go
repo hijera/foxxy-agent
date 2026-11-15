@@ -13,6 +13,23 @@ import (
 	"testing"
 )
 
+func TestCommandStdoutMismatchCannotBeHiddenByAnUnrelatedArtifact(t *testing.T) {
+	app := verificationTestApp()
+	evidence := SourceEvidence{AcceptedResult: "703", Metrics: map[string]any{"accepted_result_kind": "command_stdout"}, SanitizedTrace: &NormalizedTrace{Actions: []TraceAction{
+		{Name: "write", Status: TraceActionSucceeded, Artifacts: []TraceArtifact{{Path: "unrelated.txt", SHA256: "same-hash"}}},
+		{Name: "cmd_calculator", Status: TraceActionSucceeded, Result: "703"},
+	}}}
+	run := Run{ID: "wrong-calculation", AppID: app.ID, Status: RunSucceeded, Outputs: map[string]any{"result": "704"}, Artifacts: []RunArtifact{{Path: "unrelated.txt", SHA256: "same-hash"}}}
+	report := VerifyReplay(context.Background(), app, evidence, run)
+	if report.Passed || !hasDiscrepancyKind(report, "result_mismatch") {
+		t.Fatalf("unrelated artifact masked wrong calculation: %+v", report)
+	}
+	run.Outputs["result"] = "703"
+	if report := VerifyReplay(context.Background(), app, evidence, run); !report.Passed {
+		t.Fatalf("matching command result rejected: %+v", report)
+	}
+}
+
 func TestVerifyReplayUsesAcceptedMetricsAndReportsMismatch(t *testing.T) {
 	app := verificationTestApp()
 	evidence := SourceEvidence{Metrics: map[string]any{"accepted_result": "hello"}}

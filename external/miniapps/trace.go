@@ -474,6 +474,15 @@ func evidenceID(item TraceCallEvidence) string {
 }
 
 func finalizeTraceAction(action *TraceAction) {
+	if strings.HasPrefix(action.Name, "cmd_") && len(action.Artifacts) == 0 {
+		var output struct {
+			Object    string          `json:"object"`
+			Artifacts []TraceArtifact `json:"artifacts"`
+		}
+		if json.Unmarshal([]byte(action.Result), &output) == nil && output.Object == "foxxycode.command_result" {
+			action.Artifacts = output.Artifacts
+		}
+	}
 	action.Arguments = sanitizeJSONText(action.Arguments)
 	action.Result = sanitizeTraceText(action.Result)
 	action.Error = sanitizeTraceText(action.Error)

@@ -87,6 +87,20 @@ type InstallSpec struct {
 	Dnf    string `json:"dnf,omitempty" yaml:"dnf,omitempty"`
 }
 
+// IsOutputFileParam recognizes the conventional destination names shared by
+// command evidence capture and Mini App form generation.
+func IsOutputFileParam(param ParamSpec) bool {
+	if param.Type != ParamFile {
+		return false
+	}
+	switch param.Name {
+	case "output_path", "output_file", "destination_path", "destination_file", "target_path", "target_file":
+		return true
+	default:
+		return false
+	}
+}
+
 // ProfileSpec is one command profile. It is both the config shape (mirrored in
 // internal/config) and the portable Mini App document shape
 // (requirements.commands), which is why Binary is a bare name by convention:

@@ -45,7 +45,7 @@ func enrichCommandForms(app *MiniApp, specs map[string]TraceInputSpec) {
 				observed := specs[id].ObservedValue
 				switch param.Type {
 				case cmdprofile.ParamFile:
-					output := param.Name == "output_path" || param.Name == "output_file" || param.Name == "destination_path" || param.Name == "destination_file" || param.Name == "target_path" || param.Name == "target_file"
+					output := cmdprofile.IsOutputFileParam(param)
 					if output {
 						field.Type, field.UI.Control = "string", "text"
 						filename := path.Base(strings.ReplaceAll(fmt.Sprint(observed), "\\", "/"))

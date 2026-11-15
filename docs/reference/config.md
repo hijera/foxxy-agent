@@ -561,6 +561,8 @@ Codex is only a model backend: the agent keeps FoxxyCode's own system prompt, to
 
 **Startup report.** When at least one `type: codex` provider is configured, `foxxycode acp` and `foxxycode serve` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `foxxycode providers login <name>`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
 
+**Streaming.** Codex ignores keepalive comments, empty data frames and events without a data payload. These frames do not count as model output or progress. Nonempty events still require valid JSON, and a response cut before its terminal event remains a truncation error.
+
 **Reasoning.** The Codex backend serves `gpt-5*` and `gpt-6*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /foxxycode/sessions/{id}/messages`.
 
 ### `models`

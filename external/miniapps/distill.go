@@ -80,6 +80,21 @@ func Distill(input DistillInput) (MiniApp, SourceEvidence, error) {
 	if err != nil {
 		return MiniApp{}, evidence, err
 	}
+	// A command's deterministic scalar output is the replay contract. The
+	// assistant's explanation is presentation and need not repeat it verbatim.
+	lastIndex := -1
+	for _, index := range scenario.ActionIndexes {
+		if trace.Actions[index].Status == TraceActionSucceeded && index > lastIndex {
+			lastIndex = index
+		}
+	}
+	if lastIndex >= 0 {
+		last := trace.Actions[lastIndex]
+		if strings.HasPrefix(last.Name, "cmd_") && len(last.Artifacts) == 0 && strings.TrimSpace(last.Result) != "" {
+			evidence.AcceptedResult = last.Result
+			evidence.Metrics["accepted_result_kind"] = "command_stdout"
+		}
+	}
 	return app, evidence, nil
 }
 
