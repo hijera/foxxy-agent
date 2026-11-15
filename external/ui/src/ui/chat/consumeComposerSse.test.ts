@@ -48,6 +48,13 @@ describe("consumeComposerSseReader endedWithoutDone", () => {
     expect(res.streamErrorMessage).toBeNull();
   });
 
+  it("is false when [DONE] arrives in the unterminated tail", async () => {
+    const p = baseParams(readerFromChunks([contentEvent + "data: [DONE]"]));
+    const res = await consumeComposerSseReader(p);
+    expect(res.endedWithoutDone).toBe(false);
+    expect(res.streamErrorMessage).toBeNull();
+  });
+
   it("is true when the reader closes before [DONE] (cut mid-turn)", async () => {
     const p = baseParams(readerFromChunks([contentEvent]));
     const res = await consumeComposerSseReader(p);
