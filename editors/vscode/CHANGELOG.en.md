@@ -9,13 +9,13 @@
 # FoxxyCode for VS Code changes
 
 
-## Unreleased — 2026-11-14
+## Unreleased — 2026-11-15
 
 **Codex replies survive keepalive events.**
 Service heartbeats no longer interrupt a response with an empty-JSON error or repeatedly restart a long editor-assistant request. Malformed events and genuinely truncated responses still fail.
 
 **Mini Apps verify actual command results.**
-Source replay compares recorded stdout for calculations and file hashes captured when a command finishes. A conversational explanation no longer makes a successful calculator or converter fail verification.
+Source replay compares recorded stdout for calculations and file hashes captured when a command finishes. A conversational explanation no longer makes a successful calculator or converter fail verification. Escaped parser regular expressions are no longer mistaken for Windows network paths.
 
 **The browser shuts down gracefully.**
 Chrome finishes writing its profile before its processes are released. Repeated closes share one shutdown, preventing temporary-profile cleanup from racing background writes.
@@ -57,6 +57,13 @@ Applying a patch invalidates the checks for the previous draft revision.
 
 **Live progress works with tokens and remote servers.**
 Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.48 — 2026-11-14
+
+- An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
+- A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
+- Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet. This also covers a subsequent JSON event cut short on Anthropic-compatible providers.
+- A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
 
 ## 0.3.47 — 2026-11-12
 

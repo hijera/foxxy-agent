@@ -34,8 +34,9 @@ var secretPatterns = []struct {
 // absolutePathPattern matches user-specific roots. The Windows alternatives are
 // quantified rather than doubled: values are scanned after JSON decoding, so a
 // drive path arrives with a single separator (`C:\Users\...`) and only bundled
-// file bytes can still carry the escaped form.
-var absolutePathPattern = regexp.MustCompile(`(?i)(^|[\s"'=:(])(?:/home/|/users/|/private/|/var/folders/|[a-z]:\\+|\\{2,})[^\s"'<>]+`)
+// file bytes can still carry the escaped form. A UNC prefix must include a
+// server and share separator; an escaped regexp such as \\s* is not a path.
+var absolutePathPattern = regexp.MustCompile(`(?i)(^|[\s"'=:(])(?:/home/|/users/|/private/|/var/folders/|[a-z]:\\+|\\{2,}(?:[\pL\pN_.-]+|\?)\\+)[^\s"'<>]+`)
 
 // Sanitize scans the complete portable JSON document before release. It does
 // not inspect SourceEvidence because evidence is private authoring data and is
@@ -153,10 +154,23 @@ func walkSanitizedValue(value any, path string, findings *[]SanitizationFinding)
 				*findings = append(*findings, SanitizationFinding{Path: path, Severity: "error", Message: "possible " + pattern.name + " in portable document"})
 			}
 		}
-		if absolutePathPattern.MatchString(typed) {
+		if absolutePathPattern.MatchString(portablePathText(typed)) {
 			*findings = append(*findings, SanitizationFinding{Path: path, Severity: "error", Message: "absolute user-specific path in portable document"})
 		}
 	}
+}
+
+// A fixed Python exec(JSON-string) argument carries source newlines as escapes.
+// Decode that exact wrapper without executing anything: "as e:\n" is Python
+// syntax, not an E: drive, and encoded private paths must still be detected.
+func portablePathText(text string) string {
+	if inner, ok := strings.CutPrefix(text, "exec("); ok && strings.HasSuffix(inner, ")") {
+		var source string
+		if err := json.Unmarshal([]byte(strings.TrimSuffix(inner, ")")), &source); err == nil {
+			return source
+		}
+	}
+	return text
 }
 
 func isProvenanceKey(key string) bool {

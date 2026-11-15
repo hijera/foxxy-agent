@@ -18,11 +18,31 @@ import (
 )
 
 type commandEvidenceFeature struct {
-	t      *testing.T
-	input  DistillInput
-	config *config.Config
-	file   bool
-	result AsyncJob
+	t         *testing.T
+	input     DistillInput
+	config    *config.Config
+	file      bool
+	result    AsyncJob
+	parser    MiniApp
+	sanitized SanitizationReport
+}
+
+func (s *commandEvidenceFeature) parserProfile() error {
+	s.parser = coreValidApp()
+	s.parser.Requirements.Commands = []cmdprofile.ProfileSpec{{Name: "parser", Binary: "python3", Permission: "allow", Template: []string{"-c", `exec("import re\ntry: re.search(r'\\s*Access', text)\nexcept Exception as e:\n    pass\n")`}}}
+	return nil
+}
+
+func (s *commandEvidenceFeature) sanitizeParser() error {
+	s.sanitized = Sanitize(s.parser)
+	return nil
+}
+
+func (s *commandEvidenceFeature) parserReleasable() error {
+	if !s.sanitized.Clean {
+		return fmt.Errorf("parser regexp mistaken for a private path: %+v", s.sanitized.Findings)
+	}
+	return nil
 }
 
 func (s *commandEvidenceFeature) source(kind string) error {
@@ -118,6 +138,9 @@ func TestMiniAppsCommandEvidenceFeature(t *testing.T) {
 		sc.Step(`^a successful (file|scalar) command with a conversational final answer$`, state.source)
 		sc.Step(`^I create a Mini App from the command session and test the source inputs$`, state.replay)
 		sc.Step(`^its source verification passes using the recorded command result$`, state.verified)
+		sc.Step(`^a reviewed parser profile containing an escaped regular expression$`, state.parserProfile)
+		sc.Step(`^I check the portable parser for private paths$`, state.sanitizeParser)
+		sc.Step(`^its ordinary regular expression is releasable$`, state.parserReleasable)
 	}}
 	if suite.Run() != 0 {
 		t.Fatal("command-evidence feature failed")

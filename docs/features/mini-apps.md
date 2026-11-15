@@ -63,6 +63,10 @@ bytes. To verify file contents from an older session without recorded file
 evidence, run the source command again; distillation never substitutes the
 current workspace's file contents for missing historical evidence.
 
+Portable parser profiles may contain escaped regular expressions. Path checks
+distinguish those escapes from Windows UNC server/share paths; real absolute
+paths remain blocked.
+
 An embedded profile requires approval on the machine running the workflow. The
 confirmation names its content hash, resolved binary and argument template.
 Approval is stored in `<home>/command-trust.json`, bound to the hash and binary

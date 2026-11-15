@@ -60,11 +60,16 @@ func TestSanitizeRejectsSensitiveExtensionKeysWithoutAssignmentSyntax(t *testing
 // only shows up inside bundled file bytes.
 func TestSanitizeRejectsWindowsAbsolutePaths(t *testing.T) {
 	cases := map[string]string{
-		"drive path":       `C:\Users\alice\project\notes.txt`,
-		"unc share":        `\\fileserver\share\project\notes.txt`,
-		"escaped in text":  `C:\\Users\\alice\\project`,
-		"lowercase drive":  `d:\work\repo\out.txt`,
-		"quoted mid-value": `wrote "C:\Users\alice\out.txt" successfully`,
+		"drive path":        `C:\Users\alice\project\notes.txt`,
+		"unc share":         `\\fileserver\share\project\notes.txt`,
+		"escaped in text":   `C:\\Users\\alice\\project`,
+		"lowercase drive":   `d:\work\repo\out.txt`,
+		"quoted mid-value":  `wrote "C:\Users\alice\out.txt" successfully`,
+		"escaped unc":       `\\\\fileserver\\share\\notes.txt`,
+		"unicode unc":       `\\сервер\общая\notes.txt`,
+		"device unc":        `\\?\C:\Users\alice\notes.txt`,
+		"exec drive path":   `exec("path='C:\\\\Users\\\\alice\\\\notes.txt'")`,
+		"exec unicode path": `exec("path='\u002fhome/alice/notes.txt'")`,
 	}
 	for name, leaked := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -92,6 +97,9 @@ func TestSanitizeAllowsRelativePathsAndProse(t *testing.T) {
 		"posix relative": "docs/build.md",
 		"prose colon":    "note: see the report",
 		"clock":          "finished at 12:30",
+		"parser regexp":  `exec("import re\nre.search(r'\\s*Access', text)\n")`,
+		"regexp escape":  `r'\\d+'`,
+		"exec newline":   `exec("try: pass\nexcept Exception as e:\n    pass\n")`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			app := coreValidApp()

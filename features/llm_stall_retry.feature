@@ -64,6 +64,13 @@ Feature: A provider that goes quiet is waited out, not surrendered to
     Then the turn completes without a system error
     And the model was called once
 
+  Scenario: Closing Markdown alone does not complete a cut line
+    Given a model cut after bold text that restarts the unfinished line
+    When the operator sends a prompt
+    Then the turn completes without a system error
+    And the model was called twice
+    And the restarted Markdown line appears exactly once
+
   Scenario: A model that keeps restarting the same answer is told so
     Given a model that stalls on the same opening every time
     When the operator sends a prompt
