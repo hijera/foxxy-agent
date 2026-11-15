@@ -8,6 +8,14 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.60 — 2026-11-12
+
+Checkpoint: `30fccb74140d42cc9b6a9e234d5eb831404fd3c5` (commit of annotated tag `1.2.60`), following `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (`1.2.56`). Implementation: `18d49d6fcf1fa57740d91694f680108d9f2fe359`. All 58 commits are accounted for: 52 adapted changes and six redundant integration merges. No remaining work in this range.
+
+- Ported the Telegram Mini App with signed admin launch, responsive Telegram navigation, the Pachca integration bot, quoted replies and admin-restricted messenger turns, explicit `allow_reasoning_off`, vendor-neutral rule adapters with transactional delivery, and the rpa-gen-rules 1.3.4 updates. The no-op `.codex/rules.md` index is removed.
+- Preserved every registered fork divergence, retry and continuation budgets, queue and stop-notice behavior, cross-process state, both compaction engines, Summary, provider templates, IDE context, SVN, exports, localization, GitHub Pages publication and the Chromium 104 baseline. The Kimi Code adapter receives the same YAML-list and lifecycle support and joins `make test-agent-rules`.
+- Validation: focused and full-tag Go compilation/tests, UI type checking and localization, all adapter contracts, fork guards, documentation/schema checks, Chromium 104 build, and the real `check:telegram` scenario pass. Three new screenshots come from the real FoxxyCode/tgfake stand, not upstream media. Scope and adaptations: `docs/plans/upstream-1.2.60-port.md`.
+
 ## Sync through upstream 1.2.56 — 2026-11-06
 
 Checkpoint: `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (tag `1.2.56`), following `cc012f2b890a5a271b40dd15566a43b922669ce3` (`1.2.54`). Implementation: `970f493d88063526f9297081d02a4e3ab0ae473a`; Windows backup follow-up: `d80c6de963f641619bdc30dd78e5e8409014e03a`. All 16 commits are accounted for: 14 adapted changes and two redundant integration merges. No remaining work in this range.

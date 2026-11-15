@@ -224,3 +224,41 @@ func TestRunPlanRefusesAskModeSession(t *testing.T) {
 		t.Fatalf("mode switched to %q", got)
 	}
 }
+
+// A restricted turn (a messenger user who is not the bot's admin) does not
+// run a plan: running one switches the session out of plan mode, a setting
+// that is the admins' to change.
+func TestRestrictedTurnDoesNotRunAPlan(t *testing.T) {
+	cfg := testConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	mgr := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), t.TempDir(), store)
+	ctx := context.Background()
+	st, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := st.SessionID
+	state := mgr.SessionByID(id)
+	state.SetMode(string(session.ModePlan))
+	dir, err := store.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plans.Write(dir, "run-me", plans.DefaultContent("run-me", "Run me")); err != nil {
+		t.Fatal(err)
+	}
+	for _, params := range []acp.SessionPromptParams{
+		{SessionID: id, Meta: map[string]interface{}{plans.MetaRunPlanSlug: "run-me"}, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go"}}},
+		{SessionID: id, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "Implement the plan @plans/run-me.plan.md"}}},
+	} {
+		if _, err := mgr.HandleSessionPromptWithSender(ctx, params, noopSender{}, &session.PromptRunOpts{
+			Restriction: &session.TurnRestriction{AskAlways: true, ConfineToWorkspace: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if state.GetMode() != string(session.ModePlan) {
+			t.Fatalf("a restricted turn ran the plan and switched the mode to %s", state.GetMode())
+		}
+	}
+}

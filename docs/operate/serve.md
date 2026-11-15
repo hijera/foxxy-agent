@@ -9,7 +9,7 @@ the [configuration reference](../reference/config.md) and the per-surface guides
 
 The subsystems share more than the manager. A background task the agent started wakes it
 when it ends (`notify_on_finish`, on by default) whichever subsystems run: the process owns the
-waker, and hands each woken turn to the Telegram chat bound to the session, else to the
+waker, and hands each woken turn to the Telegram or Pachca chat bound to the session, else to the
 HTTP server, else runs it through the manager itself
 ([Background tasks](../features/background-tasks.md#under-foxxycode-serve)). The MCP servers are
 shared the same way: the servers of the global configuration start with the process and
@@ -248,6 +248,33 @@ that way rather than as they were typed.
 `stop` stops the worker first and gives it up to 30 seconds to finish what it is doing,
 so a turn that is still generating is not cut off mid-sentence.
 
+## Checking the configuration first
+
+```bash
+foxxycode serve -t            # or --test-config; --home and --config pick the file as for a start
+```
+
+The flag checks the file this command would load against the published JSON Schema and the
+loader's rules, prints every problem with its line and how to fix it, and exits with status 1
+when there are errors. Nothing starts and nothing is written, so it belongs in a deploy script
+right before `foxxycode serve restart`. The report format and what counts as a warning are
+described in [config.md](../getting-started/configuration.md#checking-the-file-from-the-command-line).
+
+```bash
+foxxycode serve --dry-run     # the same check, then probe what the file points at
+```
+
+`--dry-run` runs that check and then, when the file is clean, probes the world it describes:
+the subsystems the configuration and the typed flags enable (a surface this binary was not
+built with is reported, not started), the listen addresses they would bind (a port another
+process holds is named together with the line that set it), every provider's model list,
+the configured models against it, the executables of stdio MCP servers, the Telegram bot
+token against the Bot API, the Pachca bot token and its scopes against Pachca, the relays in `swarm.join` and the upstreams a relay mounts, and
+the directories and files the configuration names. Exit status 1 when a probe fails. Alone
+it prints only the problems and one status line; `foxxycode serve --dry-run --test-config` prints
+the config check report and every probe. The report and its rules are described in
+[config.md](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at).
+
 ## Picking up a configuration change
 
 The running process watches the file it loaded. A change made **outside** it lands the
@@ -264,7 +291,7 @@ What happens next depends on what moved:
 | Change | Effect |
 |--------|--------|
 | models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](../surfaces/web-ui.md)) |
-| the Telegram token, the scheduler's directory or timeout, a relay's `swarm` settings other than its address | that subsystem alone is rebuilt in place |
+| the Telegram or the Pachca token (each bot is rebuilt alone, the other keeps running), the scheduler's directory or timeout, a relay's `swarm` settings other than its address | that subsystem alone is rebuilt in place |
 | a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
 | `mcp.project_trust` | every live session reconnects its configured MCP servers under the new policy; moved to `deny`, the project servers stop |
 | `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |

@@ -300,8 +300,8 @@ records trust the console prints the whole declaration above the choice: the
 transport, the command line or the URL, the names of its variables and headers,
 the workspace and the file. These controls also work in `--remote` mode through
 the server's MCP management routes. Telegram `/mcp` lists servers and offers
-enable/disable buttons only for already-trusted entries; in a group it is
-answered without a mention, and a failed tap is reported in the menu message.
+enable/disable buttons only for already-trusted entries; in a group it needs
+the bot's mention (`/mcp@botname`), and a failed tap is reported in the menu message.
 Approve project declarations in the console, CLI or web UI; a chat cannot grant
 workspace trust.
 

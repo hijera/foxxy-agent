@@ -75,6 +75,18 @@ test("array sections carry their label field", () => {
   expect(byId.models!.labelField).toBe("model");
 });
 
+// The logger and the messenger gateways are features with tabs of their own.
+test("the logger and the gateways are tabs of their own, out of System", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.logger?.kind).toBe("object");
+  expect(byId.logger?.label).toBe("Logger");
+  expect(byId.gateways?.kind).toBe("object");
+  expect(byId.gateways?.label).toBe("Gateways");
+  expect(byId.gateways?.description).toBe("Telegram and Pachca bots");
+});
+
 test("mcp_servers is its own managed tab", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),

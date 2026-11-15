@@ -3,14 +3,15 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\"",
             "statusMessage": "Loading always-on project rules",
             "timeout": 10,
-            "additionalContextLimit": 8000
+            "additionalContextLimit": 8000,
+            "commandWindows": "python -X utf8 -c \"from pathlib import Path; import runpy, sys; p=Path.cwd().resolve(); h=next((r/'.codex/hooks/attach_rules.py' for r in (p,*p.parents) if (r/'.codex/hooks/attach_rules.py').is_file()), None); sys.exit(0) if h is None else runpy.run_path(str(h),run_name='__main__')\""
           }
         ]
       }
@@ -24,7 +25,8 @@
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/attach_rules.py\"",
             "statusMessage": "Attaching rules for edited files",
             "timeout": 10,
-            "additionalContextLimit": 6000
+            "additionalContextLimit": 6000,
+            "commandWindows": "python -X utf8 -c \"from pathlib import Path; import runpy, sys; p=Path.cwd().resolve(); h=next((r/'.codex/hooks/attach_rules.py' for r in (p,*p.parents) if (r/'.codex/hooks/attach_rules.py').is_file()), None); sys.exit(0) if h is None else runpy.run_path(str(h),run_name='__main__')\""
           }
         ]
       }

@@ -807,6 +807,26 @@ export const schemaTextRu: Record<string, string> = {
   "${FOXXYCODE_HOME}/logs/foxxycode.log": "${FOXXYCODE_HOME}/logs/foxxycode.log",
   "${FOXXYCODE_HOME}/sessions": "${FOXXYCODE_HOME}/sessions",
   "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+
+  "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).": "Боты Telegram и Пачки (нужен тег gateway или gateway.telegram / gateway.pachca для одного из них).",
+  "Pachca": "Пачка",
+  "Pachca integration bot settings.": "Настройки бота интеграции Пачки.",
+  "Pachca user IDs with elevated rights; admins always pass access checks.": "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
+  "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.": "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
+  "Run the Pachca bot (requires the gateway or gateway.pachca build tag).": "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
+  "Poll interval, seconds": "Интервал опроса, секунды",
+  "How often the bot reads its events history, 1 to 60 seconds (default 2).": "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
+  "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.": "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none отключает его.",
+  "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.": "Токен доступа бота интеграции Пачки. Необязателен: если оставить пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
+  "Pachca user IDs that belong to this group.": "Идентификаторы пользователей Пачки, входящие в эту группу.",
+  "Mini App": "Mini App",
+  "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.": "Открыть этот веб-интерфейс как Mini App бота в Telegram: кнопка меню и /app открывают его на текущем разговоре. Telegram открывает Mini App только по https: опубликуйте веб-интерфейс через TLS-прокси и оставьте вход включённым.",
+  "Menu button": "Кнопка меню",
+  "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.": "Открывать веб-интерфейс кнопкой меню бота. Если выключить её, очистить адрес или оставить веб-интерфейс без входа, бот вернёт прежнюю кнопку, если она всё ещё открывает назначенный им адрес.",
+  "Web UI address": "Адрес веб-интерфейса",
+  "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.": "Публичный https-адрес веб-интерфейса, например https://foxxycode.example.com/. Без фрагмента. Пусто: бот не предлагает Mini App и не меняет кнопку, заданную в @BotFather.",
+  "Allow disabling reasoning": "Разрешить отключение рассуждения",
+  "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.": "Показывает Off в селекторе рассуждения этой модели. Включайте только если это развёртывание провайдера и модели выполняет запрос FoxxyCode на отключение рассуждения; FoxxyCode не может проверить это автоматически.",
 };
 
 /**

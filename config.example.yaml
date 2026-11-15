@@ -103,11 +103,14 @@ models:
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
+  #   # allow_reasoning_off: true     # optional: add Off only after verifying this deployment honours FoxxyCode's disable-reasoning request
 
   # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
   # - model: "neuraldeep/qwen3.8-27b"
   #   max_tokens: 8192
   #   temperature: 0.2
+  #   multimodal: false
+  #   # allow_reasoning_off: true     # NeuralDeep Hub may ignore this request; use only after verifying the deployment
 
   # - model: "neuraldeep/qwen3.6-35b-a3b"
   #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
@@ -597,8 +600,11 @@ tools:
 #   model: ""
 #   max_tokens: 64          # completion cap for the title
 
-# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway.telegram or -tags gateway).
-# Run the bot with: foxxycode gateway --config config.yaml
+# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway, or
+# -tags gateway.telegram / -tags gateway.pachca for one adapter).
+# Set enable: true and `foxxycode serve` polls the enabled bots alongside everything else.
+# With httpserver.enable the chats are live sessions in the web UI. See docs/surfaces/gateway.md
+# and docs/surfaces/pachca.md.
 # gateways:
 #   telegram:
 #     enable: false
@@ -623,7 +629,30 @@ tools:
 #       - chat_id: -1009876543210
 #         isolation: "admin"      # only respond to admin users
 #         access: "admins"
+#     mini_app:
+#       # The web UI as the bot's Mini App: the menu button opens it and /app
+#       # opens the chat's own conversation there. Telegram opens https only, so
+#       # publish the web UI behind a TLS proxy with sign-in on
+#       # (`foxxycode serve set-password`): the bot does not advertise an open one.
+#       url: "https://foxxycode.example.com/"
+#       menu_button: true             # default; false leaves the menu button to @BotFather
+#   # Pachca (Пачка) integration bot: reads the bot's events history, so the
+#   # machine needs no public address. Turn on "Save events history" in the
+#   # bot's outgoing webhook settings. See docs/surfaces/pachca.md.
+#   pachca:
+#     enable: false
+#     token: "${PACHCA_BOT_TOKEN}"     # optional: omit to read PACHCA_BOT_TOKEN from env/.env
+#     # proxy: none                    # inherit (default), none (direct), or a URL
+#     poll_interval_seconds: 2         # 1 to 60
+#     admins: [12345]                  # Pachca user IDs with elevated rights
+#     default_access: "all"            # all | admins | group:<name>
+#     default_isolation: "individual"  # individual | shared | admin
+#     chats:
+#       - chat_id: 334                 # a conversation, channel or thread chat id
+#         isolation: "shared"
+#         access: "all"
 
+# ----------------------------------------------------------------------------
 # swarm - a relay that nodes register into, and that chains into other relays.
 # Server side needs -tags swarm and swarm.enable; the join list below is
 # honoured by every foxxycode serve process, which is what lets an ordinary agent be

@@ -7,7 +7,16 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-14
+## Unreleased — 2026-11-15
+
+**Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
+
+**Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
+
+**Keep the agent home private.**
+Messenger users without admin rights can search and read workspace files, while `grep`, `glob` and `print_tree` hide the agent home even when it is nested inside the project. Private contents and file names stay out of results and do not consume the search limit.
+
+## 0.3.48 — 2026-11-14
 
 - An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
 - A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
@@ -67,7 +76,6 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
-
 
 ## 0.3.38 — 2026-10-26
 

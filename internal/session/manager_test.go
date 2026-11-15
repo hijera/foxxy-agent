@@ -1478,13 +1478,15 @@ func TestParseSettingsCommands(t *testing.T) {
 	}
 }
 
-// settingsTestConfig serves a Qwen model (thinking can be switched off), a
-// gpt-5 (it cannot) and a plain one.
+// settingsTestConfig serves a Qwen model that explicitly permits reasoning
+// off, an otherwise identical Qwen model that does not, a gpt-5 and a plain
+// model.
 func settingsTestConfig() *config.Config {
 	cfg := testConfig()
 	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd", Type: "neuraldeep", APIKey: "k"})
 	cfg.Models = append(cfg.Models,
-		config.ModelEntry{Model: "nd/qwen3.8-27b"},
+		config.ModelEntry{Model: "nd/qwen3.8-27b", AllowReasoningOff: true},
+		config.ModelEntry{Model: "nd/qwen3.8-27b-disabled"},
 		config.ModelEntry{Model: "p1/gpt-5", ReasoningDefault: "medium"},
 	)
 	return cfg
@@ -1641,6 +1643,7 @@ func TestApplySessionSettingsRejectsWhatTheModelCannotDo(t *testing.T) {
 		want string
 	}{
 		{session.SettingsChange{Model: str("nd/nope")}, "unknown model"},
+		{session.SettingsChange{Model: str("nd/qwen3.8-27b-disabled"), Reasoning: str("off")}, "cannot be turned off"},
 		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("off")}, "cannot be turned off"},
 		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("ultra")}, "is not offered"},
 		{session.SettingsChange{Reasoning: str("high")}, "offers no reasoning levels"},
