@@ -26,6 +26,9 @@ await cp(
 // The chunks loaded on demand (Mermaid, KaTeX and its fonts). Their names carry
 // a content hash, so the folder is replaced whole: a stale chunk from an older
 // build must not end up embedded next to the new ones. Source maps stay behind.
+// The folder is gitignored and its files are tracked anyway (like index.html
+// and app.js): after a rebuild, every new content-hashed name needs a forced
+// `git add -f external/ui/chunks`, or the SPA 404s on the renderer chunks.
 const chunksDest = path.join(uiRoot, "chunks");
 await rm(chunksDest, { recursive: true, force: true });
 await cp(path.join(dist, "chunks"), chunksDest, {
