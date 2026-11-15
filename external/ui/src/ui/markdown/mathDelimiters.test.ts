@@ -36,6 +36,29 @@ describe("normalizeMathDelimiters", () => {
     expect(normalizeMathDelimiters("``a ` \\(x\\)`` b")).toBe("``a ` \\(x\\)`` b");
   });
 
+  it.each([
+    ["- ", "  "],
+    ["+ ", "  "],
+    ["* ", "  "],
+    ["1. ", "   "],
+    ["2) ", "   "],
+    ["> - ", ">   "],
+    ["- > ", "  > "],
+  ])(
+    "leaves code fences opened after %s untouched",
+    (prefix, continuation) => {
+      const text = [
+        `${prefix}\`\`\`python`,
+        `${continuation}pattern = r"\\(x\\)"`,
+        continuation.trimEnd(),
+        `${continuation}print(pattern)`,
+        `${continuation}\`\`\``,
+      ].join("\n");
+      expect(normalizeMathDelimiters(text)).toBe(text);
+      expect(normalizeMathDelimiters(`${text}\n\nThen \\(y\\).`)).toBe(`${text}\n\nThen $y$.`);
+    },
+  );
+
   it("does not pair delimiters across a blank line", () => {
     const text = "open \\( here\n\nclose \\) there";
     expect(normalizeMathDelimiters(text)).toBe(text);

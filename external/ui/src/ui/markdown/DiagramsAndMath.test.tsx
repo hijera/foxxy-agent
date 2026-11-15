@@ -366,6 +366,16 @@ describe("standaloneSvg", () => {
 });
 
 describe("formulas", () => {
+  test("code fences in list items display and copy their literal LaTeX delimiters", async () => {
+    const source = 'pattern = r"\\(x\\)"\n\nprint(pattern)';
+    const text = '- ```python\n' + source.split("\n").map((line) => "  " + line).join("\n") + '\n  ```';
+    const { container } = render(<Markdown text={text} />);
+    expect(container.querySelector("pre code")?.textContent).toBe(source + "\n");
+    fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
+    expect(screen.queryByTestId("md-math-inline")).toBeNull();
+  });
+
   test("typesets inline dollars in place", async () => {
     render(<Markdown text={"Energy $E = mc^2$ here"} />);
     await waitFor(() => expect(document.querySelector(".md-math-inline .katex")).toBeTruthy());

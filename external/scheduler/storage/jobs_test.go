@@ -13,6 +13,49 @@ import (
 
 const jobBody = "---\nschedule: \"0 3 * * *\"\n---\nreport\n"
 
+func TestJobReferencesPreserveMarkdownExtension(t *testing.T) {
+	for _, ext := range []string{".md", ".MD", ".Md", ".mD"} {
+		t.Run(ext, func(t *testing.T) {
+			roots, ws := testRoots(t)
+			for _, scope := range []string{ScopeUser, ScopeProject} {
+				t.Run(scope, func(t *testing.T) {
+					dir := roots.User
+					if scope == ScopeProject {
+						dir = ProjectDir(ws)
+					}
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatal(err)
+					}
+					path := filepath.Join(dir, "nightly"+ext)
+					if err := os.WriteFile(path, []byte(jobBody), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					refs, err := roots.ListUser()
+					if scope == ScopeProject {
+						refs, err = roots.ListProject(ws)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(refs) != 1 || refs[0].Path != path {
+						t.Fatalf("scan = %+v, want %s", refs, path)
+					}
+					ref := roots.UserRef("nightly")
+					if scope == ScopeProject {
+						ref = roots.ProjectRef(ws, "nightly")
+					}
+					if ref != refs[0] {
+						t.Fatalf("lookup = %+v, scan = %+v", ref, refs[0])
+					}
+					if snap, err := ReadSnapshot(ref); err != nil || snap.Err != nil {
+						t.Fatalf("snapshot = %+v, %v", snap, err)
+					}
+				})
+			}
+		})
+	}
+}
+
 func testRoots(t *testing.T) (Roots, string) {
 	t.Helper()
 	root := t.TempDir()

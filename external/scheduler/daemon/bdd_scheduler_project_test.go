@@ -154,6 +154,42 @@ func initializeSchedulerProjectScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the run of "([^"]*)" works in the workspace$`, s.runWorksInWorkspace)
 	sc.Step(`^no state file is left in the workspace$`, s.noStateInWorkspace)
 	sc.Step(`^the create is refused because the id is taken$`, s.createRefusedIDTaken)
+	sc.Step(`^an operator-created "([^"]*)" job "([^"]*)" with the file extension "([^"]*)"$`, s.jobWithExtension)
+	sc.Step(`^the job "([^"]*)" can be read and paused by its id$`, s.readAndPauseJob)
+}
+
+func (s *schedulerRunsState) jobWithExtension(scope, id, ext string) error {
+	if scope == "project" {
+		if err := s.createProjectJob(id, "* * * * *"); err != nil {
+			return err
+		}
+		if s.lastErr != nil {
+			return s.lastErr
+		}
+	} else if err := s.jobScheduled(id, "* * * * *"); err != nil {
+		return err
+	}
+	ref := s.jobRef(id)
+	return os.Rename(ref.Path, strings.TrimSuffix(ref.Path, ".md")+ext)
+}
+
+func (s *schedulerRunsState) readAndPauseJob(id string) error {
+	op := s.svc.WithSession(s.cwd)
+	addr := s.jobAddr(id)
+	if _, err := op.GetJob(addr); err != nil {
+		return err
+	}
+	if err := op.PauseJob(addr); err != nil {
+		return err
+	}
+	job, err := op.GetJob(addr)
+	if err != nil {
+		return err
+	}
+	if !job.Paused {
+		return fmt.Errorf("job %q was not paused", id)
+	}
+	return op.ResumeJob(addr)
 }
 
 // createProjectJobStep keeps a refused create for the step that checks it,

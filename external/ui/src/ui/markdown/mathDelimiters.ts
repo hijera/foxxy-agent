@@ -11,8 +11,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-/** A fence opener after any quote markers and any indentation (a list nests it deeper). */
-const FENCE_OPEN = /^((?:[ \t]*>)*[ \t]*)(`{3,}|~{3,})/;
+/** A fence opener after indentation and any list or quote markers on its line. */
+const FENCE_OPEN = /^((?:[ \t]*(?:>|(?:[-*+]|\d+[.)])[ \t]+))*[ \t]*)(`{3,}|~{3,})/;
 const BLANK_LINE = /\n[ \t\r]*\n/;
 const BLANK = /^[ \t\r]*$/;
 /** Indented code: four spaces or a tab, after a blank line. */

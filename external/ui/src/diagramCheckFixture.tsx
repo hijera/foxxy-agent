@@ -28,6 +28,17 @@ applyUiTheme(resolveUiThemeMode((params.get("theme") as UiThemeMode | null) || n
 const fence = (lang: string, body: string) => ["```" + lang, body, "```"].join("\n");
 
 export const CASES: Record<string, string> = {
+  codeFences: [
+    "A Python example inside a list item:",
+    "",
+    '- ```python',
+    '  pattern = r"\\(x\\)"',
+    "",
+    "  print(pattern)",
+    "  ```",
+    "",
+    "Outside the code block, the formula \\(x^2 + y^2 = z^2\\) is typeset.",
+  ].join("\n"),
   flowchart: [
     "The request path through the server:",
     "",

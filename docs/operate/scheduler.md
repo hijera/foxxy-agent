@@ -38,7 +38,7 @@ REST routes under **`/foxxycode/scheduler`** require **`-tags=http,scheduler`**;
 
 *The job editor: the cron hint, the mode, the model, the subagent and the permission mode of a run, the markdown body, and Runs, Pause and Delete at the foot*
 
-Jobs are **`*.md`** files **directly** in one of two folders; nested subdirectories are not used for discovery. Neither folder is configurable.
+Jobs are **`*.md`** files **directly** in one of two folders; nested subdirectories are not used for discovery. The extension is case-insensitive (`.md`, `.MD`, `.Md` and `.mD`); discovery, cron runs and operations by job id preserve the actual filename. Neither folder is configurable.
 
 - **User jobs** live in **`${FOXXYCODE_HOME}/scheduler`**. They are yours and always trusted.
 - **Project jobs** live in **`<workspace>/.foxxycode/scheduler`** and travel with the repository, so a team can keep its scheduled work next to the code. They run only once trusted (next section).

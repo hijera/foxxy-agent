@@ -41,3 +41,15 @@ Feature: Project scheduler jobs run once trusted, in the shared pool
     Given a scheduler with a job "nightly" scheduled "0 3 * * *"
     When the operator creates a project job "nightly" scheduled "0 4 * * *" from a session in the workspace
     Then the create is refused because the id is taken
+
+  Scenario Outline: Mixed-case Markdown extensions stay addressable and run on cron
+    Given a scheduler
+    And an operator-created "<scope>" job "nightly" with the file extension "<extension>"
+    Then the job "nightly" can be read and paused by its id
+    When the daemon ticks at "2026-10-06T10:00:00Z" and the model answers "done"
+    Then the job "nightly" has 1 run
+
+    Examples:
+      | scope   | extension |
+      | user    | .MD       |
+      | project | .Md       |

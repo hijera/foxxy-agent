@@ -86,8 +86,34 @@ type Roots struct {
 
 // UserRef is the ref of a user job.
 func (rt Roots) UserRef(id string) JobRef {
-	p := filepath.Join(rt.User, id+".md")
+	return userRef(id, jobMarkdownPath(rt.User, id))
+}
+
+func userRef(id, p string) JobRef {
 	return JobRef{Scope: ScopeUser, ID: id, Path: p, StatePath: StatePath(p)}
+}
+
+// jobMarkdownPath preserves the extension of an existing job, including on
+// case-insensitive filesystems. New jobs keep the conventional .md spelling.
+func jobMarkdownPath(dir, id string) string {
+	entries, _ := os.ReadDir(dir)
+	var found string
+	for _, entry := range entries {
+		name := entry.Name()
+		ext := filepath.Ext(name)
+		if strings.EqualFold(ext, ".md") && strings.TrimSuffix(name, ext) == id {
+			if name == id+".md" {
+				return filepath.Join(dir, name)
+			}
+			if found == "" {
+				found = name
+			}
+		}
+	}
+	if found != "" {
+		return filepath.Join(dir, found)
+	}
+	return filepath.Join(dir, id+".md")
 }
 
 // ProjectDir is the project jobs folder of a workspace.
@@ -105,11 +131,15 @@ func (rt Roots) projectStateDir(workspace string) string {
 // ProjectRef is the ref of a project job of a canonical workspace. It does
 // not check the folder; CheckProjectDir does.
 func (rt Roots) ProjectRef(workspace, id string) JobRef {
+	return rt.projectRef(workspace, id, jobMarkdownPath(ProjectDir(workspace), id))
+}
+
+func (rt Roots) projectRef(workspace, id, path string) JobRef {
 	return JobRef{
 		Scope:     ScopeProject,
 		Workspace: workspace,
 		ID:        id,
-		Path:      filepath.Join(ProjectDir(workspace), id+".md"),
+		Path:      path,
 		StatePath: filepath.Join(rt.projectStateDir(workspace), id+".state"),
 	}
 }
@@ -172,7 +202,7 @@ func (rt Roots) ListUser() ([]JobRef, error) {
 	}
 	out := make([]JobRef, 0, len(names))
 	for _, n := range names {
-		out = append(out, rt.UserRef(strings.TrimSuffix(n, filepath.Ext(n))))
+		out = append(out, userRef(strings.TrimSuffix(n, filepath.Ext(n)), filepath.Join(rt.User, n)))
 	}
 	return out, nil
 }
@@ -191,7 +221,7 @@ func (rt Roots) ListProject(workspace string) ([]JobRef, error) {
 	}
 	out := make([]JobRef, 0, len(names))
 	for _, n := range names {
-		out = append(out, rt.ProjectRef(workspace, strings.TrimSuffix(n, filepath.Ext(n))))
+		out = append(out, rt.projectRef(workspace, strings.TrimSuffix(n, filepath.Ext(n)), filepath.Join(ProjectDir(workspace), n)))
 	}
 	return out, nil
 }
