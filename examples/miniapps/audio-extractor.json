@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "foxxycode.miniapp",
+  "id": "audio-extractor",
+  "state": "draft",
+  "metadata": {
+    "name": "Audio extractor",
+    "description": "Extract an MP3 audio track from an MP4 video.",
+    "goal": "Convert an uploaded MP4 into a downloadable MP3."
+  },
+  "display": {
+    "title": "MP4 → MP3",
+    "description": "Choose a video, select the audio quality, and extract its soundtrack.",
+    "submit_label": "Extract MP3",
+    "layout": "form-result"
+  },
+  "inputs": [
+    {"id": "video", "type": "file", "title": "MP4 video", "description": "The video is uploaded into this run's private workspace.", "required": true, "validation": {"extensions": [".mp4"], "media_types": ["video/mp4"], "max_total_bytes": 268435456}, "ui": {"control": "file", "order": 0}},
+    {"id": "quality", "type": "enum", "title": "MP3 quality", "description": "2: high quality; 4: balanced; 6: smaller file.", "default": "2", "required": true, "validation": {"enum": ["2", "4", "6"]}, "ui": {"control": "select", "order": 10, "group": "Audio settings"}},
+    {"id": "output_path", "type": "string", "title": "MP3 filename", "default": "audio.mp3", "required": true, "validation": {"pattern": "^[a-zA-Z0-9_ .-]+\\.mp3$"}, "ui": {"control": "text", "order": 20, "group": "Audio settings"}}
+  ],
+  "requirements": {"commands": [{
+    "name": "extract_audio", "binary": "ffmpeg", "description": "Extract MP3 audio from one uploaded video.", "permission": "allow", "timeout_seconds": 120,
+    "template": ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", "{input_path}", "-vn", "-codec:a", "libmp3lame", "-q:a", "{quality}", "{output_path}"],
+    "params": [{"name": "input_path", "type": "file"}, {"name": "quality", "type": "enum", "enum": ["2", "4", "6"]}, {"name": "output_path", "type": "file"}],
+    "install": {"apt": "ffmpeg", "brew": "ffmpeg", "winget": "Gyan.FFmpeg", "scoop": "ffmpeg"}
+  }]},
+  "permissions": {"tools": ["cmd_extract_audio"]},
+  "workflow": [{"id": "extract", "kind": "tool", "title": "Extract audio", "tool": "cmd_extract_audio", "arguments": {"input_path": {"$ref": "inputs.video"}, "quality": {"$ref": "inputs.quality"}, "output_path": {"$ref": "inputs.output_path"}}}],
+  "success": {"mode": "all", "checks": [{"kind": "step", "step": "extract", "status": "succeeded"}]},
+  "outputs": [{"id": "audio", "type": "file", "value": {"$ref": "inputs.output_path"}, "renderer": "audio", "title": "Extracted audio"}],
+  "runtime": {"log_scope": "local", "operator_event_level": "status", "diagnostic_tool_events": "sanitized", "persist_agent_reasoning": false}
+}

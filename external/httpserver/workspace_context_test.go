@@ -139,8 +139,13 @@ func TestWorkspaceFoldersDriveRootOffersDriveLevelAsParent(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %v)", status, body)
 	}
-	if body["parent"] != filepath.Dir(dir) {
-		t.Errorf("parent = %v, want %q", body["parent"], filepath.Dir(dir))
+	// The GET resolves links and Windows short names before listing a folder.
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("resolve temporary folder: %v", err)
+	}
+	if want := filepath.Dir(resolved); body["parent"] != want {
+		t.Errorf("parent = %v, want %q", body["parent"], want)
 	}
 	if body["drives"] != nil {
 		t.Errorf("ordinary listing should not carry the drives flag, got %v", body["drives"])

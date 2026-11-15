@@ -41,7 +41,7 @@ function pressEscape(init: Record<string, unknown> = {}, target: Element = docum
 
 describe("the screens of the rail", () => {
   it("are every item of the rail but sign-out, the topmost first", () => {
-    expect([...RAIL_SCREENS]).toEqual(["docs", "settings", "swarm", "scheduler", "history"]);
+    expect([...RAIL_SCREENS]).toEqual(["docs", "settings", "swarm", "scheduler", "miniapps", "history"]);
   });
 
   it("put the open screen drawn highest on top", () => {

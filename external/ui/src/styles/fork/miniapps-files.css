@@ -1,0 +1,101 @@
+.miniapps-file-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--foxxycode-surface-fieldset);
+}
+.miniapps-file-field label,
+.miniapps-output-file {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.miniapps-file-field small,
+.miniapps-output-file small,
+.miniapps-run-form label > small {
+  color: var(--muted);
+}
+.miniapps-file-field input[type="file"] {
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+.miniapps-file-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.miniapps-file-selection span,
+.miniapps-output-file small {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.miniapps-file-selection button {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+.miniapps-input-group {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: grid;
+  gap: 14px;
+}
+.miniapps-input-group legend {
+  padding: 0 6px;
+  color: var(--muted);
+}
+.miniapps-run-form--stacked {
+  grid-template-columns: 1fr;
+}
+.miniapps-output-file {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+.miniapps-output-file audio,
+.miniapps-output-file video,
+.miniapps-output-file img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+.miniapps-output-file img,
+.miniapps-output-file video {
+  max-height: 440px;
+  object-fit: contain;
+}
+.miniapps-output-file button {
+  align-self: flex-start;
+}
+.miniapps-result-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.miniapps-result-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.miniapps-result-table th,
+.miniapps-result-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.miniapps-input-group legend,
+.miniapps-run-form label > span,
+.miniapps-output-file h4 {
+  overflow-wrap: anywhere;
+}

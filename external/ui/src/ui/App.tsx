@@ -301,6 +301,7 @@ import {
 } from "./scheduler/api";
 import {
   parseAppHash,
+  setMiniAppsHash,
   setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
@@ -317,6 +318,8 @@ import {
   appNavHrefDocs,
   setDocsHash,
 } from "./scheduler/hashRoute";
+import { MiniAppsPage } from "./miniapps/MiniAppsPage";
+import { isMiniAppSessionEligible } from "./miniapps/sessionEligibility";
 import { DocsView } from "./docs/DocsView";
 import { fetchDocsPage } from "./docs/api";
 import { docsCommandOpensPage } from "./docs/docsCommand";
@@ -1339,7 +1342,13 @@ export function App() {
     },
     [appEnvKey, isAppEnvironment],
   );
+  /** null until the optional Mini Apps capability probe completes. */
+  const [miniAppsHttpLinked, setMiniAppsHttpLinked] = useState<boolean | null>(
+    null,
+  );
   const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [miniAppsOpen, setMiniAppsOpen] = useState(false);
+  const [miniAppsAppId, setMiniAppsAppId] = useState<string | null>(null);
   const [settingsRoute, setSettingsRoute] = useState(
     () => initialRoute.branch === "settings",
   );
@@ -2523,6 +2532,10 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    if (p.branch !== "miniapps") {
+      setMiniAppsOpen(false);
+      setMiniAppsAppId(null);
+    }
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2587,6 +2600,32 @@ export function App() {
       if (isStackedShell()) setTasksOpen(false);
       return;
     }
+    if (p.branch === "miniapps") {
+      if (isEditorEmbed() || miniAppsHttpLinked === false) {
+        const sid = viewedSessionIdRef.current.trim();
+        if (sid) setSessionHashInLocation(sid);
+        else if (window.location.hash) {
+          history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+        setMiniAppsOpen(false);
+        setMiniAppsAppId(null);
+        return;
+      }
+      if (miniAppsHttpLinked === null) return;
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      if (isStackedShell()) setTasksOpen(false);
+      setSessionsOpen(false);
+      setSwarmRoute(false);
+      setMiniAppsOpen(true);
+      setMiniAppsAppId(p.appId);
+      return;
+    }
     if (p.branch === "swarm") {
       setSwarmRoute(true);
       setSettingsRoute(false);
@@ -2641,7 +2680,7 @@ export function App() {
     setSchedulerEditor(null);
     setTasksOpen(false);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked]);
+  }, [miniAppsHttpLinked, schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean; tasksOpen?: boolean }) => {
@@ -2770,6 +2809,42 @@ export function App() {
         if (!cancelled) {
           setSchedulerHttpLinked(true);
         }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Mini Apps is an optional HTTP surface. Prefer the capability document, but
+  // retain the catalog probe as a compatibility fallback for older tagged
+  // servers that predate the capability field.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const capability = await fetch("/foxxycode/capabilities");
+        if (capability.ok) {
+          const body = (await capability.json()) as Record<string, unknown>;
+          const nested = body.capabilities;
+          const source =
+            nested && typeof nested === "object"
+              ? (nested as Record<string, unknown>)
+              : body;
+          const value = source.miniapps ?? source.mini_apps;
+          if (typeof value === "boolean") {
+            if (!cancelled) setMiniAppsHttpLinked(value);
+            return;
+          }
+        }
+      } catch {
+        // The catalog probe below remains authoritative when capabilities is absent.
+      }
+      try {
+        const catalog = await fetch("/foxxycode/miniapps");
+        if (!cancelled) setMiniAppsHttpLinked(catalog.status !== 404);
+      } catch {
+        if (!cancelled) setMiniAppsHttpLinked(false);
       }
     })();
     return () => {
@@ -6762,6 +6837,40 @@ export function App() {
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openMiniAppsFromNav = useCallback(() => {
+    if (miniAppsHttpLinked !== true) return;
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    if (isStackedShell()) setTasksOpen(false);
+    setSettingsRoute(false);
+    setSwarmRoute(false);
+    setDocsRoute(null);
+    setMiniAppsOpen(true);
+    setMiniAppsAppId(null);
+    setMiniAppsHash();
+  }, [miniAppsHttpLinked]);
+
+  const closeMiniApps = useCallback(() => {
+    setMiniAppsOpen(false);
+    setMiniAppsAppId(null);
+    const sid = sessionId.trim();
+    if (sid) setSessionHashInLocation(sid);
+    else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId]);
+
+  const createMiniAppFromSession = useCallback(() => {
+    if (miniAppsHttpLinked !== true || !sessionId.trim()) return;
+    openMiniAppsFromNav();
+    setMiniAppsHash();
+  }, [miniAppsHttpLinked, openMiniAppsFromNav, sessionId]);
+
   const openTasksFromNav = useCallback(() => {
     const sid = sessionId.trim();
     if (!sid) {
@@ -7191,6 +7300,16 @@ export function App() {
     return byToolCall;
   }, [backgroundTasks]);
 
+  const miniAppSessionEligible = useMemo(() => {
+    return isMiniAppSessionEligible({
+      miniAppsHttpLinked,
+      editorEmbed: isEditorEmbed(),
+      sessionId,
+      generating,
+      items,
+    });
+  }, [generating, items, miniAppsHttpLinked, sessionId]);
+
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
@@ -7350,6 +7469,7 @@ export function App() {
   // it: the step its close control takes (nav/railEscape.ts).
   useRailScreenEscape({
     history: { open: sessionsOpen, close: sessionPanelShared.onClose },
+    miniapps: { open: miniAppsOpen, close: closeMiniApps },
     scheduler: {
       open: schedulerOpen && schedulerHttpLinked === true,
       // An open job or its runs first, back onto the list; the drawer next.
@@ -7647,6 +7767,11 @@ export function App() {
         historyActiveCount={historyActiveCount}
         showHistory={!atSwarmRoot}
         showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
+        showMiniApps={
+          miniAppsHttpLinked === true && !isEditorEmbed() && !atSwarmRoot
+        }
+        onOpenMiniApps={openMiniAppsFromNav}
+        miniAppsOpen={miniAppsOpen}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
         schedulerActiveCount={schedulerInfo?.runs_active ?? 0}
@@ -7880,7 +8005,18 @@ export function App() {
             }}
           />
         ) : null}
-        {atSwarmRoot ? null : (
+        {miniAppsOpen ? (
+          <MiniAppsPage
+            selectedAppId={miniAppsAppId}
+            sessionId={sessionId}
+            sessionEligible={miniAppSessionEligible}
+            onNavigate={(appId) => {
+              setMiniAppsAppId(appId || null);
+              setMiniAppsHash(appId);
+            }}
+            onClose={closeMiniApps}
+          />
+        ) : atSwarmRoot ? null : (
           <ChatScreen
             title={currentTitle}
             sessionId={sessionId}
@@ -7919,6 +8055,22 @@ export function App() {
             heroAccentVerb={heroAccentVerb}
             heroComposerFocusEpoch={heroHomeGeneration}
             onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+            {...(miniAppSessionEligible
+              ? {
+                  headerActions: (
+                    <button
+                      type="button"
+                      className="chat-header-action"
+                      title={t("miniapps.create")}
+                      aria-label={t("miniapps.create")}
+                      data-testid="chat-create-miniapp"
+                      onClick={createMiniAppFromSession}
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  ),
+                }
+              : {})}
             onExportSession={(f: ExportFormat) => void exportSession(f)}
             exportBusy={exportBusy}
             items={transcriptItems}

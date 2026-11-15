@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 )
@@ -61,10 +62,10 @@ func newCodexProvider(model, authPath string, cliLogin bool, baseURL string, htt
 
 // responsesClient builds a Responses service authenticated with a fresh Codex
 // credential and the headers the Codex backend expects.
-func (p *codexProvider) responsesClient(ctx context.Context) (responses.ResponseService, error) {
+func (p *codexProvider) responsesClient(ctx context.Context) (openai.Client, error) {
 	cred, err := p.auth.Credential(ctx)
 	if err != nil {
-		return responses.ResponseService{}, err
+		return openai.Client{}, err
 	}
 	// The OpenAI SDK defaults to two HTTP retries; FoxxyCode owns retry pacing
 	// through resilientProvider, so disable hidden retries here as well.
@@ -82,7 +83,7 @@ func (p *codexProvider) responsesClient(ctx context.Context) (responses.Response
 	if p.httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(p.httpClient))
 	}
-	return openai.NewClient(opts...).Responses, nil
+	return openai.NewClient(opts...), nil
 }
 
 func (p *codexProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
@@ -98,7 +99,13 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		return nil, err
 	}
 	params := p.buildParams(messages, tools)
-	stream := svc.NewStreaming(ctx, params)
+	var raw *http.Response
+	requestErr := svc.Post(ctx, "responses", params, &raw, option.WithJSONSet("stream", true))
+	var decoder ssestream.Decoder
+	if requestErr == nil {
+		decoder = newCodexEventDecoder(raw.Body)
+	}
+	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](decoder, requestErr)
 	defer func() { _ = stream.Close() }()
 
 	var fullContent, reasoning string
