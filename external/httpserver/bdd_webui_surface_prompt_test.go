@@ -110,7 +110,7 @@ func TestWebUISurfacePromptFeature(t *testing.T) {
 				return nil
 			})
 		},
-		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/web_ui_surface_prompt.feature"}, TestingT: t},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/web_ui_surface_prompt.feature"}, TestingT: t, Strict: true},
 	}
 	if suite.Run() != 0 {
 		t.Fatal("web UI surface prompt scenarios failed")
