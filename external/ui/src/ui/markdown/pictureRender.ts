@@ -34,7 +34,16 @@ const MAX_SVG_CHARS = 512 * 1024;
  */
 export function standaloneSvg(text: string): RenderedPicture {
   if (text.length > MAX_SVG_CHARS) throw new Error("the SVG is larger than 512 KB");
-  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const parser = new DOMParser();
+  let doc = parser.parseFromString(text, "image/svg+xml");
+  // Mermaid creates linked nodes in an HTML document and may serialize
+  // xlink:href without its namespace. XML image decoding requires that binding.
+  if (doc.getElementsByTagName("parsererror").length && /\bxlink:/.test(text) && !/\bxmlns:xlink\s*=/.test(text)) {
+    doc = parser.parseFromString(
+      text.replace(/<svg(?=[\s>])/i, '$& xmlns:xlink="http://www.w3.org/1999/xlink"'),
+      "image/svg+xml",
+    );
+  }
   const root = doc.documentElement;
   if (!root || root.nodeName.toLowerCase() !== "svg" || doc.getElementsByTagName("parsererror").length) {
     throw new Error("not an SVG document");

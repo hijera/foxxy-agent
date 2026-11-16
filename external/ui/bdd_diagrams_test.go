@@ -35,6 +35,23 @@ func TestDiagramsFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "web-ui-diagrams",
 		ScenarioInitializer: func(ctx *godog.ScenarioContext) {
+			ctx.Step(`^no renderer chunk requires Object\.groupBy or URL\.canParse$`, func() error {
+				return fs.WalkDir(Assets, "chunks", func(path string, d fs.DirEntry, err error) error {
+					if err != nil || d.IsDir() || !strings.HasSuffix(path, ".js") {
+						return err
+					}
+					body, err := fs.ReadFile(Assets, path)
+					if err != nil {
+						return err
+					}
+					for _, api := range []string{"Object.groupBy", "URL.canParse"} {
+						if bytes.Contains(body, []byte(api)) {
+							return fmt.Errorf("%s requires %s, unavailable in Chromium 104", path, api)
+						}
+					}
+					return nil
+				})
+			})
 			ctx.Step(`^the embedded web UI build$`, func() error {
 				_, err := fs.Stat(Assets, "app.js")
 				return err

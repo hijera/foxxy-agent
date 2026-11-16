@@ -3,7 +3,7 @@
  *
  * The UI is embedded in an IntelliJ/PhpStorm 2022.3.3 plugin via JCEF, whose
  * Chromium is version 104 (see docs/contributing/intellij-embedding.md). This script scans
- * the built bundle (dist/styles.css + dist/app.js + dist/events-worker.js — including dependency
+ * the built bundle (styles.css and every JavaScript file, including lazy dependency
  * code) for CSS/JS features newer than Chromium 104 and fails the build when
  * any are found. Wired into `npm run build:go` between `vite build` and the
  * go:embed sync.
@@ -12,11 +12,12 @@
  *   - `text-wrap: balance` (hero title; falls back to normal wrapping)
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import postcss from "postcss";
 
-const dist = path.join(path.resolve(import.meta.dirname), "dist");
+// An explicit output directory also lets the regression tests check isolated builds.
+const dist = path.resolve(process.argv[2] || path.join(import.meta.dirname, "dist"));
 const problems = [];
 
 // ── CSS ────────────────────────────────────────────────────────────────────
@@ -87,7 +88,21 @@ root.walkDecls((decl) => {
 // start it (html[data-embed] takes its own stream), but it ships in the same
 // bundle and a desktop Chromium of the same age can load it, so it is held to the
 // same baseline.
-const jsFiles = ["app.js", "events-worker.js"];
+// Lazy renderers and their dependencies have the same baseline as the entry.
+// Build targets lower syntax, but cannot replace missing runtime APIs.
+async function javascriptFiles(dir, prefix = "") {
+  const files = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relative = path.join(prefix, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await javascriptFiles(path.join(dir, entry.name), relative));
+    } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      files.push(relative);
+    }
+  }
+  return files.sort();
+}
+const jsFiles = await javascriptFiles(dist);
 
 const jsBans = [
   [".toSorted(", "Array.prototype.toSorted (Chromium 110+)"],

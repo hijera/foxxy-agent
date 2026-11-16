@@ -3,8 +3,8 @@
  * Diagrams and formulas check: what jsdom cannot see, in a real engine
  * (DESIGN.md, "Diagrams and formulas").
  *
- * It drives `src/diagram-check.html`, a stand that mounts an answer with six
- * Mermaid diagrams (flowchart, sequence, mindmap, Gantt, pie, class), a raw SVG, a broken diagram, inline and display formulas
+ * It drives `src/diagram-check.html`, a stand that mounts an answer with eight
+ * Mermaid diagrams (including the architecture parser and a linked node), a raw SVG, a broken diagram, inline and display formulas
  * and a price, from the real components against the real stylesheet, so it
  * needs a vite dev server and no backend. For every theme and a phone and a
  * desktop width it checks that:
@@ -111,7 +111,7 @@ try {
         };
       });
       const drawn = r.figures.filter((f) => f.kind && !f.error);
-      check(`${label}: seven pictures drawn`, drawn.length === 7 && drawn.every((f) => f.drawn), JSON.stringify(r.figures));
+      check(`${label}: nine pictures drawn`, drawn.length === 9 && drawn.every((f) => f.drawn), JSON.stringify(r.figures));
       check(`${label}: pictures inside the column`, r.figures.every((f) => f.inside));
       check(`${label}: the broken diagram names its error`, r.figures.filter((f) => f.error).length === 1);
       check(`${label}: formulas typeset`, r.display >= 3 && r.inline >= 2, `display=${r.display} inline=${r.inline}`);

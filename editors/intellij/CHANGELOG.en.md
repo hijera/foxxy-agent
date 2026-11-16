@@ -11,6 +11,7 @@
 
 **Diagrams and formulas in answers.**
 Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
+Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
 
 **Project jobs and memory.**
 The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`: running one requires approval of the exact file, and the legacy `scheduler.dir` is migrated automatically. Job files with mixed-case Markdown extensions remain discoverable and editable. Memory's `max_note_chars` setting limits note length in characters; truncation works correctly with Cyrillic text and reports that it happened.

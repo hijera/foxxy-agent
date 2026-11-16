@@ -14,3 +14,7 @@ Feature: Diagrams and formulas in the web UI
     When a browser fetches a renderer chunk
     Then the chunk is served as JavaScript
     And the response may be cached for a year without revalidation
+
+  Scenario: Lazy renderer dependencies support IntelliJ's embedded browser
+    Given the embedded web UI build
+    Then no renderer chunk requires Object.groupBy or URL.canParse

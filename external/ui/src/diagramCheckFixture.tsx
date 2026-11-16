@@ -28,6 +28,11 @@ applyUiTheme(resolveUiThemeMode((params.get("theme") as UiThemeMode | null) || n
 const fence = (lang: string, body: string) => ["```" + lang, body, "```"].join("\n");
 
 export const CASES: Record<string, string> = {
+  architecture: fence(
+    "mermaid",
+    ["architecture-beta", "  service api(server)[API]", "  service db(database)[Database]", "  api:R -- L:db"].join("\n"),
+  ),
+  link: fence("mermaid", 'flowchart LR\n  A[Docs] --> B[Chat]\n  click A "https://example.com"'),
   codeFences: [
     "A Python example inside a list item:",
     "",

@@ -345,6 +345,12 @@ describe("diagram colours follow the theme and stay readable", () => {
 });
 
 describe("standaloneSvg", () => {
+  test("keeps Mermaid linked nodes when its SVG omits the xlink namespace", () => {
+    const out = standaloneSvg('<svg viewBox="0 0 30 10"><a xlink:href="https://example.com"><text>Docs</text></a></svg>');
+    const doc = new DOMParser().parseFromString(out.svg, "image/svg+xml");
+    expect(doc.querySelector("parsererror")).toBeNull();
+    expect(doc.querySelector("a")?.getAttributeNS("http://www.w3.org/1999/xlink", "href")).toBe("https://example.com");
+  });
   test("adds the namespace and a pixel size an <img> can use", () => {
     const out = standaloneSvg('<svg viewBox="0 0 30 10" width="100%" style="max-width: 30px; color: red"></svg>');
     expect(out).toMatchObject({ width: 30, height: 10 });

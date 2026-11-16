@@ -4,6 +4,7 @@ import path from "node:path";
 import { readFileSync, readdirSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { chromium104DependencyCode } from "./src/compat/chromium104Dependencies";
 // @ts-ignore -- plain .mjs module without type declarations
 import resolveColorMix from "./postcss-resolve-color-mix.mjs";
 // @ts-ignore -- plain .mjs module without type declarations
@@ -49,7 +50,12 @@ export default defineConfig({
   root: "src",
   publicDir: path.resolve(import.meta.dirname, "public"),
   ...(cacheDir ? { cacheDir } : {}),
-  plugins: [react(), syntaxLicensePlugin, katexWoff2OnlyPlugin],
+  plugins: [
+    react(),
+    syntaxLicensePlugin,
+    katexWoff2OnlyPlugin,
+    { name: "chromium104-dependencies", enforce: "pre", transform: chromium104DependencyCode },
+  ],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time
     // (JCEF baseline, see docs/contributing/intellij-embedding.md). Applies in dev too.
