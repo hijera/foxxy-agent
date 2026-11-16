@@ -69,7 +69,7 @@ func (a *Agent) keepInterruptedAnswer(model, text, reasoning string, clockStart,
 		}
 		reasoningMs = max(end.Sub(clockStart), 0).Milliseconds()
 	}
-	a.state.AddMessage(llm.Message{
+	a.addAssistantMessage(llm.Message{
 		Role:                llm.RoleAssistant,
 		Content:             text,
 		Reasoning:           reasonTrim,

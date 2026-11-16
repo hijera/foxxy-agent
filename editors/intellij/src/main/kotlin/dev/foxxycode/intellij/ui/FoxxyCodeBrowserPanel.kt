@@ -164,17 +164,13 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         FoxxyCodeProcessManager.getInstance(project).ensureStarted(
             onReady = { url ->
                 loadUrl(url)
-                // Wire native inline diffs once the server (and its /foxxycode/ide/events stream) is up.
-                FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
-                // Start reporting open tabs / active file to the agent.
-                FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
-                // Start reporting open terminals + recent output to the agent.
-                FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
-                // Start reporting in-IDE copies for the composer's paste-to-chip flow.
-                FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
-                // Pick up the backend's autocomplete settings; inline suggestions stay off
-                // until config.autocomplete enables them.
-                FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                    FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                    FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                    FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                    FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                    FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                }
             },
             onError = { msg -> showError(msg) }
         )
@@ -715,11 +711,13 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                 FoxxyCodeProcessManager.getInstance(project).restart(
                     onReady = { url ->
                         loadUrl(url)
-                        FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
-                        FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
-                        FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
-                        FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
-                        FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                        if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                            FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                            FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                            FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                            FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                            FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                        }
                     },
                     onError = { msg -> showError(msg) }
                 )

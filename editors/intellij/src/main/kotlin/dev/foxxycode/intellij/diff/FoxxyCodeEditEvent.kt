@@ -17,6 +17,9 @@ data class FoxxyCodeEditEvent(
     val tool: String = "",
     val args: String = "",
     val nonce: String = "",
+    // Coddy ToolExecute carries the session cwd instead of a backend-computed preview.
+    val hook: Boolean = false,
+    val cwd: String = "",
 ) {
     val isProposed: Boolean get() = type == "edit_proposed"
     val isApplied: Boolean get() = type == "edit_applied"

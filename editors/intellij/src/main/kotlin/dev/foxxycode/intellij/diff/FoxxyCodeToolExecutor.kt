@@ -19,6 +19,10 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * What a delegated filesystem write needs, given the editor's current view of the file.
@@ -98,6 +102,12 @@ object ReadSlice {
     }
 }
 
+object VfsArgs {
+    fun required(args: JsonObject, key: String, tool: String): String =
+        args.get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("$tool: $key is required")
+}
+
 /**
  * Executes delegated tool calls (`tool_execute` events on the IDE event stream) through the
  * editor's document model: `write` / `edit` / `apply_patch` land in the user's buffers and the
@@ -120,9 +130,59 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     private fun failed(error: String) = Outcome("handled", error = error)
     private fun notHandled() = Outcome("not_handled")
 
+    private val hookResponders = ConcurrentHashMap<String, (Outcome) -> Unit>()
+    private val expiredHookCalls = ConcurrentHashMap.newKeySet<String>()
+
+    /** Executes one Coddy ToolExecute payload and returns the hook's JSON answer. */
+    fun executeHook(payload: JsonObject): JsonObject {
+        // As with the native channel, a child's private turn stays in the agent.
+        if (payload.has("subagent")) return JsonObject()
+        val input = payload.getAsJsonObject("tool_input") ?: return JsonObject()
+        val nonce = UUID.randomUUID().toString()
+        val event = FoxxyCodeEditEvent(
+            type = "tool_execute",
+            toolCallId = payload.get("tool_use_id")?.asString.orEmpty(),
+            sessionId = payload.get("session_id")?.asString.orEmpty(),
+            path = "",
+            before = "",
+            after = "",
+            tool = payload.get("tool_name")?.asString.orEmpty(),
+            args = input.toString(),
+            nonce = nonce,
+            hook = true,
+            cwd = payload.get("cwd")?.asString.orEmpty(),
+        )
+        val done = CountDownLatch(1)
+        var answer = JsonObject()
+        hookResponders[nonce] = { outcome ->
+            answer = hookAnswer(outcome)
+            done.countDown()
+        }
+        execute(event)
+        if (!done.await(55, TimeUnit.SECONDS)) {
+            hookResponders.remove(nonce)
+            expiredHookCalls.add(nonce)
+            return hookAnswer(failed("IDE execution timed out; check its effect before retrying"))
+        }
+        return answer
+    }
+
+    private fun hookAnswer(outcome: Outcome): JsonObject {
+        if (outcome.status != "handled") return JsonObject()
+        return JsonObject().apply {
+            add("hookSpecificOutput", JsonObject().apply {
+                addProperty("hookEventName", "ToolExecute")
+                addProperty("handled", true)
+                outcome.error?.let { addProperty("toolError", it) }
+                    ?: addProperty("toolResult", outcome.output.orEmpty())
+            })
+        }
+    }
+
     /** Runs on the SSE reader thread; the document work hops to the EDT. */
     fun execute(ev: FoxxyCodeEditEvent) {
         ApplicationManager.getApplication().invokeLater {
+            if (ev.hook && expiredHookCalls.remove(ev.nonce)) return@invokeLater
             if (project.isDisposed) {
                 respond(ev, notHandled())
                 return@invokeLater
@@ -139,7 +199,8 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         }
     }
 
-    private fun run(ev: FoxxyCodeEditEvent) {
+    private fun run(input: FoxxyCodeEditEvent) {
+        var ev = input
         val settings = FoxxyCodeSettings.getInstance().state
         if (!settings.ideToolExecution) {
             respond(ev, notHandled())
@@ -178,6 +239,14 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                     respond(ev, notHandled())
                     return
                 }
+            }
+        }
+        if (ev.hook && ev.tool in setOf("write", "edit", "apply_patch")) {
+            try {
+                ev = prepareHookPreview(ev)
+            } catch (e: Throwable) {
+                respond(ev, failed(e.message ?: "could not prepare the IDE edit"))
+                return
             }
         }
         val path = ev.path.trim()
@@ -221,6 +290,21 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         }
     }
 
+    /** ToolExecute has no preview, so the IDE computes it from its own decoded document. */
+    private fun prepareHookPreview(ev: FoxxyCodeEditEvent): FoxxyCodeEditEvent {
+        val args = JsonParser.parseString(ev.args).asJsonObject
+        val rawPath = args.get("path")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        if (rawPath.isBlank()) throw IllegalArgumentException("${ev.tool}: path is required")
+        val path = resolveInProject(rawPath, ev.cwd)
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
+        if (vf != null && vf.isDirectory) throw IllegalArgumentException("${ev.tool}: $path is a directory")
+        val document = vf?.let { FileDocumentManager.getInstance().getDocument(it) }
+        if (vf != null && document == null) throw IllegalArgumentException("no text document for $path")
+        val before = document?.immutableCharSequence?.toString().orEmpty()
+        val after = HookEditTransform.apply(ev.tool, ev.args, before)
+        return ev.copy(path = path.toString(), before = before, after = after)
+    }
+
     /**
      * Foreground `run_command` runs in an IDE terminal (see
      * [dev.foxxycode.intellij.terminal.FoxxyCodeTerminalCommandRunner]); anything the
@@ -244,7 +328,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         val waitMs = (if (timeoutSeconds > 0) timeoutSeconds else MAX_DELEGATED_COMMAND_SECONDS) * 1000L
         ApplicationManager.getApplication().executeOnPooledThread {
             val r = try {
-                FoxxyCodeTerminalCommandRunner.run(project, command, project.basePath, waitMs)
+                FoxxyCodeTerminalCommandRunner.run(project, command, ev.cwd.ifBlank { project.basePath }, waitMs)
             } catch (t: Throwable) {
                 log.warn("run_command terminal failed", t)
                 FoxxyCodeTerminalCommandRunner.Result(handled = false)
@@ -273,7 +357,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         // own - relative ones resolve against the session workspace, which the
         // backend was started with as its cwd.
         val vf = try {
-            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(resolveInProject(path))
+            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(resolveInProject(path, ev.cwd))
         } catch (e: Exception) {
             null
         }
@@ -313,18 +397,18 @@ class FoxxyCodeToolExecutor(private val project: Project) {
 
     private fun vfsOpLocked(ev: FoxxyCodeEditEvent, args: com.google.gson.JsonObject): String {
         val lfs = LocalFileSystem.getInstance()
-        fun str(key: String) = args.get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        fun required(key: String) = VfsArgs.required(args, key, ev.tool)
         fun bool(key: String) = args.get(key)?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
-        fun resolve(p: String) = resolveInProject(p)
+        fun resolve(p: String) = resolveInProject(p, ev.cwd)
         return when (ev.tool) {
             "mkdir" -> {
-                val target = resolve(str("path"))
-                val created = VfsUtil.createDirectoryIfMissing(target.toString())
+                val target = resolve(required("path"))
+                VfsUtil.createDirectoryIfMissing(target.toString())
                     ?: throw IllegalStateException("mkdir: cannot create $target")
                 "created directory $target"
             }
             "touch" -> {
-                val target = resolve(str("path"))
+                val target = resolve(required("path"))
                 val vf = lfs.refreshAndFindFileByNioFile(target)
                 if (vf != null && !vf.isDirectory) {
                     vf.setBinaryContent(vf.contentsToByteArray())
@@ -342,7 +426,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 }
             }
             "rm" -> {
-                val target = resolve(str("path"))
+                val target = resolve(required("path"))
                 val vf = lfs.refreshAndFindFileByNioFile(target)
                     ?: throw IllegalStateException("rm: $target not found")
                 val recursive = bool("recursive")
@@ -354,8 +438,8 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 if (tree) "removed tree $target" else "removed $target"
             }
             "mv" -> {
-                val src = resolve(str("src"))
-                val dst = resolve(str("dst"))
+                val src = resolve(required("src"))
+                val dst = resolve(required("dst"))
                 val vf = lfs.refreshAndFindFileByNioFile(src)
                     ?: throw IllegalStateException("mv: $src not found")
                 VfsUtil.createDirectoryIfMissing(dst.parent.toString())
@@ -380,8 +464,8 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     }
 
     /** A tool's own path is relative to the session workspace (the backend's cwd). */
-    private fun resolveInProject(p: String): Path =
-        Path.of(project.basePath ?: ".").resolve(p).normalize()
+    private fun resolveInProject(p: String, cwd: String = ""): Path =
+        Path.of(cwd.ifBlank { project.basePath ?: "." }).resolve(p).normalize()
 
     /** VfsUtil.deleteRecursively is not on the 2022.2 floor; plain VirtualFile recursion is. */
     private fun deleteRecursively(vf: com.intellij.openapi.vfs.VirtualFile) {
@@ -427,6 +511,11 @@ class FoxxyCodeToolExecutor(private val project: Project) {
 
     private fun respond(ev: FoxxyCodeEditEvent, outcome: Outcome) {
         if (ev.nonce.isBlank()) return
+        if (ev.hook) {
+            expiredHookCalls.remove(ev.nonce)
+            hookResponders.remove(ev.nonce)?.invoke(outcome)
+            return
+        }
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
         val url = (if (base.endsWith("/")) base else "$base/") + "foxxycode/ide/tool-result"
         val body = JsonObject().apply {

@@ -382,3 +382,9 @@ fired on the agent side (`tools.NotifyPlanWrite`), and `mkdir`/`rm`/`mv`/
 `touch` run as IDE filesystem operations with the agent's own result strings.
 Every delegated tool has a per-tool switch in the plugin settings. Still
 unbuilt: the VS Code port and the ACP `RequestToolExecution` parity of 8.2.
+
+## 11. Coddy interop (2026-11-16)
+
+Upstream PR coddy-project/coddy-agent#691 landed the generic route considered in section 9: synchronous `ToolExecute` after `PreToolUse` and the permission gate, `FirstPrompt` context in the turn-scoped block, and corrected `Question`/`TurnEnd` lifecycle semantics. FoxxyCode ports that contract and keeps its native IDE channel for FoxxyCode backends.
+
+The IntelliJ plugin can also launch Coddy 1.4.16 or newer as the binary override. Since `ToolExecute` carries no `before`/`after`, the plugin computes an edit preview from IntelliJ's decoded document before applying the same write/edit/patch transforms. A small dependency-free Java process forwards hook stdin to a token-protected loopback endpoint of the IDE; managed handlers are added to the selected Coddy home's user-scope `hooks.json` without replacing other hooks. Coddy has no native IDE event API, so its editor-state and native-diff features are not emulated.

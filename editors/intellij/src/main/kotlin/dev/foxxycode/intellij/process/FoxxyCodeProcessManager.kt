@@ -20,8 +20,10 @@ import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
 import dev.foxxycode.intellij.binary.FoxxyCodeBinaryResolver
+import dev.foxxycode.intellij.hooks.FoxxyCodeHookService
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import dev.foxxycode.intellij.ui.FoxxyCodeLanguageListener
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.concurrent.CancellationException
@@ -44,6 +46,10 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
 
     @Volatile
     var baseUrl: String? = null
+        private set
+
+    @Volatile
+    var backendKind: BackendKind = BackendKind.FOXXYCODE
         private set
 
     val isRunning: Boolean
@@ -103,6 +109,10 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         indicator.text = FoxxyCodeBundle.message("process.indicator.staging")
         val binary = FoxxyCodeBinaryResolver.resolveForLaunch()
             ?: throw IllegalStateException(FoxxyCodeBundle.message("process.error.binaryNotFound"))
+        backendKind = FoxxyCodeBinaryResolver.detect(binary)
+        if (backendKind == BackendKind.CODDY) {
+            FoxxyCodeHookService.getInstance(project).start(coddyHome(settings.foxxycodeHome))
+        }
 
         val host = settings.host.ifBlank { "127.0.0.1" }
         val port = PortUtil.pick(settings.fixedPort)
@@ -115,12 +125,15 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
             throw IllegalStateException(FoxxyCodeBundle.message("process.error.portInUse", port.toString()))
         }
 
+        val command = if (backendKind == BackendKind.CODDY) "serve" else "http"
         val cmd = GeneralCommandLine(binary.absolutePath)
-            .withParameters("http", "-H", host, "-P", port.toString())
+            .withParameters(command, "-H", host, "-P", port.toString())
         project.basePath?.let { cmd.addParameters("--cwd", it) }
         if (settings.foxxycodeHome.isNotBlank()) cmd.addParameters("--home", settings.foxxycodeHome)
-        // Panels default to guarded planning: the model may not leave plan mode itself.
-        cmd.addParameters("--plan-no-self-run=" + settings.planNoSelfRun)
+        // Coddy serve has no plan-no-self-run flag; FoxxyCode panels default to guarded planning.
+        if (backendKind == BackendKind.FOXXYCODE) {
+            cmd.addParameters("--plan-no-self-run=" + settings.planNoSelfRun)
+        }
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
         stage("proxy_resolution_start")
         val proxy = ProxyEnvironment.resolveProxyEnvironment()
@@ -192,6 +205,14 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         return url
     }
 
+    private fun coddyHome(configured: String): File {
+        val raw = configured.ifBlank { System.getenv("CODDY_HOME").orEmpty() }
+        if (raw.isBlank()) return File(System.getProperty("user.home"), ".coddy")
+        val file = File(raw)
+        if (file.isAbsolute) return file
+        return File(project.basePath ?: System.getProperty("user.home"), raw)
+    }
+
     /**
      * Fetch `ui.locale` from the backend config (the single app-wide language
      * source) and adopt it before the browser panel loads, so its `?lang=` and
@@ -201,7 +222,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
      */
     private fun adoptBackendLocale(url: String) {
         val locale = try {
-            val conn = URI.create(url + "foxxycode/config").toURL().openConnection() as HttpURLConnection
+            val conn = URI.create(url + backendKind.apiPrefix + "/config").toURL().openConnection() as HttpURLConnection
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.requestMethod = "GET"
@@ -351,7 +372,10 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         launchGate.cancel(close = true) { signalStop() }
         // Project close and plugin unload both land here on the EDT, so the wait moves to a
         // pooled thread - but it has to happen: an unwaited backend outlives the IDE on Windows.
-        ApplicationManager.getApplication().executeOnPooledThread { awaitTerminated(DISPOSE_WAIT_MS) }
+        ApplicationManager.getApplication().executeOnPooledThread {
+            FoxxyCodeHookService.getInstance(project).stop()
+            awaitTerminated(DISPOSE_WAIT_MS)
+        }
     }
 
     companion object {

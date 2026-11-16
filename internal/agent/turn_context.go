@@ -34,14 +34,19 @@ const (
 // written once, where it is not sent again on every later step
 // (rules_activation.go). A volatile template under prompts.dir prints the clock
 // and the checklist into the system message itself and is re-rendered per
-// step, so its block carries the memory report alone, and nothing at all when
-// there is none; the caller then sends the history alone.
+// step; its trailing block still carries the other applicable sections,
+// including one-time FirstPrompt enrichment.
 func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
 		// No template prints these two, so a volatile one gets them here too.
 		var sections []string
 		for _, section := range []string{a.gitWorkspaceSection(), a.memoryTurnContextSection(), a.backgroundTasksSection()} {
 			if section != "" {
+				sections = append(sections, section)
+			}
+		}
+		if len(a.firstPromptContext) > 0 {
+			if section := hookContextText(a.firstPromptContext); section != "" {
 				sections = append(sections, section)
 			}
 		}
@@ -74,6 +79,12 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 
 	if section := a.backgroundTasksSection(); section != "" {
 		parts = append(parts, section)
+	}
+
+	if len(a.firstPromptContext) > 0 {
+		if section := hookContextText(a.firstPromptContext); section != "" {
+			parts = append(parts, section)
+		}
 	}
 
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +

@@ -160,6 +160,12 @@ type Agent struct {
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
 	// turn's system prompt (hooks.go).
 	turnHookContext string
+	// firstPromptContext is one-time session enrichment carried in the
+	// turn-scoped context block instead of the cached system prompt.
+	firstPromptContext []string
+	// turnEndAssistantText is the last non-empty answer produced by this Run.
+	// Unlike a transcript index it remains valid when compaction rewrites history.
+	turnEndAssistantText string
 	// autoCompactSkipLogged records that this turn already logged an
 	// automatic compaction with nothing to fold (compact.go).
 	autoCompactSkipLogged bool
@@ -272,19 +278,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		}()
 	}
 	mode := a.state.EffectiveMode()
+	// Hook definitions are re-read for every turn.
+	a.resetHooks()
+	hasTurnEnd := a.hooksFor(mode) != nil && a.hooksFor(mode).HasHandlers(hooks.EventTurnEnd)
+	a.turnEndAssistantText = ""
 	// TurnEnd: the turn is over and the agent waits for the user's next
 	// message - the notification source ("the agent is done"). Registered
-	// early so it fires on every way out of the turn.
+	// early so it fires on every way out of the turn. Without a handler there
+	// is no reason to copy the transcript at either boundary.
 	defer func() {
-		a.runTurnEndHooks(ctx, mode, turnStop, lastAssistantText(a.state))
+		if hasTurnEnd {
+			a.runTurnEndHooks(context.WithoutCancel(ctx), mode, turnStop, a.turnEndAssistantText)
+		}
 	}()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
 	a.limitLedger = &limitWaitLedger{}
-	// Hook definitions are re-read for every turn.
-	a.resetHooks()
 	a.hookStopReason = ""
 	a.turnHookContext = ""
+	a.firstPromptContext = nil
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -1735,7 +1747,7 @@ func (a *Agent) runReActLoop(
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 					}
 					messages = append(messages, assistantMsg)
-					a.state.AddMessage(assistantMsg)
+					a.addAssistantMessage(assistantMsg)
 					if len(completeCalls) > 0 {
 						// The response never reached the execution loop, so every
 						// announced call is still unstarted. Keep the assistant
@@ -1873,7 +1885,7 @@ func (a *Agent) runReActLoop(
 			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		}
 		messages = append(messages, assistantMsg)
-		a.state.AddMessage(assistantMsg)
+		a.addAssistantMessage(assistantMsg)
 		if stored := a.state.GetMessages(); len(stored) > 0 {
 			if markers := session.ArtifactMarkers(stored[len(stored)-1].Artifacts); markers != "" {
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
@@ -2118,6 +2130,13 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+			// A ToolExecute hook answered continue:false. Close the rest of the
+			// batch without executing it, then end the turn with the hook's reason.
+			if reason := a.hookStopReason; reason != "" {
+				a.hookStopReason = ""
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i+1:], "not executed: a hook stopped the turn")
+				return string(acp.StopReasonRefused), fmt.Errorf("stopped by hook: %s", reason)
+			}
 			checkpoint.LastTool = tc.Name
 			observations = append(observations, session.ObservationHash(tc.Name, tc.InputJSON, toolResultMsg.Content))
 		}
@@ -2290,7 +2309,7 @@ func (a *Agent) persistLoopAbortedMessage(
 		Model:               model,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 	}
-	a.state.AddMessage(msg)
+	a.addAssistantMessage(msg)
 	if len(toolCalls) > 0 {
 		a.recordSkippedToolCalls(nil, toolCalls, toolCallInterruptedResult)
 	}
@@ -2647,17 +2666,33 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	var execErr error
 	started := time.Now()
 
-	// The question tool is about to ask its questions: the Question hooks are
-	// the notification source carrying them (and their options) outward.
-	if tc.Name == "question" {
-		a.runQuestionHooks(ctx, mode, tc)
+	if external, ran := a.runToolExecuteHooks(ctx, tc, mode); ran {
+		switch {
+		case external.Stop:
+			a.hookStopReason = stopReasonOr(external.StopReason)
+			result := "the turn was stopped by a hook: " + a.hookStopReason
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		case external.Blocked():
+			result := "blocked by hook: " + reasonOr(external.Reason, "blocked by a hook")
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		case external.Handled:
+			if msg := strings.TrimSpace(external.ToolError); msg != "" {
+				execErr = tools.ApplyOutputLimitError(errors.New(msg), tc.Name, env)
+			} else {
+				result = tools.ApplyOutputLimit(external.ToolResult, tc.Name, env)
+			}
+			return a.completeToolCall(ctx, sessionDir, sessionID, tc, hookRes, mode, result, execErr, time.Since(started), turn)
+		case ctx.Err() != nil:
+			result := "cancelled before the tool ran"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
 	}
 
-	// A connected client that can execute this call - an IDE plugin running
-	// it through the editor - gets it before the local dispatch. MCP names are
-	// offered too: the client sees the name exactly as the model called it. A
-	// client that declines (or cannot be reached) leaves the call to the
-	// dispatch below.
+	// A connected IDE client gets the call after the generic external-execution
+	// hooks and before local dispatch. A declined call still runs locally.
 	if handled, dres, derr := a.tryDelegateToolCall(ctx, tc, env, sessionID); handled {
 		result, execErr = dres, derr
 		if execErr == nil {
@@ -2677,13 +2712,23 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
 		}
 	} else {
+		// Question hooks fire only when the local tool will actually ask it.
+		if tc.Name == "question" {
+			a.runQuestionHooks(ctx, mode, tc)
+		}
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
 	}
+	return a.completeToolCall(ctx, sessionDir, sessionID, tc, hookRes, mode, result, execErr, time.Since(started), turn)
+}
 
+// completeToolCall closes one tool call: PostToolUse feedback and the
+// PreToolUse context travel with the result, then the outcome is persisted and
+// announced. Shared by a local run and a ToolExecute handler's external run.
+func (a *Agent) completeToolCall(ctx context.Context, sessionDir, sessionID string, tc llm.ToolCall, hookRes preToolUseOutcome, mode string, result string, execErr error, ranFor time.Duration, turn int) (string, error) {
 	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
 	// context travel with the result, so the model reads them next to the
 	// output they refer to.
-	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, time.Since(started), mode); feedback != "" {
+	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, ranFor, mode); feedback != "" {
 		if execErr != nil {
 			execErr = fmt.Errorf("%w\n\n%s", execErr, feedback)
 		} else {

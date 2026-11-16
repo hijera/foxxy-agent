@@ -7,7 +7,11 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-15
+## Unreleased — 2026-11-16
+
+**Coddy as the alternative binary.** The binary path can point to Coddy 1.4.16 or newer. The plugin connects tool execution through the editor and open-buffer context through the synchronous `ToolExecute` and `FirstPrompt` hooks without replacing the user's Coddy hooks.
+
+**External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
 
 **Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
 
@@ -89,8 +93,6 @@ file edits through the editor", is on by default in Settings | Tools |
 FoxxyCode; turned off, everything works as before with the agent writing the
 file. When the editor holds unsaved changes or the buffer diverged from the
 file, the agent gets a conflict, re-reads the file and overwrites nothing.
-
-## 0.3.39 — 2026-10-30
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

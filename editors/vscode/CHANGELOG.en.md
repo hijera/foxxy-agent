@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-11-16
 
+**External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
+
 **Hooks for notifications.**
 New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
 

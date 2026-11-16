@@ -44,6 +44,7 @@ type hooksFeatureState struct {
 	sess            *session.State
 	client          *recordingClient
 	provider        *scriptedProvider
+	providerFactory func() llm.Provider
 	permMode        string
 	trustPolicy     string
 	stopLoopLimit   int
@@ -108,6 +109,10 @@ func (s *hooksFeatureState) hookAllows(event, matcher string) error {
 	return s.addHook(event, matcher, hooktest.Handler("allow"))
 }
 
+func (s *hooksFeatureState) hookAsks(event, matcher string) error {
+	return s.addHook(event, matcher, hooktest.Handler("ask"))
+}
+
 func (s *hooksFeatureState) hookSilent(event, matcher string) error {
 	return s.addHook(event, matcher, hooktest.Handler("silent"))
 }
@@ -118,6 +123,10 @@ func (s *hooksFeatureState) hookRewrites(event, matcher, command string) error {
 
 func (s *hooksFeatureState) hookAddsContext(event, matcher, text string) error {
 	return s.addHook(event, matcher, hooktest.Handler("context", text))
+}
+
+func (s *hooksFeatureState) hookHandles(event, matcher, result string) error {
+	return s.addHook(event, matcher, hooktest.Handler("handle", result))
 }
 
 func (s *hooksFeatureState) hookRecords(event, matcher string) error {
@@ -165,7 +174,12 @@ func (s *hooksFeatureState) agentSessionWithPermission(mode string) error {
 	provider := &scriptedProvider{}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(s.cfg, st, snd, slog.Default())
-		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return provider, nil })
+		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) {
+			if s.providerFactory != nil {
+				return s.providerFactory(), nil
+			}
+			return provider, nil
+		})
 		return loop.Run(ctx, prompt)
 	}
 	s.mgr = session.NewManager(s.cfg, s.client, runner, slog.Default(), s.cwd, s.store)
@@ -410,9 +424,11 @@ func initializeHooksScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that denies commands containing "([^"]*)"$`, s.hookDenies)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that allows every call$`, s.hookAllows)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that asks for permission$`, s.hookAsks)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that exits without a decision$`, s.hookSilent)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that rewrites the command to "([^"]*)"$`, s.hookRewrites)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that adds the context "([^"]*)"$`, s.hookAddsContext)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that handles the call with the result "([^"]*)"$`, s.hookHandles)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that records its stdin$`, s.hookRecords)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that exits with code 2 and prints "([^"]*)" to stderr$`, s.hookExitsTwo)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that shows the message "([^"]*)"$`, s.hookShowsMessage)
@@ -706,6 +722,45 @@ func (s *hooksFeatureState) systemPromptContains(text string) error {
 	return nil
 }
 
+func (s *hooksFeatureState) systemPromptLacks(text string) error {
+	s.provider.mu.Lock()
+	reqs := append([][]llm.Message(nil), s.provider.requests...)
+	s.provider.mu.Unlock()
+	if len(reqs) == 0 {
+		return fmt.Errorf("the model was never called")
+	}
+	last := reqs[len(reqs)-1]
+	if len(last) == 0 || last[0].Role != llm.RoleSystem {
+		return fmt.Errorf("the last request has no system message")
+	}
+	if strings.Contains(last[0].Content, text) {
+		return fmt.Errorf("system prompt unexpectedly carries %q", text)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) modelRequestContains(text string) error {
+	s.provider.mu.Lock()
+	reqs := append([][]llm.Message(nil), s.provider.requests...)
+	s.provider.mu.Unlock()
+	if len(reqs) == 0 {
+		return fmt.Errorf("the model was never called")
+	}
+	for _, message := range reqs[len(reqs)-1] {
+		if strings.Contains(message.Content, text) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the last model request lacks %q", text)
+}
+
+func (s *hooksFeatureState) modelRequestLacks(text string) error {
+	if err := s.modelRequestContains(text); err == nil {
+		return fmt.Errorf("the last model request unexpectedly carries %q", text)
+	}
+	return nil
+}
+
 func (s *hooksFeatureState) modelAnswersThenAnswers(first, second string) error {
 	return s.runPrompt("go", answerStep(first), answerStep(second))
 }
@@ -878,6 +933,9 @@ func initializeHooksTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript holds a user message "([^"]*)"$`, s.transcriptHoldsUser)
 	sc.Step(`^the transcript ends with the assistant answer "([^"]*)"$`, s.transcriptEndsWithAssistant)
 	sc.Step(`^the model's system prompt contains "([^"]*)"$`, s.systemPromptContains)
+	sc.Step(`^the model's system prompt does not contain "([^"]*)"$`, s.systemPromptLacks)
+	sc.Step(`^the model's request contains "([^"]*)"$`, s.modelRequestContains)
+	sc.Step(`^the model's request does not contain "([^"]*)"$`, s.modelRequestLacks)
 	sc.Step(`^the turn ended with the stop reason "([^"]*)"$`, s.turnEndedWith)
 	sc.Step(`^the session bundle records the hook context "([^"]*)"$`, s.bundleRecordsHookContext)
 	sc.Step(`^the transcript was not compacted$`, s.transcriptNotCompacted)

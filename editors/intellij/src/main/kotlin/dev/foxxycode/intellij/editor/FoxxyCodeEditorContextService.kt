@@ -112,6 +112,31 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         post(url, body)
     }
 
+    /** FirstPrompt context for Coddy, whose backend has no FoxxyCode editor-state route. */
+    fun firstPromptContext(): String {
+        if (project.isDisposed || !FoxxyCodeSettings.getInstance().state.trackOpenFiles) return ""
+        var payload: JsonObject? = null
+        val capture = {
+            if (!project.isDisposed) {
+                val fem = FileEditorManager.getInstance(project)
+                val open = fem.openFiles.filter { it.fileSystem is LocalFileSystem }.map { it.path }
+                val active = fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.path ?: ""
+                val ordered = LinkedHashSet<String>()
+                if (active.isNotBlank()) ordered.add(active)
+                ordered.addAll(open)
+                payload = JsonObject().apply {
+                    add("openFiles", JsonArray().apply { ordered.forEach { add(it) } })
+                    addProperty("activeFile", active)
+                    currentSelection(fem)?.let { add("selection", it) }
+                    add("buffers", openBuffers(fem))
+                }
+            }
+        }
+        if (ApplicationManager.getApplication().isDispatchThread) capture() else ApplicationManager.getApplication().invokeAndWait(capture)
+        val body = payload ?: return ""
+        return "<foxxycode_ide_context>\n$body\n</foxxycode_ide_context>"
+    }
+
     /**
      * The document text of every open local buffer, the active one first; capped
      * like the backend (8 KiB per buffer, 8 buffers) so the POST stays small.

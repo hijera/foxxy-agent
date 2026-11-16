@@ -196,3 +196,9 @@ func NotificationEvent(kind, message string, fields map[string]interface{}) Even
 	}
 	return ev
 }
+
+// FirstPromptEvent builds the FirstPrompt event for the first prompt text of
+// a session - the same payload as UserPromptSubmit, one turn earlier in life.
+func FirstPromptEvent(prompt string) Event {
+	return Event{Name: EventFirstPrompt, Fields: map[string]interface{}{"prompt": prompt}}
+}
