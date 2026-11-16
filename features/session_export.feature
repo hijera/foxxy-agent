@@ -164,3 +164,14 @@ Feature: A chat can be exported to different document formats
     Given a chat with only a user question
     When the editor panel exports the chat to a file as json
     Then the export request is rejected with status 404
+
+
+  Scenario Outline: Shared file placement stays in the chat rather than its export
+    Given a chat whose answer includes a shared file card
+    When the panel exports the chat as <format>
+    Then the export keeps the answer without file placement markers
+
+    Examples:
+      | format |
+      | html   |
+      | json   |

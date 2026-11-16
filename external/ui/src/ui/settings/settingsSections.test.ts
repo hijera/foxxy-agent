@@ -12,7 +12,6 @@ const rootSchema: JsonSchema = {
     "agent",
     "tools",
     "subagents",
-    "mcp_servers",
     "skills",
     "memory",
     "scheduler",
@@ -29,7 +28,6 @@ const rootSchema: JsonSchema = {
     agent: { type: "object", title: "ReAct agent", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
     subagents: { type: "object", title: "Subagents", properties: {} },
-    mcp_servers: { type: "array", title: "MCP servers", items: { type: "object" } },
     skills: { type: "object", title: "Skills", properties: {} },
     memory: { type: "object", title: "Long-term memory", properties: {} },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
@@ -53,8 +51,8 @@ test("derives tabs in schema order with General and Appearance first and System 
     "models",
     "agent",
     "tools",
-    "subagents",
     "mcp_servers",
+    "subagents",
     "skills",
     "memory",
     "scheduler",
@@ -77,6 +75,18 @@ test("array sections carry their label field", () => {
   expect(byId.models!.labelField).toBe("model");
 });
 
+// The logger and the messenger gateways are features with tabs of their own.
+test("the logger and the gateways are tabs of their own, out of System", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.logger?.kind).toBe("object");
+  expect(byId.logger?.label).toBe("Logger");
+  expect(byId.gateways?.kind).toBe("object");
+  expect(byId.gateways?.label).toBe("Gateways");
+  expect(byId.gateways?.description).toBe("Telegram and Pachca bots");
+});
+
 test("mcp_servers is its own managed tab", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
@@ -93,6 +103,15 @@ test("subagents is a hybrid tab that keeps its schema key", () => {
   );
   expect(byId.subagents!.kind).toBe("subagents");
   expect(byId.subagents!.schemaKey).toBe("subagents");
+});
+
+// The servers live in mcp.json files, not in the settings document, so no
+// schema property names the tab: it follows Tools.
+test("the MCP servers tab follows Tools though no schema property names it", () => {
+  const sections = deriveSettingsSections(rootSchema);
+  const ids = sections.map((s) => s.id);
+  expect(ids.indexOf("mcp_servers")).toBe(ids.indexOf("tools") + 1);
+  expect(sections.find((s) => s.id === "mcp_servers")?.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {

@@ -5,6 +5,9 @@ package platform
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +16,7 @@ const (
 	treeProbeEnv    = "FOXXYCODE_PROCTREE_PROBE"
 	treeProbeParent = "parent"
 	treeProbeChild  = "child"
+	treeProbeReady  = "FOXXYCODE_PROCTREE_READY"
 )
 
 // TestProcessTreeProbeHelper is not a test of its own: it is the tree the tests
@@ -24,11 +28,18 @@ func TestProcessTreeProbeHelper(t *testing.T) {
 	if role == "" {
 		t.Skip("child half of the process tree tests")
 	}
-	if role == treeProbeParent {
+	switch role {
+	case treeProbeParent:
 		child := exec.Command(os.Args[0], "-test.run", "^TestProcessTreeProbeHelper$") // #nosec G204 -- the test binary itself
 		child.Env = append(os.Environ(), treeProbeEnv+"="+treeProbeChild)
 		if err := child.Start(); err != nil {
 			t.Fatalf("spawn the child half: %v", err)
+		}
+	case treeProbeChild:
+		if path := os.Getenv(treeProbeReady); path != "" {
+			if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+				t.Fatalf("report child readiness: %v", err)
+			}
 		}
 	}
 	time.Sleep(2 * time.Minute)
@@ -42,8 +53,9 @@ func TestProcessTreeProbeHelper(t *testing.T) {
 func startProbeTree(t *testing.T) *exec.Cmd {
 	t.Helper()
 
+	ready := filepath.Join(t.TempDir(), "child-ready")
 	cmd := exec.Command(os.Args[0], "-test.run", "^TestProcessTreeProbeHelper$") // #nosec G204 -- the test binary itself
-	cmd.Env = append(os.Environ(), treeProbeEnv+"="+treeProbeParent)
+	cmd.Env = append(os.Environ(), treeProbeEnv+"="+treeProbeParent, treeProbeReady+"="+ready)
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
@@ -57,15 +69,28 @@ func startProbeTree(t *testing.T) *exec.Cmd {
 		leftovers.TerminateSurvivors()
 	})
 
-	// The leader spawns its child as the first thing it does, but "first thing"
-	// still trails a Go test binary's own start-up, so wait for the tree to
-	// actually be two deep rather than racing it.
+	// A console host can appear before the real helper finishes initialization.
+	// Wait for that helper's own ready PID, not just any descendant, or reaping
+	// the leader also reaps its console host and makes WaitExit pass too early.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(ready)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		childPID, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
 		tree := CaptureProcessTree(cmd.Process.Pid)
-		captured := len(tree.procs)
+		captured := false
+		for _, p := range tree.procs {
+			captured = captured || p.pid == childPID
+		}
 		tree.Release()
-		if captured > 0 {
+		if captured {
 			return cmd
 		}
 		time.Sleep(50 * time.Millisecond)

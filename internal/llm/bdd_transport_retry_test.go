@@ -224,7 +224,7 @@ func (s *transportRetryState) aProviderWhoseFirstTLSHandshakeStalls() error {
 	// failure stays the very one a stalled network produces.
 	transport.TLSHandshakeTimeout = 200 * time.Millisecond
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
@@ -254,7 +254,7 @@ func (s *transportRetryState) aProviderWhoseUpstreamResetsFirstH2Stream() error 
 	srv.StartTLS()
 	s.server = srv
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, srv.Client(), 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, srv.Client(), 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
@@ -317,7 +317,7 @@ func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection(
 		PingTimeout:     100 * time.Millisecond,
 	}
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,

@@ -295,12 +295,9 @@ func SortSessionList(rows []SessionListEntry, key SortKey, order SortOrder, toke
 	SortSessionListWith(rows, key, order, SortCounters{TokensOf: tokensOf})
 }
 
-// SortCounters supplies the per-session numbers a listing row does not carry.
-// Both live in files of their own - the token totals in stats.json, the message
-// count in the transcript - so the caller hands in a reader only for the column
-// actually being sorted by, and a plain listing opens neither. Upstream keeps
-// the message count on the row; the fork's listing reads session.json alone
-// (TestListSnapshotsDoesNotReadTranscripts), so SortMessages asks for it here.
+// SortCounters supplies optional lazy counters. Tokens live in stats.json;
+// message counts normally come from enriched listing metadata. A caller may
+// override the latter without reading transcripts for unrelated sort keys.
 type SortCounters struct {
 	TokensOf   func(id string) int
 	MessagesOf func(id string) int
@@ -357,7 +354,7 @@ func compareSessionRows(a, b SessionListEntry, key SortKey, tokensOf, messagesOf
 		return compareOptionalTimestamps(a.CreatedAt, b.CreatedAt)
 	case SortMessages:
 		if messagesOf == nil {
-			return 0, true
+			return compareInts(a.MessageCount, b.MessageCount), true
 		}
 		return compareInts(messagesOf(a.SessionID), messagesOf(b.SessionID)), true
 	case SortTokens:

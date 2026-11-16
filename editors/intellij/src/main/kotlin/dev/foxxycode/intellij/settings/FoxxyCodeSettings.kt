@@ -24,6 +24,7 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
         var extraArgs: String = ""
         var firstRunCompleted: Boolean = false
         var followIdeTheme: Boolean = true
+        var stopOnTabClose: Boolean = false
 
         // When true, agent file edits are applied without prompting: the plugin auto-accepts
         // each proposed edit and shows the resulting diff inline (with a Revert affordance).

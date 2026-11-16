@@ -28,6 +28,7 @@ class FoxxyCodeConfigurable : Configurable {
     private val homeField = TextFieldWithBrowseButton()
     private val extraArgsField = JBTextField()
     private val followThemeCheckBox = JBCheckBox()
+    private val stopOnTabCloseCheckBox = JBCheckBox()
     private val nativeDiffsCheckBox = JBCheckBox()
     private val autoApproveCheckBox = JBCheckBox()
     private val ideToolExecutionCheckBox = JBCheckBox()
@@ -82,6 +83,7 @@ class FoxxyCodeConfigurable : Configurable {
             .addLabeledComponent(FoxxyCodeBundle.message("settings.label.extraArgs"), extraArgsField)
             .addSeparator()
             .addComponent(followThemeCheckBox)
+            .addComponent(stopOnTabCloseCheckBox)
             .addSeparator()
             .addComponent(nativeDiffsCheckBox)
             .addComponent(autoApproveCheckBox)
@@ -131,6 +133,7 @@ class FoxxyCodeConfigurable : Configurable {
             homeField.text.trim() != s.foxxycodeHome ||
             extraArgsField.text.trim() != s.extraArgs ||
             followThemeCheckBox.isSelected != s.followIdeTheme ||
+            stopOnTabCloseCheckBox.isSelected != s.stopOnTabClose ||
             nativeDiffsCheckBox.isSelected != s.nativeDiffs ||
             autoApproveCheckBox.isSelected != s.autoApproveEdits ||
             ideToolExecutionCheckBox.isSelected != s.ideToolExecution ||
@@ -154,6 +157,7 @@ class FoxxyCodeConfigurable : Configurable {
         s.foxxycodeHome = homeField.text.trim()
         s.extraArgs = extraArgsField.text.trim()
         s.followIdeTheme = followThemeCheckBox.isSelected
+        s.stopOnTabClose = stopOnTabCloseCheckBox.isSelected
         s.nativeDiffs = nativeDiffsCheckBox.isSelected
         s.autoApproveEdits = autoApproveCheckBox.isSelected
         s.ideToolExecution = ideToolExecutionCheckBox.isSelected
@@ -179,6 +183,8 @@ class FoxxyCodeConfigurable : Configurable {
         homeField.text = s.foxxycodeHome
         extraArgsField.text = s.extraArgs
         followThemeCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.followTheme")
+        stopOnTabCloseCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.stopOnTabClose")
+        stopOnTabCloseCheckBox.toolTipText = FoxxyCodeBundle.message("settings.hint.stopOnTabClose")
         nativeDiffsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.nativeDiffs")
         autoApproveCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.autoApprove")
         ideToolExecutionCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.ideToolExecution")
@@ -193,6 +199,7 @@ class FoxxyCodeConfigurable : Configurable {
         trackTerminalsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackTerminals")
         planNoSelfRunCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.planNoSelfRun")
         followThemeCheckBox.isSelected = s.followIdeTheme
+        stopOnTabCloseCheckBox.isSelected = s.stopOnTabClose
         nativeDiffsCheckBox.isSelected = s.nativeDiffs
         autoApproveCheckBox.isSelected = s.autoApproveEdits
         ideToolExecutionCheckBox.isSelected = s.ideToolExecution

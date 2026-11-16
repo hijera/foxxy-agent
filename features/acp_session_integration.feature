@@ -20,9 +20,14 @@ Feature: ACP session integrations
     Then the current mode update identifies "plan" with "currentModeId"
     And the current mode update does not contain "modeId"
 
-  Scenario: A configured MCP server is connected to the active session
+  Scenario: The read-only ask mode is selectable
+    Given an ACP client has an active session
+    When the client switches the mode to "ask"
+    Then the current mode update identifies "ask" with "currentModeId"
+
+  Scenario: An MCP server added to the home mcp.json is connected to the active session
     Given an active session without configured MCP servers
-    When settings are reloaded with MCP server "settings-probe"
+    When MCP server "settings-probe" is added to the home mcp.json
     Then the current session exposes MCP tool "settings-probe__probe"
 
   Scenario: A workspace's sessions are listed whatever spelling of its path the client sends

@@ -36,7 +36,13 @@ export type WorkspaceContext = {
   svn?: WorkspaceSvn;
 };
 
-export type WorkspaceFolderRow = { name: string; path: string };
+export type WorkspaceFolderRow = {
+  name: string;
+  path: string;
+  hidden?: boolean;
+  symlink?: boolean;
+  target?: string;
+};
 
 export type WorkspaceFolderListing = {
   path: string;

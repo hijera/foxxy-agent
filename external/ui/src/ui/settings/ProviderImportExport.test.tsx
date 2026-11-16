@@ -44,6 +44,7 @@ const rootSchema: JsonSchema = {
 };
 
 function Harness(props: { initial?: unknown[] }) {
+  const [routeItem, setRouteItem] = React.useState<string | null>(null);
   const [doc, setDoc] = React.useState<Record<string, unknown>>({
     providers: props.initial ?? [],
   });
@@ -53,6 +54,8 @@ function Harness(props: { initial?: unknown[] }) {
       schema={rootSchema}
       doc={doc}
       setDoc={setDoc}
+      routeItem={routeItem}
+      onRouteItemChange={setRouteItem}
     />
   );
 }

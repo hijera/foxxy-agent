@@ -42,6 +42,7 @@ class FoxxyCodeTerminalContextService(private val project: Project) : Disposable
 
     /** Begins polling (idempotent). */
     fun startIfNeeded() {
+        lastPayload = null
         if (!started) {
             started = true
             schedule()

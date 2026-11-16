@@ -36,6 +36,8 @@ export type ServerEventHandlers = {
    *  Whoever holds that session - this tab or another - drops the shadow
    *  transcript and stale prompts and reloads the kept prefix. */
   onSessionRewound?: (sessionId: string) => void;
+  /** An interactive question wait started or settled; re-read session rows for its state. */
+  onQuestionPending?: (sessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -63,6 +65,7 @@ export type ServerEvent =
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
+  | { type: "session_question_pending"; sessionId: string }
   | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
 
@@ -176,6 +179,10 @@ export function parseServerEvent(ev: {
         ? { type: "subagent_permission", parentSessionId: parent }
         : null;
     }
+    case "session_question_pending": {
+      const sid = sessionIdOf(ev.data);
+      return sid ? { type: "session_question_pending", sessionId: sid } : null;
+    }
     case "turn_started":
     case "turn_ended":
     case "session_rewound": {
@@ -210,6 +217,9 @@ export function dispatchServerEvent(
       return;
     case "subagent_permission":
       h.onSubagentPermission?.(event.parentSessionId);
+      return;
+    case "session_question_pending":
+      h.onQuestionPending?.(event.sessionId);
       return;
     case "session_rewound":
       h.onSessionRewound?.(event.sessionId);

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 )
 
 // EffectiveSessionCWD resolves the filesystem working directory for a new session.
@@ -71,12 +73,10 @@ func NewWorkspaceScope(root string) func(cwd string) bool {
 	}
 }
 
-// SetSessionWorkspace switches the session working directory and re-derives
-// workspace-scoped state: the configured MCP servers are re-dialed for the new
-// workspace through the trust gate while the previous workspace's are closed,
-// and skills, project rules, the SessionStart hook context and the slash
-// catalog follow the new cwd. The target must be an existing directory. A
-// switch to another spelling of the same workspace only stores the spelling.
+// SetSessionWorkspace switches the session working directory and reloads its
+// skills, rules, hooks and slash catalog. Configured MCP replacement is deferred
+// until explicit activation or the next turn, through the trust gate. The target
+// must exist; another spelling of the same workspace only stores the spelling.
 func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string) error {
 	abs, err := ValidateWorkspaceDir(dir)
 	if err != nil {
@@ -90,7 +90,7 @@ func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string
 		return err
 	}
 	defer unlock()
-	return m.setSessionWorkspaceDuringTurn(ctx, st, abs)
+	return m.setSessionWorkspace(ctx, st, abs, false)
 }
 
 // SetSessionWorkspaceDuringTurn moves a session whose caller owns its turn lock.
@@ -100,13 +100,13 @@ func (m *Manager) SetSessionWorkspaceDuringTurn(ctx context.Context, st *State, 
 	if err != nil {
 		return err
 	}
-	if err := m.setSessionWorkspaceDuringTurn(ctx, st, abs); err != nil {
+	if err := m.setSessionWorkspace(ctx, st, abs, true); err != nil {
 		return err
 	}
 	return st.WaitMCPReady(ctx)
 }
 
-func (m *Manager) setSessionWorkspaceDuringTurn(ctx context.Context, st *State, abs string) error {
+func (m *Manager) setSessionWorkspace(ctx context.Context, st *State, abs string, connect bool) error {
 	prevCWD := st.GetCWD()
 	st.SetCWD(abs)
 	if SameWorkspacePath(prevCWD, abs) {
@@ -114,9 +114,13 @@ func (m *Manager) setSessionWorkspaceDuringTurn(ctx context.Context, st *State, 
 	}
 	// Keep slow MCP handshakes off the request path; the next turn waits for readiness.
 	m.supersedeBackgroundMCP(st)
-	st.replaceConfiguredMCPClients(nil)
 	st.resetMCPNoAnswer()
-	m.startBackgroundMCPConnect(st)
+	if connect {
+		st.replaceConfiguredMCPClients(nil)
+		m.startBackgroundMCPConnect(st)
+	} else {
+		st.markMCPReloadPending()
+	}
 	m.reloadWorkspaceCatalogs(ctx, st)
 	return nil
 }
@@ -136,6 +140,37 @@ func ValidateWorkspaceDir(dir string) (string, error) {
 	return abs, nil
 }
 
+// RecoverManagedWorktreeCWD returns the repository root for a missing path
+// below a managed <repo>/.foxxycode/worktrees/<name> directory. It never recovers
+// arbitrary missing directories: the repository root must exist and be the
+// main checkout of a Git repository.
+func RecoverManagedWorktreeCWD(dir string) (string, bool) {
+	abs, err := filepath.Abs(strings.TrimSpace(dir))
+	if err != nil {
+		return "", false
+	}
+	abs = filepath.Clean(abs)
+	if info, err := os.Stat(abs); err == nil && info.IsDir() {
+		return "", false
+	}
+
+	for child, parent := abs, filepath.Dir(abs); child != parent; child, parent = parent, filepath.Dir(parent) {
+		if filepath.Base(parent) != "worktrees" || filepath.Base(filepath.Dir(parent)) != ".foxxycode" {
+			continue
+		}
+		repo := filepath.Dir(filepath.Dir(parent))
+		info, err := os.Stat(repo)
+		if err != nil || !info.IsDir() {
+			return "", false
+		}
+		if CanonicalWorkspacePath(gitws.MainCheckoutRoot(repo)) != CanonicalWorkspacePath(repo) {
+			return "", false
+		}
+		return repo, true
+	}
+	return "", false
+}
+
 // ReloadSessionWorkspace re-derives workspace-scoped state (configured MCP
 // servers, skills, project rules, SessionStart hook context) after the
 // workspace's files changed under the same cwd - an in-place branch checkout.
@@ -151,16 +186,6 @@ func (m *Manager) ReloadSessionWorkspace(ctx context.Context, st *State) {
 // config reload; a turn holding the lock drains the parked reload on release.
 func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State) {
 	st.markMCPReloadPending()
-	if unlock, err := m.acquirePromptTurnLock(st.GetID(), st); err == nil {
-		applied := true
-		if st.takeMCPReloadPending() {
-			applied = m.applyConfiguredMCPReload(ctx, st)
-		}
-		unlock()
-		if applied {
-			m.drainPendingMCPReload(st.GetID(), st)
-		}
-	}
 
 	m.reloadWorkspaceCatalogs(ctx, st)
 }

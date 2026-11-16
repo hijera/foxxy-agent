@@ -33,7 +33,11 @@ type ProviderConfig struct {
 	Name    string `yaml:"name"`
 	Type    string `yaml:"type"`
 	APIBase string `yaml:"api_base"`
-	APIKey  string `yaml:"api_key"`
+	// UserAgent selects the provider SDK identity (empty, openai, anthropic)
+	// or foxxycode for OpenAI-compatible and Anthropic-compatible providers.
+	// Other provider types keep their own client identity.
+	UserAgent string `yaml:"user_agent,omitempty"`
+	APIKey    string `yaml:"api_key"`
 	// APIKeyCommand is an optional credential-helper command. When api_key is empty,
 	// the command is run via the shell and its trimmed stdout is used as the key
 	// (akin to git/docker credential helpers or AWS credential_process). This lets a
@@ -165,6 +169,7 @@ func (p *ProviderConfig) Normalize() {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Type = strings.TrimSpace(p.Type)
 	p.APIBase = strings.TrimSpace(p.APIBase)
+	p.UserAgent = strings.TrimSpace(p.UserAgent)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
 	p.Proxy = normalizeProxySetting(p.Proxy)
@@ -186,6 +191,9 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if err := validateProviderProxyURL(p.Proxy); err != nil {
 		return fmt.Errorf("providers[%s]: %w", p.Name, err)
+	}
+	if p.UserAgent != "" && p.UserAgent != "openai" && p.UserAgent != "anthropic" && p.UserAgent != "foxxycode" {
+		return fmt.Errorf("providers[%s]: user_agent must be openai, anthropic or foxxycode", p.Name)
 	}
 	if p.TimeoutMS < 0 {
 		return fmt.Errorf("providers[%s]: timeout_ms must be >= 0", p.Name)

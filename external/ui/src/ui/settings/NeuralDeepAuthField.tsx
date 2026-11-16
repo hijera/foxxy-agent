@@ -66,6 +66,8 @@ export function NeuralDeepAuthField(props: {
   /** Notified on every status read; the onboarding picker saves a keyless
    * provider row when the stored login is the credential. */
   onConnectedChange?: (connected: boolean) => void;
+  /** Current unsaved provider proxy; undefined keeps the saved row route. */
+  proxy?: string;
 }) {
   const providerName = props.providerName.trim();
   const apiBase = props.apiBase.trim();
@@ -227,7 +229,10 @@ export function NeuralDeepAuthField(props: {
       const response = await fetch(`${endpoint}/device`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiBase ? { api_base: apiBase } : {}),
+        body: JSON.stringify({
+          ...(apiBase ? { api_base: apiBase } : {}),
+          ...(props.proxy === undefined ? {} : { proxy: props.proxy }),
+        }),
       });
       if (!response.ok) {
         throw new Error(await responseError(response));
@@ -250,7 +255,12 @@ export function NeuralDeepAuthField(props: {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(endpoint, { method: "DELETE" });
+      const response = await fetch(
+        props.proxy === undefined
+          ? endpoint
+          : `${endpoint}?proxy=${encodeURIComponent(props.proxy)}`,
+        { method: "DELETE" },
+      );
       if (!response.ok) {
         throw new Error(await responseError(response));
       }

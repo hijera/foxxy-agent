@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -48,6 +49,9 @@ type TrustRecord struct {
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
 	Source             string `json:"source,omitempty"`
 	ApprovedAt         string `json:"approved_at"`
+	// ReadsEnv names the variables of the FoxxyCode process its values read
+	// (ReadsEnvironment), never their values.
+	ReadsEnv []string `json:"reads_env,omitempty"`
 }
 
 // trustFile is the on-disk layout: canonical workspace path -> approvals.
@@ -145,6 +149,35 @@ func pairsForDigest(n int, at func(int) (string, string)) []string {
 	return out
 }
 
+// ReadsEnvironment names, sorted, the variables of the FoxxyCode process the
+// values of a declaration read when the server starts (${NAME} in its
+// command, arguments, environment values, URL or headers;
+// config.ExpandMCPValue). Every approval surface shows them beside the names
+// of the variables and headers the declaration carries: a project entry that
+// would send ${AWS_SECRET_ACCESS_KEY} in a header says so before anyone
+// approves it, since header values are never displayed.
+func ReadsEnvironment(srv config.MCPServerConfig) []string {
+	values := append([]string{srv.Command, srv.URL}, srv.Args...)
+	for _, e := range srv.Env {
+		values = append(values, e.Value)
+	}
+	for _, h := range srv.Headers {
+		values = append(values, h.Value)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range values {
+		for _, name := range config.MCPValueVariables(v) {
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // keysOf returns the sorted names of name/value pairs, for receipts that must
 // not record secret values.
 func keysOf(n int, at func(int) string) []string {
@@ -172,6 +205,7 @@ func NewTrustRecord(srv config.MCPServerConfig, source string, approvedAt time.T
 		InsecureSkipVerify: srv.InsecureSkipVerify,
 		Source:             source,
 		ApprovedAt:         approvedAt.UTC().Format(time.RFC3339),
+		ReadsEnv:           ReadsEnvironment(srv),
 	}
 }
 
@@ -218,11 +252,15 @@ func (s *TrustStore) Records(workspace string) []TrustRecord {
 
 // Approved reports whether this exact declaration is approved for workspace.
 // A corrupt store reads as "not approved": failing closed is the only safe
-// direction here.
+// direction here. The receipt must also name the variables of the
+// environment the declaration reads: one written before ${NAME} expanded in
+// a project file carries none, so it approved a declaration that read
+// nothing, and one that now sends a variable's value is asked about again.
 func (s *TrustStore) Approved(workspace string, srv config.MCPServerConfig) bool {
 	digest := Fingerprint(srv)
+	reads := ReadsEnvironment(srv)
 	for _, rec := range s.Records(workspace) {
-		if rec.Server == srv.Name && rec.Digest == digest {
+		if rec.Server == srv.Name && rec.Digest == digest && slices.Equal(rec.ReadsEnv, reads) {
 			return true
 		}
 	}

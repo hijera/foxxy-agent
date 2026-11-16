@@ -43,7 +43,9 @@ type Reply = { status?: number; body: unknown };
 /** Stubs fetch with a router over the skills routes; anything unrouted answers an empty list. */
 function stubFetch(route: (url: string, init?: RequestInit) => Reply | undefined) {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const reply = route(String(input), init) ?? { body: { items: [] } };
+    const reply = route(String(input), init) ?? (String(input) === "/foxxycode/skills/sources"
+      ? { body: { entries: [{ kind: "source", source: "EvilFreelancer/rpa-skills", origin: "system", gated: false, trusted: true, status: "ready" }] } }
+      : { body: { items: [] } });
     const status = reply.status ?? 200;
     return {
       ok: status >= 200 && status < 300,
@@ -68,23 +70,12 @@ function searchFor(query: string): HTMLElement {
   return input;
 }
 
-test("with no marketplace source the search points to Remote skill sources", () => {
-  setLocale("ru");
+test("the install search reads the declared marketplaces without a legacy config list", async () => {
   const fetchMock = stubFetch(() => undefined);
-  render(
-    <SkillsSection schema={skillsSchema} value={{ sources: [] }} onChange={() => {}} />,
-  );
-
-  expect(screen.getByTestId("skills-install-no-sources").textContent).toMatch(
-    /Удалённые источники скилов/,
-  );
-
+  render(<SkillsSection schema={skillsSchema} value={{}} onChange={() => {}} />);
   searchFor("demo");
-  const results = screen.getByTestId("skills-install-results");
-  expect(within(results).getByText(/Удалённые источники скилов/)).toBeTruthy();
-  expect(within(results).queryByText("Подходящих скилов не найдено.")).toBeNull();
-  // There is nothing to search yet, so the server is not asked.
-  expect(callsTo(fetchMock, AVAILABLE)).toBe(0);
+  await waitFor(() => expect(callsTo(fetchMock, AVAILABLE)).toBe(1));
+  expect(screen.queryByTestId("skills-install-no-sources")).toBeNull();
 });
 
 test("saved sources that publish nothing say so instead of 'no matches'", async () => {

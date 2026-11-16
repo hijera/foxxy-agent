@@ -16,7 +16,6 @@ type ConfigJSON struct {
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
 	Rules        RulesJSON        `json:"rules,omitempty"`
-	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
@@ -80,6 +79,20 @@ type UIJSON struct {
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
 type GatewaysJSON struct {
 	Telegram TelegramGatewayJSON `json:"telegram,omitempty"`
+	Pachca   PachcaGatewayJSON   `json:"pachca,omitempty"`
+}
+
+// PachcaGatewayJSON mirrors PachcaGatewayConfig.
+type PachcaGatewayJSON struct {
+	Enabled             bool                    `json:"enable,omitempty"`
+	Token               string                  `json:"token,omitempty"`
+	Proxy               string                  `json:"proxy,omitempty"`
+	PollIntervalSeconds int                     `json:"poll_interval_seconds,omitempty"`
+	Admins              []int64                 `json:"admins,omitempty"`
+	DefaultAccess       string                  `json:"default_access,omitempty"`
+	DefaultIsolation    string                  `json:"default_isolation,omitempty"`
+	UserGroups          []TelegramUserGroupJSON `json:"user_groups,omitempty"`
+	Chats               []TelegramChatJSON      `json:"chats,omitempty"`
 }
 
 // TelegramGatewayJSON mirrors TelegramGatewayConfig.
@@ -93,6 +106,13 @@ type TelegramGatewayJSON struct {
 	DefaultIsolation string                  `json:"default_isolation,omitempty"`
 	UserGroups       []TelegramUserGroupJSON `json:"user_groups,omitempty"`
 	Chats            []TelegramChatJSON      `json:"chats,omitempty"`
+	MiniApp          TelegramMiniAppJSON     `json:"mini_app"`
+}
+
+// TelegramMiniAppJSON mirrors TelegramMiniAppConfig.
+type TelegramMiniAppJSON struct {
+	URL        string `json:"url,omitempty"`
+	MenuButton *bool  `json:"menu_button,omitempty"`
 }
 
 // TelegramUserGroupJSON mirrors TelegramUserGroup.
@@ -119,6 +139,7 @@ type ProviderJSON struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	APIBase       string `json:"api_base,omitempty"`
+	UserAgent     string `json:"user_agent,omitempty"`
 	APIKey        string `json:"api_key,omitempty"`
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
@@ -139,8 +160,9 @@ type ModelJSON struct {
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
-	ReasoningLevels  *[]string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string    `json:"reasoning_default,omitempty"`
+	ReasoningLevels   *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault  string    `json:"reasoning_default,omitempty"`
+	AllowReasoningOff bool      `json:"allow_reasoning_off,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
@@ -148,12 +170,12 @@ type ModelJSON struct {
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
 // distinction where an explicit 0 means something different from "unset": the
-// loop-guard counters, llm_retry_max (0 disables retries), and
+// max_turns (0 disables the cap), loop-guard counters, llm_retry_max (0 disables retries), and
 // llm_first_token_timeout_ms (0 disables the silence guard).
 type AgentJSON struct {
 	QueueMode                     string `json:"queue_mode,omitempty"`
 	Model                         string `json:"model"`
-	MaxTurns                      int    `json:"max_turns,omitempty"`
+	MaxTurns                      *int   `json:"max_turns,omitempty"`
 	LLMRetryMax                   *int   `json:"llm_retry_max,omitempty"`
 	LLMRetryBaseMS                int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS              int    `json:"llm_min_interval_ms,omitempty"`
@@ -198,7 +220,7 @@ type PerProviderPromptsJSON struct {
 // SkillsJSON mirrors Skills for JSON APIs.
 type SkillsJSON struct {
 	Dirs          []string `json:"dirs,omitempty"`
-	Sources       []string `json:"sources,omitempty"`
+	ProjectTrust  string   `json:"project_trust,omitempty"`
 	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
 }
 
@@ -206,32 +228,6 @@ type SkillsJSON struct {
 type RulesJSON struct {
 	AutoDiscover *bool    `json:"auto_discover,omitempty"`
 	Systems      []string `json:"systems,omitempty"`
-}
-
-// MCPServerJSON mirrors MCPServerConfig for JSON APIs.
-type MCPServerJSON struct {
-	Type               string           `json:"type,omitempty"`
-	Name               string           `json:"name"`
-	Command            string           `json:"command,omitempty"`
-	Args               []string         `json:"args,omitempty"`
-	Env                []EnvVarJSON     `json:"env,omitempty"`
-	URL                string           `json:"url,omitempty"`
-	Headers            []HTTPHeaderJSON `json:"headers,omitempty"`
-	InsecureSkipVerify bool             `json:"insecure_skip_verify,omitempty"`
-	Disabled           bool             `json:"disabled,omitempty"`
-	DisabledTools      []string         `json:"disabled_tools,omitempty"`
-}
-
-// EnvVarJSON mirrors EnvVarConfig.
-type EnvVarJSON struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-// HTTPHeaderJSON mirrors HTTPHeaderConfig.
-type HTTPHeaderJSON struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
 }
 
 // MCPJSON mirrors MCP for JSON APIs.
@@ -570,7 +566,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Agent = AgentJSON{
 		QueueMode:                     c.Agent.QueueMode,
 		Model:                         c.Agent.Model,
-		MaxTurns:                      c.Agent.MaxTurns,
+		MaxTurns:                      intPtr(c.Agent.MaxTurns),
 		LLMRetryMax:                   c.Agent.LLMRetryMax,
 		LLMRetryBaseMS:                c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:              c.Agent.LLMMinIntervalMS,
@@ -605,28 +601,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
 	out.Skills = SkillsJSON{
 		Dirs:          append([]string(nil), c.Skills.Dirs...),
-		Sources:       append([]string(nil), c.Skills.Sources...),
+		ProjectTrust:  c.Skills.ProjectTrust,
 		AutoDiscovery: c.Skills.AutoDiscovery,
 	}
 	out.Rules = RulesJSON{
 		AutoDiscover: cloneBoolPtr(c.Rules.AutoDiscover),
 		Systems:      append([]string(nil), c.Rules.Systems...),
-	}
-	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{
-			Type: s.Type, Name: s.Name, Command: s.Command,
-			Args: append([]string(nil), s.Args...), URL: s.URL,
-			InsecureSkipVerify: s.InsecureSkipVerify,
-			Disabled:           s.Disabled,
-			DisabledTools:      append([]string(nil), s.DisabledTools...),
-		}
-		for _, e := range s.Env {
-			mj.Env = append(mj.Env, EnvVarJSON(e))
-		}
-		for _, h := range s.Headers {
-			mj.Headers = append(mj.Headers, HTTPHeaderJSON(h))
-		}
-		out.MCPServers = append(out.MCPServers, mj)
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust(), IdleTimeoutSeconds: cloneIntPtr(c.MCP.IdleTimeoutSeconds)}
 	out.Tools = ToolsJSON{
@@ -794,6 +774,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Admins:           append([]int64(nil), tg.Admins...),
 		DefaultAccess:    string(tg.DefaultAccess),
 		DefaultIsolation: string(tg.DefaultIsolation),
+		MiniApp:          TelegramMiniAppJSON{URL: tg.MiniApp.URL, MenuButton: cloneBoolPtr(tg.MiniApp.MenuButton)},
 	}
 	for _, g := range tg.UserGroups {
 		tgJSON.UserGroups = append(tgJSON.UserGroups, TelegramUserGroupJSON{
@@ -805,7 +786,16 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			ChatID: ch.ChatID, Isolation: string(ch.Isolation), Access: string(ch.Access),
 		})
 	}
-	out.Gateways = GatewaysJSON{Telegram: tgJSON}
+	pc := c.Gateways.Pachca
+	pcJSON := PachcaGatewayJSON{
+		Enabled: pc.Enabled, Token: pc.Token, Proxy: pc.Proxy, PollIntervalSeconds: pc.PollIntervalSeconds,
+		Admins:           append([]int64(nil), pc.Admins...),
+		DefaultAccess:    string(pc.DefaultAccess),
+		DefaultIsolation: string(pc.DefaultIsolation),
+		UserGroups:       userGroupsToJSON(pc.UserGroups),
+		Chats:            chatsToJSON(pc.Chats),
+	}
+	out.Gateways = GatewaysJSON{Telegram: tgJSON, Pachca: pcJSON}
 	out.UI = UIJSON{
 		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
 		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
@@ -874,7 +864,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Agent = Agent{
 		QueueMode:                     j.Agent.QueueMode,
 		Model:                         j.Agent.Model,
-		MaxTurns:                      j.Agent.MaxTurns,
 		LLMRetryMax:                   j.Agent.LLMRetryMax,
 		LLMRetryBaseMS:                j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:              j.Agent.LLMMinIntervalMS,
@@ -899,6 +888,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitReset:             j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS:        cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
+	if j.Agent.MaxTurns != nil {
+		cfg.Agent.MaxTurns = *j.Agent.MaxTurns
+		cfg.Agent.maxTurnsSet = true
+	}
 	cfg.Prompts = Prompts{
 		DocsPrompt: j.Prompts.DocsPrompt,
 		Dir:        j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
@@ -909,28 +902,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
 		Dirs:          append([]string(nil), j.Skills.Dirs...),
-		Sources:       append([]string(nil), j.Skills.Sources...),
+		ProjectTrust:  j.Skills.ProjectTrust,
 		AutoDiscovery: j.Skills.AutoDiscovery,
 	}
 	cfg.Rules = Rules{
 		AutoDiscover: cloneBoolPtr(j.Rules.AutoDiscover),
 		Systems:      append([]string(nil), j.Rules.Systems...),
-	}
-	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{
-			Type: s.Type, Name: s.Name, Command: s.Command,
-			Args: append([]string(nil), s.Args...), URL: s.URL,
-			InsecureSkipVerify: s.InsecureSkipVerify,
-			Disabled:           s.Disabled,
-			DisabledTools:      append([]string(nil), s.DisabledTools...),
-		}
-		for _, e := range s.Env {
-			mc.Env = append(mc.Env, EnvVarConfig(e))
-		}
-		for _, h := range s.Headers {
-			mc.Headers = append(mc.Headers, HTTPHeaderConfig(h))
-		}
-		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust, IdleTimeoutSeconds: cloneIntPtr(j.MCP.IdleTimeoutSeconds)}
 	cfg.Tools = Tools{
@@ -1093,6 +1070,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Admins:           append([]int64(nil), jt.Admins...),
 		DefaultAccess:    AccessLevel(jt.DefaultAccess),
 		DefaultIsolation: IsolationMode(jt.DefaultIsolation),
+		MiniApp:          TelegramMiniAppConfig{URL: jt.MiniApp.URL, MenuButton: cloneBoolPtr(jt.MiniApp.MenuButton)},
 	}
 	for _, g := range jt.UserGroups {
 		tg.UserGroups = append(tg.UserGroups, TelegramUserGroup{
@@ -1104,7 +1082,16 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			ChatID: ch.ChatID, Isolation: IsolationMode(ch.Isolation), Access: AccessLevel(ch.Access),
 		})
 	}
-	cfg.Gateways = GatewayConfig{Telegram: tg}
+	jp := j.Gateways.Pachca
+	pc := PachcaGatewayConfig{
+		Enabled: jp.Enabled, Token: jp.Token, Proxy: jp.Proxy, PollIntervalSeconds: jp.PollIntervalSeconds,
+		Admins:           append([]int64(nil), jp.Admins...),
+		DefaultAccess:    AccessLevel(jp.DefaultAccess),
+		DefaultIsolation: IsolationMode(jp.DefaultIsolation),
+		UserGroups:       userGroupsFromJSON(jp.UserGroups),
+		Chats:            chatsFromJSON(jp.Chats),
+	}
+	cfg.Gateways = GatewayConfig{Telegram: tg, Pachca: pc}
 	cfg.UI = UIConfig{
 		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
 		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
@@ -1120,6 +1107,38 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		TimeoutSeconds: j.VCS.SVN.TimeoutSeconds, BranchLookup: j.VCS.SVN.BranchLookup,
 	}}
 	return cfg
+}
+
+func userGroupsToJSON(groups []GatewayUserGroup) []TelegramUserGroupJSON {
+	var out []TelegramUserGroupJSON
+	for _, g := range groups {
+		out = append(out, TelegramUserGroupJSON{Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...)})
+	}
+	return out
+}
+
+func chatsToJSON(chats []GatewayChatConfig) []TelegramChatJSON {
+	var out []TelegramChatJSON
+	for _, ch := range chats {
+		out = append(out, TelegramChatJSON{ChatID: ch.ChatID, Isolation: string(ch.Isolation), Access: string(ch.Access)})
+	}
+	return out
+}
+
+func userGroupsFromJSON(groups []TelegramUserGroupJSON) []GatewayUserGroup {
+	var out []GatewayUserGroup
+	for _, g := range groups {
+		out = append(out, GatewayUserGroup{Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...)})
+	}
+	return out
+}
+
+func chatsFromJSON(chats []TelegramChatJSON) []GatewayChatConfig {
+	var out []GatewayChatConfig
+	for _, ch := range chats {
+		out = append(out, GatewayChatConfig{ChatID: ch.ChatID, Isolation: IsolationMode(ch.Isolation), Access: AccessLevel(ch.Access)})
+	}
+	return out
 }
 
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
@@ -1231,6 +1250,7 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	out.Gateways.Pachca.Proxy = escapeYAMLDollar(cfg.Gateways.Pachca.Proxy)
 	// An argon2id hash is "$argon2id$v=19$m=...", which the load-time expansion
 	// would otherwise read as a row of empty environment references and hand
 	// back as rubble. Doubling the signs here is what makes the hash a literal,

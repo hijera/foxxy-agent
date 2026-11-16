@@ -45,6 +45,7 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
 
     /** Subscribes to editor changes (idempotent) and pushes an initial snapshot. */
     fun startIfNeeded() {
+        lastPayload = null
         if (!connected) {
             connected = true
             val conn = project.messageBus.connect(this)

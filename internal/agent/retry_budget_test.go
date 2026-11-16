@@ -315,9 +315,13 @@ func TestReActDefaultAllowsTenSilentRetries(t *testing.T) {
 func TestReActRetryBudgetDiagnostics(t *testing.T) {
 	two := 2
 	f := newRetryBudgetFixture(t, &two, 10, "error", "reasoning", "answer")
+	// This checks attempt accounting, not the first-token deadline. Leave
+	// enough time for the local HTTP adapter when the full suite is busy.
+	timeoutMS := 5000
+	f.ag.cfg.Agent.LLMFirstTokenTimeoutMS = &timeoutMS
 	f.run()
 	if f.err != nil {
-		t.Fatal(f.err)
+		t.Fatalf("%v\n%s", f.err, f.log.String())
 	}
 	type callLog struct {
 		Message          string `json:"msg"`

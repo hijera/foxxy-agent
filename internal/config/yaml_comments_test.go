@@ -556,16 +556,19 @@ func TestSettingsSaveKeepsReferencesInNumberAndBooleanFields(t *testing.T) {
 	}
 }
 
-// An empty list the loader fills with its defaults (skills.dirs: [] reads as the three
-// standard directories) is still an empty list in the file after a save that did not
+// An empty list the loader fills with its defaults (hooks.files: [] reads as the
+// operator's hooks.json) is still an empty list in the file after a save that did not
 // touch it.
 func TestSettingsSaveKeepsAListTheLoaderFillsIn(t *testing.T) {
+	// hooks.files: an empty list the loader fills with its defaults
+	// (skills.dirs, subagents.dirs and instructions.files no longer are such
+	// lists: what they used to default to is read beside them).
 	withEmpty := strings.Replace(spelledConfig,
-		"skills:\n  dirs:\n    - ~/.agents/skills\n    - ${FOXXYCODE_HOME}/skills\n    - ${CWD}/.foxxycode/skills\n    - ${FOXXYCODE_TEST_TEAM}/skills\n",
-		"skills:\n  dirs: []\n", 1)
+		"hooks:\n  files:\n    - ${FOXXYCODE_HOME}/hooks.json\n",
+		"hooks:\n  files: []\n", 1)
 	live, raw := settingsSaveFixture(t, withEmpty)
-	if len(live.Skills.Dirs) == 0 {
-		t.Fatal("the loader no longer fills an empty skills.dirs; this case needs another list")
+	if len(live.Hooks.Files) == 0 {
+		t.Fatal("the loader no longer fills an empty hooks.files; this case needs another list")
 	}
 	if got := saveFromSettings(t, live, nil); got != raw {
 		t.Errorf("a save without edits filled in the empty list:\n%s\nwant it as it was:\n%s", got, raw)
@@ -653,7 +656,7 @@ func TestSettingsSaveKeepsWhatAnotherSaveWroteAfterTheRead(t *testing.T) {
 // empty on purpose - and a save that changes, removes and adds headers writes
 // exactly that, the untouched headers staying where they were.
 func TestSettingsSaveEditsTheDefaultHeaders(t *testing.T) {
-	raw := `# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json
+	raw := `# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 tools:
   http_request:
     default_headers:
@@ -698,7 +701,7 @@ tools:
 // them leaves them as the file has them - the added one stays, the removed one
 // stays removed - and an edit the form did make still wins.
 func TestSettingsSaveKeepsHeadersSomebodyElseAddedOrRemoved(t *testing.T) {
-	raw := `# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json
+	raw := `# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 tools:
   http_request:
     default_headers:
@@ -759,7 +762,7 @@ func TestSettingsSaveMergesHeadersAcrossAnEmptyMap(t *testing.T) {
 		}
 		return doc.Tools.HTTPRequest.DefaultHeaders
 	}
-	const modeline = "# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\n"
+	const modeline = "# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json\n"
 
 	live, raw := settingsSaveFixture(t, modeline+"tools:\n  http_request:\n    default_headers:\n      X-Old: gone-soon\n")
 	onDisk := strings.Replace(raw, "      X-Old: gone-soon\n", "      X-Old: gone-soon\n      X-New: added\n", 1)

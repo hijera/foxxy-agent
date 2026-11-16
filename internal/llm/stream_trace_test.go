@@ -103,7 +103,7 @@ func streamTraceServer(t *testing.T, body string) *openAIProvider {
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
-	return newOpenAIProvider("kimi-k2.6", "test-key", srv.URL, srv.Client(), 8192, 0.2, "")
+	return newOpenAIProvider("kimi-k2.6", "test-key", srv.URL, srv.Client(), 8192, 0.2, "", "")
 }
 
 func TestStreamTraceRecordsMaxTokensTruncation(t *testing.T) {

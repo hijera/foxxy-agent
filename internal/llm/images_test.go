@@ -22,8 +22,11 @@ func userMessageWithAttachments() Message {
 }
 
 func TestAnthropicSendsThePicturesOfAUserMessage(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := p.splitMessages([]Message{userMessageWithAttachments()})
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "", "")
+	_, conv, err := p.splitMessages([]Message{userMessageWithAttachments()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, err := json.Marshal(conv)
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +48,11 @@ func TestAnthropicSendsThePicturesOfAUserMessage(t *testing.T) {
 }
 
 func TestAnthropicKeepsATextOnlyUserMessageAsItWas(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := p.splitMessages([]Message{{Role: RoleUser, Content: "hi"}})
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "", "")
+	_, conv, err := p.splitMessages([]Message{{Role: RoleUser, Content: "hi"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, _ := json.Marshal(conv)
 	if string(raw) != `[{"content":[{"text":"hi","type":"text"}],"role":"user"}]` {
 		t.Errorf("a plain prompt changed on the wire: %s", raw)
@@ -84,8 +90,11 @@ func TestPicturesAProviderCannotTakeGoAsText(t *testing.T) {
 		{Name: "old.bmp", DataURL: "data:image/bmp;base64,Qk0="},
 		{Name: "raw.png", DataURL: "data:image/png,not-base64"},
 	}}
-	anthropic := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := anthropic.splitMessages([]Message{msg})
+	anthropic := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "", "")
+	_, conv, err := anthropic.splitMessages([]Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
 	codex := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), true, "", nil, 0, "")
 	params := codex.buildParams([]Message{msg}, nil)
 	for name, v := range map[string]any{"anthropic": conv, "codex": params.Input} {
@@ -110,7 +119,7 @@ func TestANonBase64DataURLIsNamedNotSent(t *testing.T) {
 	msg := Message{Role: RoleUser, Content: "look", ImageParts: []ImagePart{
 		{Name: "raw.png", DataURL: "data:image/png,not-base64"},
 	}}
-	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "")
+	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "", "")
 	raw, _ := json.Marshal(openai.buildParams([]Message{msg}, nil, false).Messages)
 	if s := string(raw); strings.Contains(s, "image_url") || !strings.Contains(s, "raw.png") {
 		t.Errorf("OpenAI sends a non-base64 data URL as %s", s)
@@ -123,7 +132,7 @@ func TestAnSVGGoesAsTextToEveryProvider(t *testing.T) {
 	svg := ImagePart{Name: "logo.svg", DataURL: "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte("<svg/>"))}
 	msg := Message{Role: RoleUser, Content: "look", ImageParts: []ImagePart{svg}}
 
-	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "")
+	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "", "")
 	raw, _ := json.Marshal(openai.buildParams([]Message{msg}, nil, false).Messages)
 	if s := string(raw); strings.Contains(s, "image_url") || !strings.Contains(s, `[File: logo.svg]\n`) || !strings.Contains(s, "svg/") {
 		t.Errorf("OpenAI sends the SVG as %s", s)
@@ -162,7 +171,10 @@ func TestTheBase64FlagOfADataURLIsReadExactly(t *testing.T) {
 	}
 
 	msg := Message{Role: RoleUser, Content: "look", ImageParts: []ImagePart{{Name: "odd.png", DataURL: "data:image/png;base64x,AAAA"}}}
-	_, conv := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "").splitMessages([]Message{msg})
+	_, conv, err := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "", "").splitMessages([]Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if raw, _ := json.Marshal(conv); strings.Contains(string(raw), `"type":"image"`) || !strings.Contains(string(raw), "odd.png") {
 		t.Errorf("Anthropic sends a data URL with no base64 flag as %s", raw)
 	}

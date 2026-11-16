@@ -23,10 +23,27 @@ import {
  */
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: () => <div data-testid="chat-screen-stub" />,
+  ChatScreen: (props: {
+    backgroundTasksOpen?: boolean;
+    onOpenBackgroundTasks?: () => void;
+  }) => (
+    <div data-testid="chat-screen-stub">
+      <button
+        type="button"
+        data-testid="open-tasks"
+        onClick={() => props.onOpenBackgroundTasks?.()}
+      >
+        Open tasks
+      </button>
+      <output data-testid="chat-tasks-open">
+        {String(props.backgroundTasksOpen === true)}
+      </output>
+    </div>
+  ),
 }));
 
 const SID = "sess_a";
+const OTHER_SID = "sess_b";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -82,7 +99,7 @@ const scheduler = {
   dir: "/tmp/jobs",
   timeout: "30m",
   max_queue: 4,
-  runs_active: 0,
+  runs_active: 3,
   retain_sessions: 10,
 };
 
@@ -117,17 +134,26 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       registry_warming: false,
     });
   }
-  if (path === "/foxxycode/scheduler/jobs") return json({ scheduler, jobs: [job] });
   if (path.startsWith("/foxxycode/scheduler/jobs/nightly")) return json(job);
+  if (path.startsWith("/foxxycode/scheduler/jobs")) return json({ scheduler, jobs: [job] });
   if (path === "/foxxycode/docs") return json(docsContents);
   if (path.startsWith("/foxxycode/docs/page")) return json(docsPage);
   if (path === "/foxxycode/config/schema") return json(configSchema);
   if (path === "/foxxycode/config") return json({ models: [{ model: "fake/alpha" }] });
   if (path.startsWith("/foxxycode/sessions?")) {
-    return json({ sessions: [{ id: SID, title: "A chat" }] });
+    return json({
+      active_count: 2,
+      sessions: [
+        { id: SID, title: "A chat" },
+        { id: OTHER_SID, title: "Another chat" },
+      ],
+    });
   }
   if (path.startsWith(`/foxxycode/sessions/${SID}/messages`)) {
     return json({ session_id: SID, messages: [] });
+  }
+  if (path.startsWith(`/foxxycode/sessions/${OTHER_SID}/messages`)) {
+    return json({ session_id: OTHER_SID, messages: [] });
   }
   return json({}, 404);
 });
@@ -243,6 +269,84 @@ test("on the stacked shell Escape takes Settings back to its tiles first, then c
   await waitFor(() => expect(window.location.hash).toBe("#/settings"));
   pressEscape();
   await backInChat("settings-screen");
+});
+
+test("on desktop Tasks stays open across rail screens and uses local panel state", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}`);
+
+  for (const [trigger, panel] of [
+    ["nav-history", "sessions"],
+    ["nav-settings", "settings-screen"],
+    ["nav-scheduler", "scheduler-drawer"],
+    ["nav-docs", "docs-view"],
+  ] as const) {
+    fireEvent.click(await screen.findByTestId(trigger));
+    await screen.findByTestId(panel);
+    expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  }
+
+  fireEvent.click(screen.getByTestId("bgtasks-panel-close"));
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+});
+
+// Tasks belongs to the chat on screen, not to the rail: on desktop it stays
+// open while History picks another chat and shows that chat's tasks, and the
+// backdrop that takes History down leaves it where it was.
+test("on desktop Tasks follows the chat picked in History and outlives its backdrop", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+
+  fireEvent.click(await screen.findByTestId("nav-history"));
+  await screen.findByTestId("sessions");
+  fireEvent.click(await screen.findByTestId(`session-row-${OTHER_SID}`));
+  await waitFor(() =>
+    expect(window.location.hash).toMatch(new RegExp(`^#/s/${OTHER_SID}`)),
+  );
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith(`/foxxycode/sessions/${OTHER_SID}/background-tasks`),
+      ),
+    ).toBe(true),
+  );
+
+  fireEvent.click(document.querySelector(".backdrop.is-open")!);
+  await waitFor(() => expect(screen.queryByTestId("sessions")).toBeNull());
+  await settle();
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  expect(window.location.hash).toMatch(new RegExp(`^#/s/${OTHER_SID}`));
+});
+
+test("on the stacked shell a rail screen closes the full-screen Tasks panel", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === shellStackMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}/tasks`);
+
+  fireEvent.click(await screen.findByTestId("nav-history"));
+  await screen.findByTestId("sessions");
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
 });
 
 test("an Escape the documentation search takes clears it and leaves the reader open", async () => {

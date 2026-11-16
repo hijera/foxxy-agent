@@ -19,6 +19,12 @@ In IntelliJ, **Suggest Code at Caret** is available from the editor context menu
 
 The panel talks to its own loopback server, so it shares sessions with the console and the browser through the home directory, not through the network. Build and packaging are in [editors/intellij/README.md](../../editors/intellij/README.md) and [editors/vscode/README.md](../../editors/vscode/README.md); how the JCEF panel hosts the SPA is in [Embedding the UI in IntelliJ](../contributing/intellij-embedding.md).
 
+In IntelliJ, **Settings → Tools → FoxxyCode → Stop the process when the FoxxyCode tab is closed** optionally stops the backend when its tool window is closed or hidden. It is off by default. When enabled, closing also interrupts running turns and background tasks; reopening the panel starts the backend again. Saved sessions stay on disk. The setting takes effect on the next close and is shared across projects. Explicitly requesting an inline code suggestion can still start the backend while the panel is hidden.
+
+![The optional process shutdown checkbox in IntelliJ settings](../assets/editors/intellij-stop-on-tab-close-disabled-dark-1280.png)
+
+*The process shutdown option is off by default in Settings → Tools → FoxxyCode.*
+
 ## ACP
 
 FoxxyCode is an ACP server. `foxxycode acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$FOXXYCODE_HOME`. Nothing in FoxxyCode is editor-specific - Zed, VS Code and a Python harness connect the same way.
@@ -102,7 +108,7 @@ Everything an editor renders about FoxxyCode comes out of the protocol, so every
 |---|---|
 | Mode selector (`agent`, `plan`, `ask`) | the `mode` config option of `session/new` and `session/load` (plus the legacy `modes` field); changed with `session/set_config_option` or `session/set_mode` |
 | Model selector | the `model` config option, one row per `models[].model` in `config.yaml`, default `agent.model`; absent when the list is empty |
-| Reasoning or thinking control | the `reasoning` config option in the `thought_level` category, with the levels the session's model offers (`off` last where its provider can turn thinking off); absent for a model without levels |
+| Reasoning or thinking control | the `reasoning` config option in the `thought_level` category, with the levels the session's model offers (`off` last only when its logical model sets `allow_reasoning_off: true`); absent for a model without levels |
 | Permission policy (`ask`, `accept_edits`, `bypass`) | the `permission_mode` config option in the `_permission_mode` category, which a client without special handling shows as a plain selector; an override is session-scoped and wins over `tools.permission_mode`, but lives in the agent's memory only, so a restart of the agent returns to the configured mode |
 | Slash commands | `available_commands_update` after `session/new` and `session/load`: the settings commands (`model`, `reasoning`, `think`, `nothink`, `agent`, `plan`, `ask`, `permissions`, with their argument hint in `input.hint`), then `compact`, `export` and `plugin`, then every skill from `skills.dirs`. The settings commands run from the prompt text, with `--once` or `--count=N` for the next turns only ([Session settings](../features/session-settings.md)) |
 | Permission prompts | `session/request_permission` with the options Allow, Allow always and Reject (and the program-wide `allow_always_<program>` for a plain shell command, and under `ask` the session switches `allow_session_bypass` and, for a file write, `allow_session_accept_edits`); sent only under `ask` (commands and writes) or `accept_edits` (commands); `bypass` never asks |

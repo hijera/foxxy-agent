@@ -171,7 +171,8 @@ class BrowserPanelUiTest {
         // Unique per run: the backend keeps loaded sessions in memory, so reusing an id
         // would serve a stale transcript from an earlier run.
         val id = "sess_uitestlong" + System.currentTimeMillis()
-        val dir = File("build/uitest-foxxycode-home/sessions/$id")
+        val home = File(System.getProperty("foxxycode.uitest.home", "build/uitest-foxxycode-home"))
+        val dir = File(home, "sessions/$id")
         dir.mkdirs()
         val cwd = File(".").absolutePath.replace("\\", "/")
         File(dir, "session.json").writeText(
@@ -179,6 +180,11 @@ class BrowserPanelUiTest {
         )
         val rows = StringBuilder()
         for (i in 0 until 60) {
+            val toolDir = File(dir, "tool_calls/call_$i")
+            toolDir.mkdirs()
+            File(toolDir, "meta.json").writeText(
+                """{"version":1,"toolCallId":"call_$i","name":"$toolName","kind":"read","status":"completed","startedAt":"2026-09-01T10:00:00.000Z","finishedAt":"2026-09-01T10:00:00.250Z"}"""
+            )
             if (i > 0) rows.append(',')
             rows.append(
                 """{"role":"user","content":"Read notes.txt and report line $i."},""" +

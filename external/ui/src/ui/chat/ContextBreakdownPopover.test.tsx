@@ -10,6 +10,18 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ContextBreakdownPopover } from "./ContextBreakdownPopover";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
 
+const breakdown = {
+  systemPrompt: 100,
+  toolDefinitions: 50,
+  rules: 0,
+  skills: 0,
+  mcp: 0,
+  subagents: 0,
+  summary: 0,
+  conversation: 350,
+  estimatedTotal: 500,
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -99,6 +111,49 @@ test("context action says compact now when automation is disabled", () => {
   );
   expect(screen.getByTestId("context-breakdown-compact")).toHaveTextContent(
     "Compact now",
+  );
+});
+
+test("idle sheet keeps close and disabled compact controls visible", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      useSheet
+      maxContextTokens={128000}
+      compactThreshold={80}
+    />,
+  );
+  expect(screen.getByTestId("context-breakdown-close")).toBeVisible();
+  const compact = screen.getByTestId("context-breakdown-compact");
+  expect(compact).toHaveTextContent("Compact at 80%");
+  expect(compact).toBeDisabled();
+});
+
+test("context popover uses modal head chrome and keeps usage and compaction in one row", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      maxContextTokens={1000}
+      breakdown={breakdown}
+      sessionId="sess_123"
+      compactAvailable
+      compactAutoEnabled
+      compactThreshold={80}
+    />,
+  );
+
+  expect(screen.getByTestId("context-breakdown-head")).toHaveClass(
+    "sessions-head",
+  );
+  expect(screen.getByTestId("context-breakdown-close")).toHaveClass(
+    "sessions-close",
+  );
+  const usageRow = screen.getByTestId("context-breakdown-usage-row");
+  expect(usageRow).toHaveTextContent("50.0% Used");
+  expect(usageRow).toContainElement(
+    screen.getByTestId("context-breakdown-compact"),
   );
 });
 

@@ -59,6 +59,9 @@ groups:
       - path: surfaces/gateway.md
         title: Telegram gateway
         summary: The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
+      - path: surfaces/pachca.md
+        title: Pachca gateway
+        summary: The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits.
   - id: operate
     title: Operate
     summary: Running FoxxyCode as a service, reaching it from elsewhere and bounding what it may do.
@@ -271,6 +274,9 @@ groups:
       - path: contributing/zcode-hooks.md
         title: ZCode hooks
         summary: Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
+      - path: contributing/kimi-code-hooks.md
+        title: Kimi Code hooks
+        summary: Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
       - path: contributing/syntax-highlighting-audit.md
         title: Syntax highlighting audit
         summary: The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.

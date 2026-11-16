@@ -132,7 +132,7 @@ func (r *Runtime) resolveDefinition(cfg *config.Config, fm *storage.JobFrontmatt
 	if name == "" {
 		return nil, nil
 	}
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = r.log
 	defs := loader.Load(cwd, cfg.Paths.Home)
 	def := subagents.FindByName(defs, name)

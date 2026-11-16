@@ -14,6 +14,7 @@ import (
 	"image/png"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1295,6 +1297,84 @@ func TestFoxxyCodeSessionsList(t *testing.T) {
 	}
 }
 
+func TestFoxxyCodeSessionsListReportsGlobalActiveCount(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(started)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ctx := context.Background()
+	active, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	patch, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(archived.SessionID), strings.NewReader(`{"archived":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch.Header.Set("Content-Type", "application/json")
+	patched, err := http.DefaultClient.Do(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.StatusCode != http.StatusOK {
+		body, _ := ioReadAllClose(patched.Body)
+		t.Fatalf("archive session: status %d body %s", patched.StatusCode, body)
+	}
+	_ = patched.Body.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: active.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hold"}},
+		})
+	}()
+	<-started
+	t.Cleanup(func() {
+		close(release)
+		wg.Wait()
+	})
+
+	res, err := http.Get(ts.URL + "/foxxycode/sessions?limit=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	var got struct {
+		ActiveCount int `json:"active_count"`
+		Sessions    []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveCount != 1 {
+		t.Fatalf("active_count = %d, want 1: %s", got.ActiveCount, body)
+	}
+	if len(got.Sessions) != 1 || got.Sessions[0].ID != active.SessionID {
+		t.Fatalf("limit=1 sessions = %+v, want only active session %s", got.Sessions, active.SessionID)
+	}
+}
+
 func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
@@ -1309,7 +1389,6 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1330,6 +1409,7 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 		TurnActive      bool   `json:"turnActive"`
 		ActivitySeq     uint64 `json:"activitySeq"`
 		ReadActivitySeq uint64 `json:"readActivitySeq"`
+		LastErrorSeq    uint64 `json:"lastErrorSeq"`
 		UnreadComplete  bool   `json:"unreadComplete"`
 	}
 	if err := json.Unmarshal(b, &parsed); err != nil {
@@ -1343,6 +1423,9 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}
 	if parsed.ActivitySeq < 1 {
 		t.Fatalf("want activitySeq>=1 got %d", parsed.ActivitySeq)
+	}
+	if parsed.LastErrorSeq != 0 {
+		t.Fatalf("successful turn lastErrorSeq = %d, want 0", parsed.LastErrorSeq)
 	}
 	if !parsed.UnreadComplete {
 		t.Fatal("expected unreadComplete true after a completed turn with read cursor at zero")
@@ -1544,6 +1627,161 @@ func TestFoxxyCodeSessionPatchMarkActivityRead(t *testing.T) {
 	}
 }
 
+func TestFoxxyCodeSessionPatchMarkActivityReadMergesNewerDiskActivity(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedAt := snap.Meta.UpdatedAt
+	snap.Meta.ActivitySeq = 7
+	snap.Meta.ReadActivitySeq = 2
+	snap.Meta.LastErrorSeq = 7
+	metaPath := filepath.Join(store.SessionPath(sid), "session.json")
+	metaBytes, err := json.MarshalIndent(snap.Meta, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metaBytes = append(metaBytes, '\n')
+	if err := os.WriteFile(metaPath, metaBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(`{"markActivityRead":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	resHTTP, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, body)
+	}
+	var parsed struct {
+		ActivitySeq     uint64 `json:"activitySeq"`
+		ReadActivitySeq uint64 `json:"readActivitySeq"`
+		LastErrorSeq    uint64 `json:"lastErrorSeq"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ActivitySeq != 7 || parsed.ReadActivitySeq != 7 || parsed.LastErrorSeq != 7 {
+		t.Fatalf("PATCH returned stale activity counters: %+v", parsed)
+	}
+	snap, err = store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 7 || snap.Meta.ReadActivitySeq != 7 || snap.Meta.LastErrorSeq != 7 {
+		t.Fatalf("PATCH changed disk activity counters incorrectly: %+v", snap.Meta)
+	}
+	if snap.Meta.UpdatedAt != updatedAt {
+		t.Fatalf("PATCH changed updatedAt: before %q after %q", updatedAt, snap.Meta.UpdatedAt)
+	}
+}
+
+func TestFoxxyCodeSessionPatchMarkActivityReadDoesNotRestoreStaleDiskActivity(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	live := mgr.SessionByID(sid)
+	if live == nil {
+		t.Fatal("session was not retained by manager")
+	}
+	live.RestoreActivityFromSnapshot(9, 6, 9)
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Meta.ActivitySeq = 4
+	snap.Meta.ReadActivitySeq = 1
+	snap.Meta.LastErrorSeq = 4
+	metaPath := filepath.Join(store.SessionPath(sid), "session.json")
+	metaBytes, err := json.MarshalIndent(snap.Meta, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metaPath, append(metaBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(`{"markActivityRead":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	resHTTP, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, body)
+	}
+	var parsed struct {
+		ActivitySeq     uint64 `json:"activitySeq"`
+		ReadActivitySeq uint64 `json:"readActivitySeq"`
+		LastErrorSeq    uint64 `json:"lastErrorSeq"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ActivitySeq != 9 || parsed.ReadActivitySeq != 9 || parsed.LastErrorSeq != 9 {
+		t.Fatalf("PATCH restored stale disk activity in response: %+v", parsed)
+	}
+	if got := [3]uint64{live.GetActivitySeq(), live.GetReadActivitySeq(), live.GetLastErrorSeq()}; got != [3]uint64{9, 9, 9} {
+		t.Fatalf("PATCH restored stale disk activity in memory: %v", got)
+	}
+	snap, err = store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 9 || snap.Meta.ReadActivitySeq != 9 || snap.Meta.LastErrorSeq != 9 {
+		t.Fatalf("PATCH left stale disk activity: %+v", snap.Meta)
+	}
+}
+
 func TestFoxxyCodeSessionsListIncludeActivity(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
@@ -1558,6 +1796,8 @@ func TestFoxxyCodeSessionsListIncludeActivity(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	registerQuestionWait(acp.QuestionRequestParams{SessionID: sid, RequestID: "q-list"})
+	defer unregisterQuestionWait(sid, "q-list")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1594,6 +1834,14 @@ func TestFoxxyCodeSessionsListIncludeActivity(t *testing.T) {
 	}
 	if _, ok := hit["activitySeq"]; !ok {
 		t.Fatalf("missing activitySeq")
+	}
+	if value, ok := hit["lastErrorSeq"]; !ok {
+		t.Fatalf("missing lastErrorSeq")
+	} else if value != float64(0) {
+		t.Fatalf("successful turn lastErrorSeq = %v, want 0", value)
+	}
+	if value, ok := hit["questionPending"].(bool); !ok || !value {
+		t.Fatalf("questionPending = %v, want true", hit["questionPending"])
 	}
 	if _, ok := hit["backgroundRunning"]; !ok {
 		t.Fatalf("missing backgroundRunning in %+v", hit)
@@ -2407,6 +2655,8 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 }
 
 func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	skillsDir := filepath.Join(root, "skills")
@@ -3686,15 +3936,14 @@ func TestFoxxyCodeMCPRoutesEdgeCases(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FOXXYCODE_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")
-	cfgYAML := `
-mcp_servers:
-  - name: broken
-    command: /nonexistent-mcp-binary
-  - name: remote
-    type: websocket
-    url: https://example.com/ws
-`
-	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	homeMCP := `{"mcpServers": {
+  "broken": {"command": "/nonexistent-mcp-binary"},
+  "remote": {"type": "websocket", "url": "https://example.com/ws"}
+}}`
+	if err := os.WriteFile(config.GlobalMCPJSONPath(home), []byte(homeMCP), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(cfgPath)
@@ -3728,19 +3977,18 @@ mcp_servers:
 	}
 
 	// The list reports both servers: broken stdio probes to an error status,
-	// the http entry is unsupported without probing. Config.yaml entries are
-	// global-scoped, config-owned, and read-only for edit/delete.
+	// the websocket entry is unsupported without probing. <home>/mcp.json
+	// entries are global-scoped and home-owned.
 	status, b := do(http.MethodGet, "/foxxycode/mcp", "")
 	if status != http.StatusOK {
 		t.Fatalf("GET /foxxycode/mcp status %d %s", status, b)
 	}
 	var list struct {
 		Items []struct {
-			Name     string `json:"name"`
-			Source   string `json:"source"`
-			Origin   string `json:"origin"`
-			Readonly bool   `json:"readonly"`
-			Status   string `json:"status"`
+			Name   string `json:"name"`
+			Source string `json:"source"`
+			Origin string `json:"origin"`
+			Status string `json:"status"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(b, &list); err != nil {
@@ -3751,8 +3999,8 @@ mcp_servers:
 	}
 	byName := map[string]string{}
 	for _, it := range list.Items {
-		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
-			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
+		if it.Source != "global" || it.Origin != "home" {
+			t.Errorf("server %q = %s/%s, want global/home", it.Name, it.Source, it.Origin)
 		}
 		byName[it.Name] = it.Status
 	}
@@ -3802,8 +4050,8 @@ mcp_servers:
 	for _, it := range list.Items {
 		if it.Name == "homer" {
 			foundHomer = true
-			if it.Source != "global" || it.Origin != "home" || it.Readonly {
-				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			if it.Source != "global" || it.Origin != "home" {
+				t.Errorf("homer = %s/%s, want global/home", it.Source, it.Origin)
 			}
 		}
 	}
@@ -3811,9 +4059,9 @@ mcp_servers:
 		t.Error("homer missing from list after scope=global PUT")
 	}
 
-	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
-	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/broken", ""); status != http.StatusBadRequest {
-		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	// An unknown server cannot be deleted; a declared one can.
+	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/ghost", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE unknown status %d, want 400", status)
 	}
 	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/homer", ""); status != http.StatusOK {
 		t.Errorf("DELETE home-sourced status %d, want 200", status)
@@ -4124,6 +4372,14 @@ func TestFoxxyCodeSubagentsCatalogAndTrustRoutes(t *testing.T) {
 	}
 	if status, _ := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", `{"cwd":"rel"}`, nil); status != http.StatusBadRequest {
 		t.Fatalf("relative body cwd: status %d, want 400", status)
+	}
+	// An approval names the content the operator was shown: a file rewritten
+	// since (another digest) is refused and nothing is recorded.
+	if status, body := httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", fmt.Sprintf(`{"cwd":%q,"digest":"sha256:shown-before"}`, ws), nil); status != http.StatusConflict {
+		t.Fatalf("stale digest: status %d, want 409 (%v)", status, body)
+	}
+	if _, err := os.Stat(filepath.Join(home, "subagents-trust.json")); !os.IsNotExist(err) {
+		t.Fatalf("a refused approval wrote a receipt: %v", err)
 	}
 
 	status, body = httpJSON(t, ts, http.MethodPost, "/foxxycode/subagents/reviewer/trust", fmt.Sprintf(`{"cwd":%q}`, ws), nil)
@@ -5468,5 +5724,734 @@ func TestReplyForErrorMapsProviderStatus(t *testing.T) {
 				t.Fatalf("message = %s, want the error's text", gjson.Get(body, "error.message").Raw)
 			}
 		})
+	}
+}
+
+func TestFoxxyCodeSkillsSourcesSyncDelete(t *testing.T) {
+	offlineSystemSources(t)
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home) // keep ManagedDir() inside the temp home
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Add a source; it should be declared in <home>/marketplaces.json (no sync).
+	addBody := `{"source":"owner/repo"}`
+	addReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/skills/sources", strings.NewReader(addBody))
+	addReq.Header.Set("Content-Type", "application/json")
+	addRes, err := http.DefaultClient.Do(addReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ab, _ := ioReadAllClose(addRes.Body)
+	if addRes.StatusCode != http.StatusOK {
+		t.Fatalf("add source status %d %s", addRes.StatusCode, ab)
+	}
+	data, _ := os.ReadFile(config.GlobalMarketplacesPath(home))
+	if !strings.Contains(string(data), "owner/repo") {
+		t.Fatalf("source not persisted: %s", data)
+	}
+	if cfgData, _ := os.ReadFile(cfgPath); strings.Contains(string(cfgData), "owner/repo") {
+		t.Fatalf("the source was written into config.yaml: %s", cfgData)
+	}
+
+	// Empty sync (the source just added would need network) - assert the
+	// endpoint responds with a result shape. Declare no sources again so sync
+	// does no network and returns ok cleanly.
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(home), config.MarketplacesFile{}); err != nil {
+		t.Fatal(err)
+	}
+	syncReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/skills/sync", nil)
+	syncRes, err := http.DefaultClient.Do(syncReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(syncRes.Body)
+	if syncRes.StatusCode != http.StatusOK {
+		t.Fatalf("sync status %d %s", syncRes.StatusCode, sb)
+	}
+	var syncOut struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(sb, &syncOut); err != nil || !syncOut.OK {
+		t.Fatalf("sync response %s err %v", sb, err)
+	}
+
+	// Seed a remote skill + lockfile, then DELETE it.
+	managed := srv.activeCfg().Skills.ManagedDir(srv.activeCfg().Paths.Home)
+	skillDir := filepath.Join(managed, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, ".remote.json"), []byte(`{"demo":{"source":"owner/repo"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/demo", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d %s", delRes.StatusCode, db)
+	}
+	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+		t.Fatalf("skill dir should be gone, err=%v", err)
+	}
+
+	// Deleting a non-remote skill fails with 400.
+	del2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/nope", nil)
+	del2Res, err := http.DefaultClient.Do(del2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(del2Res.Body)
+	if del2Res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete unknown status %d, want 400", del2Res.StatusCode)
+	}
+}
+
+func TestFoxxyCodeSkillsNewRoutesEdgeCases(t *testing.T) {
+	offlineSystemSources(t)
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// GET sources on empty config returns an empty list.
+	res, err := http.Get(ts.URL + "/foxxycode/skills/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET sources status %d %s", res.StatusCode, sb)
+	}
+	var srcOut struct {
+		Items []string `json:"items"`
+	}
+	if err := json.Unmarshal(sb, &srcOut); err != nil {
+		t.Fatalf("sources body %s: %v", sb, err)
+	}
+	if len(srcOut.Items) != 0 {
+		t.Fatalf("expected no sources, got %v", srcOut.Items)
+	}
+
+	// GET updates with nothing installed returns an empty items list.
+	res2, err := http.Get(ts.URL + "/foxxycode/skills/updates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ub, _ := ioReadAllClose(res2.Body)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("GET updates status %d %s", res2.StatusCode, ub)
+	}
+
+	// Updating a skill that was never installed from a source fails with 400.
+	upReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/skills/ghost/update", nil)
+	upRes, err := http.DefaultClient.Do(upReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(upRes.Body)
+	if upRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("update unknown skill status %d, want 400", upRes.StatusCode)
+	}
+
+	// Deleting a source without the query parameter fails with 400.
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/sources", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete source without query status %d, want 400", delRes.StatusCode)
+	}
+
+	post := func(path, body string) (int, []byte) {
+		t.Helper()
+		res, err := http.Post(ts.URL+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+	// An unknown scope or kind is refused; nothing is written.
+	if status, b := post("/foxxycode/skills/sources", `{"source":"owner/repo","scope":"nope"}`); status != http.StatusBadRequest {
+		t.Fatalf("add with an unknown scope = %d %s, want 400", status, b)
+	}
+	if status, b := post("/foxxycode/skills/sources", `{"source":"owner/repo","kind":"nope"}`); status != http.StatusBadRequest {
+		t.Fatalf("add with an unknown kind = %d %s, want 400", status, b)
+	}
+	// Declaring a marketplace installs nothing, so asking to sync it as well
+	// is refused before anything is declared or fetched.
+	if status, b := post("/foxxycode/skills/sources", `{"source":"owner/catalog","kind":"marketplace","sync":true}`); status != http.StatusBadRequest || !strings.Contains(string(b), "installs nothing") {
+		t.Fatalf("add a marketplace with sync = %d %s, want 400", status, b)
+	}
+	if file, _ := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home)); len(file.Marketplaces) != 0 {
+		t.Fatalf("the refused marketplace was declared: %+v", file)
+	}
+	// A trust request must name the entry, and the entry must be declared.
+	if status, _ := post("/foxxycode/skills/sources/trust", `{}`); status != http.StatusBadRequest {
+		t.Fatalf("trust without a key = %d, want 400", status)
+	}
+	if status, _ := post("/foxxycode/skills/sources/trust", `{"key":"owner/ghost"}`); status != http.StatusBadRequest {
+		t.Fatalf("trust of an undeclared entry = %d, want 400", status)
+	}
+	// An entry the checkout rewrote since it was listed is refused with 409,
+	// and one the operator adds to the project is approved by writing it.
+	if err := config.WriteMarketplacesFile(config.ProjectMarketplacesPath(home), config.MarketplacesFile{Sources: []string{"owner/project"}}); err != nil {
+		t.Fatal(err)
+	}
+	if status, b := post("/foxxycode/skills/sources/trust", `{"key":"owner/project","fingerprint":"sha256:shown-before"}`); status != http.StatusConflict {
+		t.Fatalf("trust of a rewritten entry = %d %s, want 409", status, b)
+	}
+	// Syncing an entry still awaiting approval is the caller's to fix: 400
+	// with the command that approves it, never a server error.
+	if status, b := post("/foxxycode/skills/sync?source=owner/project", ``); status != http.StatusBadRequest || !strings.Contains(string(b), "foxxycode plugin marketplace trust owner/project") {
+		t.Fatalf("sync of a held entry = %d %s, want 400 naming the approval", status, b)
+	}
+	if status, b := post("/foxxycode/skills/sources", `{"source":"owner/local","scope":"local"}`); status != http.StatusOK {
+		t.Fatalf("add to the project = %d %s", status, b)
+	}
+	res3, err := http.Get(ts.URL + "/foxxycode/skills/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb, _ := ioReadAllClose(res3.Body)
+	var listed struct {
+		Entries []struct {
+			Source  string `json:"source"`
+			Origin  string `json:"origin"`
+			Trusted bool   `json:"trusted"`
+			Status  string `json:"status"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(lb, &listed); err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, e := range listed.Entries {
+		states[e.Source] = e.Origin + "/" + e.Status
+	}
+	if states["owner/project"] != "project/needs_approval" || states["owner/local"] != "project/ready" {
+		t.Fatalf("listed entries = %s", lb)
+	}
+
+	// The row's origin limits a removal to its file: removing your own
+	// entry leaves the project's checked-in copy alone.
+	if status, b := post("/foxxycode/skills/sources", `{"source":"owner/local"}`); status != http.StatusOK {
+		t.Fatalf("add to yours = %d %s", status, b)
+	}
+	delOrigin := func(query string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/sources?"+query, nil)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+	if status := delOrigin("source=owner/local&origin=home"); status != http.StatusOK {
+		t.Fatalf("remove from yours = %d", status)
+	}
+	homeFile, _ := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	projectFile, _ := config.ReadMarketplacesFile(config.ProjectMarketplacesPath(home))
+	if len(homeFile.Sources) != 0 || !slices.Contains(projectFile.Sources, "owner/local") {
+		t.Fatalf("after removing from yours: home %+v, project %+v", homeFile, projectFile)
+	}
+	if status := delOrigin("source=owner/local&origin=elsewhere"); status != http.StatusBadRequest {
+		t.Fatalf("remove with an unknown origin = %d, want 400", status)
+	}
+}
+
+func TestFoxxyCodeSkillsDeleteAnyAndReadonly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home)
+	skillsDir := filepath.Join(home, "skills")
+	// A deletable on-disk skill.
+	if err := os.MkdirAll(filepath.Join(skillsDir, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "local", "SKILL.md"), []byte("---\nname: local\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  dirs:\n    - "+skillsDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// GET rows: the bundled skill is read-only, the on-disk one is not.
+	res, err := http.Get(ts.URL + "/foxxycode/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := ioReadAllClose(res.Body)
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Readonly bool   `json:"readonly"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatalf("list body %s: %v", body, err)
+	}
+	ro := map[string]bool{}
+	for _, it := range list.Items {
+		ro[it.Name] = it.Readonly
+	}
+	if !ro["configure-foxxycode"] {
+		t.Errorf("bundled configure-foxxycode should be read-only")
+	}
+	if ro["local"] {
+		t.Errorf("on-disk local skill should be deletable")
+	}
+
+	// Deleting the bundled skill fails with 400.
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/configure-foxxycode", nil)
+	dr, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(dr.Body)
+	if dr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete bundled status %d, want 400", dr.StatusCode)
+	}
+
+	// Deleting the on-disk skill succeeds and removes it.
+	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/local", nil)
+	dr2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(dr2.Body)
+	if dr2.StatusCode != http.StatusOK {
+		t.Fatalf("delete on-disk status %d, want 200", dr2.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(skillsDir, "local")); !os.IsNotExist(err) {
+		t.Errorf("local skill dir should be gone: %v", err)
+	}
+
+	// Settings deletes a project skill of the folder a new chat picked before
+	// its session exists: no session header, the folder in the cwd query, the
+	// same workspace GET /foxxycode/skills?cwd= listed it for.
+	picked := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(picked, ".foxxycode", "skills", "picked-only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(picked, ".foxxycode", "skills", "picked-only", "SKILL.md"), []byte("---\nname: picked-only\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req3, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/picked-only", nil)
+	dr3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(dr3.Body)
+	if dr3.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete of a project skill of another folder without cwd = %d, want 400", dr3.StatusCode)
+	}
+	req4, _ := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/skills/picked-only?cwd="+url.QueryEscape(picked), nil)
+	dr4, err := http.DefaultClient.Do(req4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b4, _ := ioReadAllClose(dr4.Body)
+	if dr4.StatusCode != http.StatusOK {
+		t.Fatalf("delete with the picked folder = %d %s, want 200", dr4.StatusCode, b4)
+	}
+	if _, err := os.Stat(filepath.Join(picked, ".foxxycode", "skills", "picked-only")); !os.IsNotExist(err) {
+		t.Errorf("the project skill of the picked folder should be gone: %v", err)
+	}
+}
+
+func TestListingCWDQueryEdges(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "launch")
+	picked := filepath.Join(root, "data")
+	for _, d := range []string{home, defaultCWD, filepath.Join(picked, ".foxxycode", "skills", "dat-local")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(picked, ".foxxycode", "skills", "dat-local", "SKILL.md"),
+		[]byte("---\nname: dat-local\ndescription: local\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(picked, ".foxxycode", "mcp.json"),
+		[]byte(`{"mcpServers":{"picked-only":{"command":"true"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(picked, ".foxxycode", "marketplaces.json"),
+		[]byte(`{"sources":["owner/picked-held"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(picked, "notes.txt")
+	if err := os.WriteFile(file, []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{"${CWD}/.foxxycode/skills"}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(path, sid string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sid != "" {
+			req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(b)
+	}
+	slash := "/foxxycode/slash-commands?page=1&page_size=200&cwd="
+
+	for name, cwd := range map[string]string{
+		"relative": "data",
+		"missing":  filepath.Join(root, "nope"),
+		"file":     file,
+	} {
+		if status, body := get(slash+url.QueryEscape(cwd), ""); status != http.StatusBadRequest {
+			t.Fatalf("%s cwd: status %d, want 400: %s", name, status, body)
+		}
+	}
+	if status, body := get(slash+url.QueryEscape(picked), ""); status != http.StatusOK || !strings.Contains(body, "dat-local") {
+		t.Fatalf("picked cwd: status %d body %s", status, body)
+	}
+	if status, body := get("/foxxycode/skills/sources?cwd="+url.QueryEscape(picked), ""); status != http.StatusOK || !strings.Contains(body, "owner/picked-held") {
+		t.Fatalf("sources with picked cwd: status %d body %s", status, body)
+	}
+	syncRes, err := http.Post(ts.URL+"/foxxycode/skills/sync?cwd="+url.QueryEscape(picked), "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncBody, _ := ioReadAllClose(syncRes.Body)
+	if syncRes.StatusCode != http.StatusOK || !strings.Contains(string(syncBody), "owner/picked-held") {
+		t.Fatalf("sync with picked cwd: status %d body %s", syncRes.StatusCode, syncBody)
+	}
+	// The composer's highlight check resolves a mention against the same folder.
+	checkRes, err := http.Post(ts.URL+"/foxxycode/mentions/check?cwd="+url.QueryEscape(picked), "application/json",
+		strings.NewReader(`{"text":"look at @notes.txt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkBody, _ := ioReadAllClose(checkRes.Body)
+	if checkRes.StatusCode != http.StatusOK || !strings.Contains(string(checkBody), `"kind":"file"`) {
+		t.Fatalf("mentions/check with cwd: status %d body %s", checkRes.StatusCode, checkBody)
+	}
+
+	// A session anchored on the server default: a cwd next to its header is
+	// ignored, even an invalid one.
+	sid := fmt.Sprintf("sess_%x", time.Now().UnixNano())
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/sessions/"+sid+"/workspace",
+		strings.NewReader(fmt.Sprintf(`{"path":%q}`, defaultCWD)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("anchor session: status %d", res.StatusCode)
+	}
+	if status, body := get(slash+url.QueryEscape(picked), sid); status != http.StatusOK || strings.Contains(body, "dat-local") {
+		t.Fatalf("session with cwd: status %d body %s", status, body)
+	}
+	if status, body := get(slash+"relative", sid); status != http.StatusOK {
+		t.Fatalf("session with a bad cwd: status %d body %s", status, body)
+	}
+	// The first send of a chat with no folder picked: the id is not on the
+	// server yet, so the folder next to it answers; without one it is a 404.
+	unknown := sid + "x"
+	if status, body := get(slash+url.QueryEscape(picked), unknown); status != http.StatusOK || !strings.Contains(body, "dat-local") {
+		t.Fatalf("unknown session with cwd: status %d body %s", status, body)
+	}
+	if status, body := get("/foxxycode/slash-commands?page=1&page_size=200", unknown); status != http.StatusNotFound {
+		t.Fatalf("unknown session without cwd: status %d body %s", status, body)
+	}
+	if status, body := get(slash+url.QueryEscape(picked), "bad id!"); status != http.StatusBadRequest {
+		t.Fatalf("malformed session with cwd: status %d body %s", status, body)
+	}
+
+	// The MCP routes change a workspace's declarations: cwd does not select it,
+	// while a session anchored there does.
+	if status, body := get("/foxxycode/mcp?cwd="+url.QueryEscape(picked), ""); status != http.StatusOK || strings.Contains(body, "picked-only") {
+		t.Fatalf("mcp with cwd: status %d body %s", status, body)
+	}
+	pickedSID := sid + "p"
+	req, err = http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/sessions/"+pickedSID+"/workspace",
+		strings.NewReader(fmt.Sprintf(`{"path":%q}`, picked)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(res.Body)
+	if status, body := get("/foxxycode/mcp", pickedSID); status != http.StatusOK || !strings.Contains(body, "picked-only") {
+		t.Fatalf("mcp of a session in the picked folder: status %d body %s", status, body)
+	}
+}
+
+func mcpValuesServer(t *testing.T, homeMCP, projectMCP string) (*httptest.Server, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if homeMCP != "" {
+		if err := os.WriteFile(config.GlobalMCPJSONPath(home), []byte(homeMCP), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if projectMCP != "" {
+		if err := os.MkdirAll(filepath.Join(home, ".foxxycode"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(config.MCPJSONPath(home), []byte(projectMCP), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	ts := httptest.NewServer(New(cfg, mgr, slog.Default(), home).Handler())
+	t.Cleanup(ts.Close)
+	return ts, home
+}
+
+func TestFoxxyCodeMCPListNeverReturnsConfiguredValues(t *testing.T) {
+	t.Setenv("XR_MCP_URL_KEY", "tok-url-s3cr3t-5")
+	homeMCP := `{"mcpServers": {
+  "files": {"command": "/nonexistent-mcp-binary", "env": {"TOKEN": "tok-env-s3cr3t-1", "MODE": "${XR_MCP_MODE}"}},
+  "docs": {"url": "http://127.0.0.1:1/mcp?api_key=${XR_MCP_URL_KEY}", "headers": {"Authorization": "Bearer tok-hdr-s3cr3t-2"}}
+}}`
+	projectMCP := `{"mcpServers": {
+  "tracker": {"url": "https://tracker.example/mcp", "headers": {"X-Team": "tok-proj-s3cr3t-3"}, "env": {"KEY": "tok-proj-s3cr3t-4"}}
+}}`
+	ts, _ := mcpValuesServer(t, homeMCP, projectMCP)
+	res, err := http.Get(ts.URL + "/foxxycode/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /foxxycode/mcp = %d %s", res.StatusCode, body)
+	}
+	for _, secret := range []string{"tok-env-s3cr3t-1", "tok-hdr-s3cr3t-2", "tok-proj-s3cr3t-3", "tok-proj-s3cr3t-4", "tok-url-s3cr3t-5"} {
+		if strings.Contains(string(body), secret) {
+			t.Fatalf("the list carries the configured value %q:\n%s", secret, body)
+		}
+	}
+	var list struct {
+		Items []struct {
+			Name    string            `json:"name"`
+			Env     map[string]string `json:"env"`
+			Headers map[string]string `json:"headers"`
+			Reads   []string          `json:"reads"`
+			URL     string            `json:"url"`
+			Error   string            `json:"error"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]int{}
+	for i, it := range list.Items {
+		rows[it.Name] = i
+		for k, v := range it.Env {
+			if v != config.RedactedValue {
+				t.Errorf("%s env %s = %q, want %q", it.Name, k, v, config.RedactedValue)
+			}
+		}
+		for k, v := range it.Headers {
+			if v != config.RedactedValue {
+				t.Errorf("%s header %s = %q, want %q", it.Name, k, v, config.RedactedValue)
+			}
+		}
+	}
+	files := list.Items[rows["files"]]
+	if len(files.Env) != 2 || files.Env["TOKEN"] == "" || !slices.Equal(files.Reads, []string{"XR_MCP_MODE"}) {
+		t.Fatalf("files = %+v, want both names kept and the variable it reads named", files)
+	}
+	docs := list.Items[rows["docs"]]
+	if docs.URL != "http://127.0.0.1:1/mcp?api_key=${XR_MCP_URL_KEY}" || !slices.Equal(docs.Reads, []string{"XR_MCP_URL_KEY"}) {
+		t.Fatalf("docs = %+v, want the URL as written and the variable it reads", docs)
+	}
+	if docs.Error == "" {
+		t.Fatal("the unreachable server reported no error, so its message was not checked")
+	}
+	tracker := list.Items[rows["tracker"]]
+	if tracker.Headers["X-Team"] == "" || tracker.Env["KEY"] == "" {
+		t.Fatalf("tracker = %+v, want the names of a held project server", tracker)
+	}
+}
+
+func TestFoxxyCodeMCPSaveKeepsRedactedValues(t *testing.T) {
+	homeMCP := `{"mcpServers": {"files": {"command": "files-server", "env": {"TOKEN": "tok-home-1", "OLD": "gone"}, "headers": {"X-Key": "tok-home-2"}}}}`
+	projectMCP := `{"mcpServers": {"tracker": {"command": "tracker-server", "env": {"KEY": "tok-proj-1"}}}}`
+	ts, home := mcpValuesServer(t, homeMCP, projectMCP)
+	put := func(path, body string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPut, ts.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	fingerprints := func() map[string]string {
+		t.Helper()
+		res, err := http.Get(ts.URL + "/foxxycode/mcp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := ioReadAllClose(res.Body)
+		var list struct {
+			Items []struct {
+				Name        string `json:"name"`
+				Fingerprint string `json:"fingerprint"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(body, &list); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, it := range list.Items {
+			out[it.Name] = it.Fingerprint
+		}
+		return out
+	}
+
+	// Your own entry: kept, replaced, added and removed in one save.
+	status, body := put("/foxxycode/mcp/files?scope=global",
+		`{"command": "files-server", "env": {"TOKEN": "<redacted>", "NEW": "fresh"}, "headers": {"X-Key": "<redacted>"}}`)
+	if status != http.StatusOK {
+		t.Fatalf("save of your entry = %d %s", status, body)
+	}
+	stored, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := stored["files"]
+	if !maps.Equal(files.Env, map[string]string{"TOKEN": "tok-home-1", "NEW": "fresh"}) || files.Headers["X-Key"] != "tok-home-2" {
+		t.Fatalf("stored after the save = %+v", files)
+	}
+
+	// A placeholder for a value the file does not have is refused.
+	if status, body := put("/foxxycode/mcp/files?scope=global", `{"command": "files-server", "env": {"MISSING": "<redacted>"}}`); status != http.StatusBadRequest || !strings.Contains(body, "MISSING") {
+		t.Fatalf("keeping a value the file lacks = %d %s, want 400 naming it", status, body)
+	}
+
+	// A project entry keeps values only against the declaration shown.
+	keep := `{"command": "tracker-server", "env": {"KEY": "<redacted>"}}`
+	if status, body := put("/foxxycode/mcp/tracker?scope=local", keep); status != http.StatusBadRequest || !strings.Contains(body, "fingerprint") {
+		t.Fatalf("keeping a project value without the fingerprint = %d %s, want 400", status, body)
+	}
+	shown := fingerprints()["tracker"]
+	before, _ := os.ReadFile(config.MCPJSONPath(home))
+	if err := os.WriteFile(config.MCPJSONPath(home), []byte(`{"mcpServers": {"tracker": {"command": "tracker-server", "env": {"KEY": "rewritten-by-the-checkout"}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := put("/foxxycode/mcp/tracker?scope=local&fingerprint="+url.QueryEscape(shown), keep); status != http.StatusConflict {
+		t.Fatalf("keeping against a rewritten declaration = %d %s, want 409", status, body)
+	}
+	if after, _ := os.ReadFile(config.MCPJSONPath(home)); string(after) == string(before) || !strings.Contains(string(after), "rewritten-by-the-checkout") {
+		t.Fatalf("the refused save touched the file:\n%s", after)
+	}
+	if err := os.WriteFile(config.MCPJSONPath(home), before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := put("/foxxycode/mcp/tracker?scope=local&fingerprint="+url.QueryEscape(shown), keep); status != http.StatusOK {
+		t.Fatalf("keeping against the declaration shown = %d %s", status, body)
+	}
+	if after, _ := os.ReadFile(config.MCPJSONPath(home)); !strings.Contains(string(after), "tok-proj-1") {
+		t.Fatalf("the kept project value was lost:\n%s", after)
+	}
+	// The save approves the declaration as the file now holds it.
+	servers, err := config.LoadMCPJSONServers(config.MCPJSONPath(home))
+	if err != nil || len(servers) != 1 {
+		t.Fatalf("project servers = %+v, %v", servers, err)
+	}
+	if !mcp.NewTrustStore(home).Approved(home, servers[0]) {
+		t.Fatal("the saved project entry is not approved")
 	}
 }

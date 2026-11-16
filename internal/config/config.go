@@ -33,6 +33,7 @@ func resolveConfigFile(cli CLIPaths) (Paths, error) {
 			cwdCfg := filepath.Join(paths.CWD, defaultConfigName)
 			if _, err := os.Stat(cwdCfg); err == nil {
 				paths.ConfigPath = cwdCfg
+				paths.ConfigFromWorkspace = true
 			}
 		}
 	}
@@ -66,6 +67,10 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 		}
 		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
+
+	// Keys that left config.yaml move into their own files before anything
+	// reads the text (legacy_keys.go).
+	data = migrateLegacyKeys(paths, data)
 
 	originalData := append([]byte(nil), data...)
 	expanded := expandConfigBody(string(data), paths)
@@ -141,6 +146,10 @@ func validateSubconfigs(cfg *Config) error {
 		// The error already names its key under gateways.telegram.
 		return err
 	}
+	cfg.Gateways.Pachca.Normalize()
+	if err := cfg.Gateways.Pachca.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)
 	}
@@ -213,6 +222,8 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Gateways.Telegram.Normalize()
 	cfg.Gateways.Telegram.ApplyDefaults()
+	cfg.Gateways.Pachca.Normalize()
+	cfg.Gateways.Pachca.ApplyDefaults()
 
 	cfg.HTTPServer.Normalize()
 

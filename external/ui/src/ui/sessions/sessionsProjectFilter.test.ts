@@ -8,6 +8,9 @@ import {
 
 beforeEach(() => {
   window.localStorage.clear();
+  for (const cookie of document.cookie.split(";")) {
+    document.cookie = `${cookie.split("=")[0]?.trim()}=; Path=/; Max-Age=0`;
+  }
 });
 
 test("scoped request carries the host project root", () => {
@@ -44,6 +47,22 @@ test("preference round-trips and overrides the fallback", () => {
 test("preference is per project root", () => {
   writeProjectOnlyPref("/work/proj", false);
   expect(readProjectOnlyPref("/work/other", true)).toBe(true);
+});
+
+test("project scope survives an IDE port change with a fresh localStorage origin", () => {
+  writeProjectOnlyPref("H:/projects/plain", false);
+  // Cookies belong to the host, while a restarted IDE's new port gets an empty
+  // localStorage. Model that new origin without deleting the host cookies.
+  window.localStorage.clear();
+  expect(readProjectOnlyPref("H:/projects/plain", true)).toBe(false);
+  expect(readProjectOnlyPref("H:/projects/other", true)).toBe(true);
+});
+
+test("an existing project scope preference migrates before the next IDE restart", () => {
+  window.localStorage.setItem("foxxycode.sessions.projectOnly:/work/old", "0");
+  expect(readProjectOnlyPref("/work/old", true)).toBe(false);
+  window.localStorage.clear();
+  expect(readProjectOnlyPref("/work/old", true)).toBe(false);
 });
 
 test("without a project root the preference is not persisted", () => {

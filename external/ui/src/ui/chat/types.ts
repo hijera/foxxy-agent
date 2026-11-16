@@ -2,6 +2,7 @@ import type { FoxxyCodePermissionPayload, PermissionResolvedState } from "./perm
 import type { FoxxyCodeQuestionPayload, QuestionResolvedState } from "./questionTypes";
 import type { TodoPlanEntry } from "./todoToolPreview";
 import type { BackgroundWakeTask } from "./backgroundWake";
+import type { ToolArtifact } from "./toolArtifacts";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -119,6 +120,8 @@ export type TranscriptItem =
       /** Pictures the call showed the model (`read` on an image file), from
        *  `_meta.foxxycode.images` live and the tool row's `files` after a reload. */
       images?: TranscriptFile[];
+      /** Downloadable files a completed share_file call deliberately shared. */
+      artifacts?: ToolArtifact[];
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

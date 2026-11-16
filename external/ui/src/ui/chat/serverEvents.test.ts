@@ -271,6 +271,34 @@ test("a config reload without a handler is not an error", async () => {
   expect(ended).toEqual(["sess_z"]);
 });
 
+test("a question-pending event names the session without carrying question text", async () => {
+  const pending: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: session_question_pending\ndata: ${JSON.stringify({
+        object: "foxxycode.session_question_pending",
+        sessionId: "sess_question",
+      })}\n\n` +
+        `event: session_question_pending\ndata: {"object":"foxxycode.session_question_pending"}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onQuestionPending: (sid) => {
+      pending.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(pending).toEqual(["sess_question"]);
+});
+
 // A background subagent asks after its parent turn ended, so nothing streams the
 // prompt into the chat: the event names the parent session, and the chat that is
 // that session re-reads its task rows, where the prompt waits.

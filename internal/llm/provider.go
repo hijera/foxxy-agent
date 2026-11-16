@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -46,7 +47,10 @@ type Message struct {
 	// supported for RoleUser; ignored on other roles and by providers that do
 	// not support vision.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
-	Reasoning  string      `json:"reasoning,omitempty"`
+	// Artifacts are downloadable session-owned files published by a completed
+	// share_file call. They are metadata only and never provider prompt content.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+	Reasoning string     `json:"reasoning,omitempty"`
 	// ReasoningSignature is the provider signature for the reasoning block (Anthropic extended
 	// thinking). It is replayed unmodified with the exact Reasoning text on later requests when
 	// thinking is enabled and the turn has tool calls; otherwise the Anthropic API rejects it.
@@ -86,6 +90,15 @@ type Message struct {
 	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
+type Artifact struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	SHA256             string `json:"sha256"`
+	Size               int64  `json:"size"`
+	SourcePath         string `json:"source_path,omitempty"`
+	SourceRelativePath string `json:"source_relative_path,omitempty"`
+}
+
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
 type PlanDocumentSnapshot struct {
 	Slug      string `json:"slug"`
@@ -103,6 +116,27 @@ type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	InputJSON string `json:"input"` // raw JSON arguments
+}
+
+// WholeToolCalls keeps the calls whose arguments arrived as a complete JSON
+// value. fork(cut-keeps-complete-calls): a stream cut mid-answer may still have
+// delivered whole calls - those are the step the model finished asking for and
+// they run next to the error, while a call whose JSON was cut mid-write must
+// never run: replaying an invalid call is worse than losing it. Empty
+// arguments cannot be told from arguments that never started, so the call is
+// dropped; a model that means "no arguments" sends {}.
+func WholeToolCalls(in []ToolCall) []ToolCall {
+	var out []ToolCall
+	for _, tc := range in {
+		if strings.TrimSpace(tc.ID) == "" || strings.TrimSpace(tc.Name) == "" {
+			continue
+		}
+		if !json.Valid([]byte(tc.InputJSON)) {
+			continue
+		}
+		out = append(out, tc)
+	}
+	return out
 }
 
 // ToolDefinition describes a tool available to the LLM.
@@ -178,12 +212,13 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name     string
-	Type     string
-	Model    string
-	APIKey   string
-	BaseURL  string
-	ProxyURL string
+	Name      string
+	Type      string
+	Model     string
+	APIKey    string
+	BaseURL   string
+	UserAgent string
+	ProxyURL  string
 	// AuthPath is the FoxxyCode-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
 	AuthPath string
@@ -302,15 +337,15 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent).withTuning(p)
 		op.tempSet = p.TemperatureSet
 		inner = op
 	case "anthropic":
-		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent).withTuning(p)
 		ap.tempSet = p.TemperatureSet
 		inner = ap
 	case "neuraldeep":
-		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, "").withTuning(p)
 		op.tempSet = p.TemperatureSet
 		inner = op
 	case "codex":

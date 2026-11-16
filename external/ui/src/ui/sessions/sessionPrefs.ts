@@ -17,7 +17,9 @@ export const SESSION_PREF_COOKIES = {
 } as const;
 
 export type SessionPrefCookie =
-  (typeof SESSION_PREF_COOKIES)[keyof typeof SESSION_PREF_COOKIES];
+  | (typeof SESSION_PREF_COOKIES)[keyof typeof SESSION_PREF_COOKIES]
+  | `foxxycode_sessions_project_only_${string}`
+  | `foxxycode_sessions_collapsed_${string}`;
 
 /** Reads one preference, or null when it is absent or not a value we know. */
 export function readSessionPref<T extends string>(

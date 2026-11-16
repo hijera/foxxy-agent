@@ -22,6 +22,7 @@ export function SubagentReadOnlyNotice(props: {
   const { t } = useT();
   const name = props.meta.name.trim();
   const parent = props.meta.parentSessionId.trim();
+  const model = props.meta.model?.trim();
   const onOpen = props.onOpenSession;
   const sched = props.meta.scheduler;
 
@@ -36,10 +37,17 @@ export function SubagentReadOnlyNotice(props: {
         role="note"
         data-testid="subagent-readonly-notice"
       >
-        <span className="subagent-readonly-text">
-          {props.meta.jobSession
-            ? t("chat.schedulerJobSession.notice", { jobId })
-            : t("chat.scheduledRunReadOnly.notice", { jobId })}
+        <span className="subagent-readonly-copy">
+          <span className="subagent-readonly-text">
+            {props.meta.jobSession
+              ? t("chat.schedulerJobSession.notice", { jobId })
+              : t("chat.scheduledRunReadOnly.notice", { jobId })}
+          </span>
+          {model ? (
+            <span className="subagent-readonly-model">
+              {t("chat.subagentReadOnly.model", { model })}
+            </span>
+          ) : null}
         </span>
         <a
           className="subagent-readonly-link"
@@ -58,10 +66,17 @@ export function SubagentReadOnlyNotice(props: {
       role="note"
       data-testid="subagent-readonly-notice"
     >
-      <span className="subagent-readonly-text">
-        {name
-          ? t("chat.subagentReadOnly.notice", { name })
-          : t("chat.subagentReadOnly.noticeUnnamed")}
+      <span className="subagent-readonly-copy">
+        <span className="subagent-readonly-text">
+          {name
+            ? t("chat.subagentReadOnly.notice", { name })
+            : t("chat.subagentReadOnly.noticeUnnamed")}
+        </span>
+        {model ? (
+          <span className="subagent-readonly-model">
+            {t("chat.subagentReadOnly.model", { model })}
+          </span>
+        ) : null}
       </span>
       {parent ? (
         <a
