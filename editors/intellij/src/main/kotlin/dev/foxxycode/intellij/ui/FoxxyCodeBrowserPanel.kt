@@ -164,17 +164,13 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         FoxxyCodeProcessManager.getInstance(project).ensureStarted(
             onReady = { url ->
                 loadUrl(url)
-                // Wire native inline diffs once the server (and its /foxxycode/ide/events stream) is up.
-                FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
-                // Start reporting open tabs / active file to the agent.
-                FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
-                // Start reporting open terminals + recent output to the agent.
-                FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
-                // Start reporting in-IDE copies for the composer's paste-to-chip flow.
-                FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
-                // Pick up the backend's autocomplete settings; inline suggestions stay off
-                // until config.autocomplete enables them.
-                FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                    FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                    FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                    FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                    FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                    FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                }
             },
             onError = { msg -> showError(msg) }
         )
@@ -219,6 +215,17 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
             drop.addHandler { _ -> onHostDrop(); null }
             Disposer.register(it, drop)
             dropQuery = drop
+            // JS→Kotlin channel for the pre-send context snapshot: the SPA calls
+            // window.foxxycodeBeforeSend() before posting a message, the plugin
+            // pushes an editor-state snapshot with buffer contents and answers.
+            val before = JBCefJSQuery.create(it as JBCefBrowserBase)
+            before.addHandler { _ ->
+                dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService.getInstance(project).pushWithBuffers()
+                notifyBeforeSendDone()
+                null
+            }
+            Disposer.register(it, before)
+            beforeSendQuery = before
             installBrowserDragHandler(it)
             // CEF drops every download nobody claims, which is why a plain
             // `<a download>` in the panel used to do nothing at all. Claiming it
@@ -256,6 +263,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                         injectBootstrap()
                         injectLocaleBridge()
                         injectDropBridge()
+                        injectBeforeSendBridge()
                         syncTheme()
                         syncLocale()
                         browserReady = true
@@ -328,6 +336,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
 
     /** JS→Kotlin channel telling us the page received a drop (see [installBrowserDragHandler]). */
     private var dropQuery: JBCefJSQuery? = null
+    private var beforeSendQuery: JBCefJSQuery? = null
 
     /** Absolute paths of the files the current drag carries, as reported by CEF. */
     @Volatile
@@ -370,6 +379,48 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
      * what stops the browser from navigating to the dropped file, this one only reports that a
      * drop happened so the paths CEF captured can be turned into mentions.
      */
+    /**
+     * Publishes `window.foxxycodeBeforeSend()`: the SPA awaits it before posting
+     * a message so the editor-state snapshot (open buffers included) lands in
+     * the backend before the turn reads it. The promise resolves when the
+     * handler returns, or after a short timeout if the host is slow - a send is
+     * never blocked on the IDE.
+     */
+    private fun injectBeforeSendBridge() {
+        val b = browser ?: return
+        val query = beforeSendQuery ?: return
+        val js = """
+            (function(){ try {
+              if (!window.__foxxycodeBeforeSendBridge) {
+                window.__foxxycodeBeforeSendBridge = true;
+                window.foxxycodeBeforeSend = function () {
+                  return new Promise(function (resolve) {
+                    window.__foxxycodeBeforeSendDone = function () { resolve(true); };
+                    setTimeout(function () { resolve(true); }, 3000);
+                    ${query.inject("''")};
+                  });
+                };
+              }
+            } catch (e) {} })();
+        """.trimIndent()
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
+    }
+
+    /** Resolves the SPA's foxxycodeBeforeSend promise once the snapshot is pushed. */
+    private fun notifyBeforeSendDone() {
+        val b = browser ?: return
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                b.cefBrowser.executeJavaScript(
+                    "window.__foxxycodeBeforeSendDone && window.__foxxycodeBeforeSendDone();",
+                    b.cefBrowser.url ?: "",
+                    0,
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     private fun injectDropBridge() {
         val b = browser ?: return
         val query = dropQuery ?: return
@@ -660,11 +711,13 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                 FoxxyCodeProcessManager.getInstance(project).restart(
                     onReady = { url ->
                         loadUrl(url)
-                        FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
-                        FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
-                        FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
-                        FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
-                        FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                        if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                            FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                            FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                            FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                            FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                            FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
+                        }
                     },
                     onError = { msg -> showError(msg) }
                 )

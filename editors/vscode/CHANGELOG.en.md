@@ -8,7 +8,15 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-15
+## Unreleased — 2026-11-16
+
+**External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
+
+**Hooks for notifications.**
+New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
+
+**IDE context before a send.**
+Right before a message goes out the panel pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message. The IntelliJ panel ships the snapshot first; the VS Code extension follows.
 
 **Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
 

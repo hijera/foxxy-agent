@@ -9,6 +9,7 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import dev.foxxycode.intellij.FoxxyCodeBundle
+import dev.foxxycode.intellij.process.BackendKind
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import java.io.File
 import java.io.IOException
@@ -115,6 +116,11 @@ object FoxxyCodeBinaryResolver {
 
     data class Validation(val ok: Boolean, val version: String?, val message: String)
 
+    /** Identifies Coddy from its own `http --help` usage line. */
+    @RequiresBackgroundThread
+    fun detect(binary: File): BackendKind =
+        BackendKind.detect(runCapture(binary, listOf("http", "--help")).orEmpty())
+
     /**
      * Confirms the binary runs and is a full-feature build that supports `foxxycode http`.
      * A lean build prints "http support is not built in" (see cmd/foxxycode/http_stub.go).
@@ -127,8 +133,12 @@ object FoxxyCodeBinaryResolver {
         val version = runCapture(binary, listOf("-v"))?.trim()
             ?: return Validation(false, null, FoxxyCodeBundle.message("binary.error.executeVersion", binary.path))
 
-        val help = runCapture(binary, listOf("http", "--help"))
+        var help = runCapture(binary, listOf("http", "--help"))
             ?: return Validation(false, version, FoxxyCodeBundle.message("binary.error.executeHelp", binary.path))
+        if (BackendKind.detect(help) == BackendKind.CODDY) {
+            help = runCapture(binary, listOf("serve", "--help"))
+                ?: return Validation(false, version, FoxxyCodeBundle.message("binary.error.executeHelp", binary.path))
+        }
 
         if (help.contains("not built", ignoreCase = true) ||
             help.contains("http support is not", ignoreCase = true)

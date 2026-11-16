@@ -11,8 +11,8 @@
         scheduler, settings (API keys), skills browser, plan mode, model &amp; reasoning selection,
         and memory.</p>
         <p>The <code>foxxycode</code> binary is built from source and bundled with the plugin — no
-        download step. You can point the plugin at a custom <code>foxxycode</code> binary in
-        Settings | Tools | FoxxyCode.</p>
+        download step. You can point the plugin at a custom <code>foxxycode</code> or
+        <code>coddy</code> binary in Settings | Tools | FoxxyCode.</p>
     ]]></description>
 
     <!-- Platform-only dependency: installs in every IntelliJ-based IDE. -->
@@ -26,6 +26,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="dev.foxxycode.intellij.settings.FoxxyCodeSettings"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.process.FoxxyCodeProcessManager"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.hooks.FoxxyCodeHookService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
