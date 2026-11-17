@@ -372,6 +372,29 @@ describe("standaloneSvg", () => {
 });
 
 describe("formulas", () => {
+  test("copies inline LaTeX when the editor denies the Clipboard API", async () => {
+    writeText.mockRejectedValueOnce(new DOMException("Write permission denied", "NotAllowedError"));
+    const copy = vi.fn((_text: string) => true);
+    const previous = Object.getOwnPropertyDescriptor(document, "execCommand");
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: (command: string) =>
+        command === "copy" && copy((document.activeElement as HTMLTextAreaElement).value),
+    });
+    try {
+      render(<Markdown text="Energy $E = mc^2$ here" />);
+      const formula = await screen.findByRole("button", { name: "Copy the formula source" });
+      formula.focus();
+      fireEvent.click(formula);
+      await waitFor(() => expect(formula).toHaveClass("is-copied"));
+      expect(copy).toHaveBeenCalledWith("$E = mc^2$");
+      expect(document.activeElement).toBe(formula);
+    } finally {
+      if (previous) Object.defineProperty(document, "execCommand", previous);
+      else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+
   test("code fences in list items display and copy their literal LaTeX delimiters", async () => {
     const source = 'pattern = r"\\(x\\)"\n\nprint(pattern)';
     const text = '- ```python\n' + source.split("\n").map((line) => "  " + line).join("\n") + '\n  ```';

@@ -1373,6 +1373,8 @@ An answer that holds a diagram or a formula shows it drawn, not as source. This 
 
 - **Formulas.** **`$...$`** and **`\(...\)`** are inline formulas; **`$$...$$`**, **`\[...\]`** and a **`math`** fence are display formulas. KaTeX typesets them (no **`\href`**, **`\url`** or **`\includegraphics`**: untrusted commands are off), building the formula's nodes itself in the page (**`katex.render`**), so no HTML string made from an answer is ever parsed. A display formula has the same head as a diagram with the source switch only (the source view carries the copy button), and scrolls sideways when it is wider than the transcript. An inline formula shows its source as a tooltip and copies it, dollars included, on a click (or Enter / Space). A **`\[...\]`** inside a quote or a list item stays on its line (typeset inline) rather than breaking the quote or the list, and LaTeX delimiters inside fenced or indented code are left as they are; a pair never spans a blank line, a new list item or a change of quote depth. Escaped brackets in prose (`a\[0\]`, `\(see below\)`) stay text.
 
+Click an inline formula in the IntelliJ or VS Code panel to copy its LaTeX source, including the dollar delimiters. The panel uses its clipboard fallback if the webview refuses the Clipboard API.
+
 Fenced code stays literal even when its opening backticks or tildes follow a list marker on the same line, including nested lists and quotes. LaTeX delimiters in such examples are displayed and copied unchanged, including across blank lines.
 
 ![A Python code fence in a list item keeps its literal backslashes while the formula outside it is typeset](../assets/web-ui/code-fences-list-dark-1280.png)

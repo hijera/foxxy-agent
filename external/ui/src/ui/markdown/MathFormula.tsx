@@ -8,6 +8,7 @@ import {
   type HTMLAttributes,
   type KeyboardEvent,
 } from "react";
+import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { FigureSource, SourceToggle } from "./DiagramBlock";
 import { loadKatex, type KatexApi } from "./renderers";
@@ -85,10 +86,6 @@ function Typeset(
   return <Tag ref={ref as never} {...rest} />;
 }
 
-function copyText(text: string): Promise<void> {
-  return navigator.clipboard.writeText(text);
-}
-
 /** `$...$` in a sentence: typeset in place; the source is its tooltip and a click copies it. */
 export function MathInline(props: { source: string }) {
   const { t } = useT();
@@ -100,15 +97,13 @@ export function MathInline(props: { source: string }) {
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const delimited = `$${props.source}$`;
 
-  const onCopy = useCallback(() => {
-    copyText(delimited).then(
-      () => {
-        setCopied(true);
-        window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setCopied(false), 900);
-      },
-      () => setCopied(false),
-    );
+  const onCopy = useCallback(async () => {
+    const didCopy = await copyText(delimited);
+    window.clearTimeout(timer.current);
+    setCopied(didCopy);
+    if (didCopy) {
+      timer.current = window.setTimeout(() => setCopied(false), 900);
+    }
   }, [delimited]);
 
   const onKeyDown = useCallback(
