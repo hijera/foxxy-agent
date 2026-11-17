@@ -3,6 +3,7 @@ import { ImageLightbox } from "../components/ImageLightbox";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { readAppliedUiTheme, subscribeAppliedUiTheme } from "../theme/uiTheme";
+import { requestHostTextDownload } from "../embedTextDownload";
 import {
   cachedPicture,
   renderPicture,
@@ -32,6 +33,7 @@ type FigureError = { kind: "render" | "load"; message: string };
 
 /** Offers a text as a file to save. */
 export function downloadText(name: string, text: string, type: string) {
+  if (requestHostTextDownload(name, text)) return;
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
   a.href = url;
