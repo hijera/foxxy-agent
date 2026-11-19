@@ -53,6 +53,8 @@ Generated embedded SPA assets are rebuilt and committed.
   `internal/forkguard`, rebranding, `git diff --check`, documentation checks and
   both editor changelog suites.
 - The full embedded build, Chromium 104 compatibility check and `make lint` pass.
+  `GOFLAGS='-count=1 -p=2 -timeout=20m' make test` passes all 351 SPA files /
+  3,499 tests and the complete shipped-tag Go tree.
 
 CI's tag matrix and race detector remain PR checks; this task deliberately
 leaves a local branch and does not push or open a pull request.
