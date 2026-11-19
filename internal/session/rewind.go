@@ -187,8 +187,9 @@ func nthUserMessageIndex(msgs []llm.Message, n int) int {
 // rewindCleanupArtifacts drops files that only made sense while the truncated
 // tail still existed. Everything here is best-effort: a leftover file is
 // harmless, a failed removal must not fail the rewind. keepDir, when set, is
-// where the tool-call detail of the cut calls is moved instead of deleted -
-// the rewind undo snapshot keeps it there until the snapshot is spent.
+// where the tool-call detail of the cut calls is moved instead of deleted - the
+// rewind undo snapshot keeps it there until the snapshot is spent - and a move
+// that cannot happen leaves the detail where it is.
 func rewindCleanupArtifacts(sessionDir string, msgs []llm.Message, keepDir string) {
 	// Legacy fork bookkeeping and per-turn file diffs have no readers left.
 	_ = os.Remove(filepath.Join(sessionDir, "branches.json"))
@@ -213,14 +214,18 @@ func rewindCleanupArtifacts(sessionDir string, msgs []llm.Message, keepDir strin
 		for _, d := range dirs {
 			if _, ok := keep[d]; !ok {
 				src := filepath.Join(sessionDir, toolCallsDirName, d)
-				if keepDir != "" {
-					if err := os.MkdirAll(keepDir, 0o755); err == nil {
-						if err := os.Rename(src, filepath.Join(keepDir, d)); err == nil {
-							continue
-						}
-					}
+				if keepDir == "" {
+					_ = os.RemoveAll(src)
+					continue
 				}
-				_ = os.RemoveAll(src)
+				// Parked for the undo, never deleted on the way there. A move
+				// that fails leaves the detail where it is: an extra folder
+				// under tool_calls/ is harmless, while deleting it loses the
+				// only copy restoreRewoundToolCalls moves back.
+				if err := os.MkdirAll(keepDir, 0o755); err != nil {
+					continue
+				}
+				_ = os.Rename(src, filepath.Join(keepDir, d))
 			}
 		}
 	}

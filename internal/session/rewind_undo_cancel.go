@@ -33,7 +33,9 @@ func readRewindUndoTurn(path string) rewindUndoTurn {
 }
 
 // RequestRewindUndoCancel asks the process that owns the edited prompt to
-// stop it. The owner checks the same prompt and snapshot before cancelling.
+// stop it. The owner checks the same prompt and snapshot before cancelling. A
+// turn marker only names a watcher that wrote one, so a marker this process can
+// see through is refused rather than answered.
 func (m *Manager) RequestRewindUndoCancel(sessionID, snapshotID string) error {
 	st := m.getSession(sessionID)
 	if st == nil {
@@ -47,6 +49,15 @@ func (m *Manager) RequestRewindUndoCancel(sessionID, snapshotID string) error {
 	undoDir := filepath.Join(dir, rewindUndoDirName)
 	turn := readRewindUndoTurn(filepath.Join(undoDir, rewindUndoTurnFile))
 	if turn.TurnID == "" || turn.SnapshotID != snapshotID {
+		return ErrSessionTurnActive
+	}
+	// The marker proves only that some watcher wrote it. When the turn runs in
+	// this process and no watcher of ours stands behind that marker, the
+	// process that wrote it died mid-turn and nothing will ever read a cancel:
+	// refuse now rather than leave the caller polling for a stop that cannot
+	// come. A turn held by another process is that process' to vouch for.
+	if m.SessionTurnActiveInProcess(sessionID) && !st.holdsUndoWatchTurn(turn.TurnID) {
+		_ = os.Remove(filepath.Join(undoDir, rewindUndoTurnFile))
 		return ErrSessionTurnActive
 	}
 	return writeJSONAtomic(filepath.Join(undoDir, rewindUndoCancelFile), turn)
@@ -69,6 +80,7 @@ func watchRewindUndoCancel(ctx context.Context, st *State, cancel context.Cancel
 	if err := writeJSONAtomic(turnPath, turn); err != nil {
 		return func() {}
 	}
+	st.setUndoWatchTurn(turn.TurnID)
 	cancelPath := filepath.Join(undoDir, rewindUndoCancelFile)
 	finished := make(chan struct{})
 	go func() {
@@ -93,8 +105,31 @@ func watchRewindUndoCancel(ctx context.Context, st *State, cancel context.Cancel
 	}()
 	return func() {
 		<-finished
+		st.setUndoWatchTurn("")
 		_ = os.Remove(turnPath)
+		// A request this watcher has already taken, or never got to read, must
+		// not stay in the bundle to be read as someone else's.
+		_ = os.Remove(cancelPath)
 	}
+}
+
+// setUndoWatchTurn records the turn a live watcher of this process stands
+// behind, or clears it with "".
+func (st *State) setUndoWatchTurn(turn string) {
+	st.mu.Lock()
+	st.undoWatchTurn = turn
+	st.mu.Unlock()
+}
+
+// holdsUndoWatchTurn reports whether a live watcher of this process stands
+// behind the given turn marker.
+func (st *State) holdsUndoWatchTurn(turn string) bool {
+	if turn == "" {
+		return false
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.undoWatchTurn == turn
 }
 
 func (st *State) isRewindEditedTurn(snap *rewindUndoSnapshot) bool {

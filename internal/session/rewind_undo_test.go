@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -333,4 +334,161 @@ func TestRejectedRewindPreservesPreviousUndo(t *testing.T) {
 		t.Fatalf("rejected rewind destroyed the prior undo: %v", err)
 	}
 	sameContents(t, state.GetMessages(), original)
+}
+
+// A tail that is gone or cannot be decoded is a spent record: keeping it would
+// only make every later read refuse again.
+func TestRewindUndoRetiresABrokenTail(t *testing.T) {
+	breakTail := map[string]func(t *testing.T, tail string){
+		"missing": func(t *testing.T, tail string) {
+			t.Helper()
+			if err := os.Remove(tail); err != nil {
+				t.Fatalf("remove tail: %v", err)
+			}
+		},
+		"corrupt": func(t *testing.T, tail string) {
+			t.Helper()
+			if err := os.WriteFile(tail, []byte("{not json"), 0o644); err != nil {
+				t.Fatalf("write a corrupt tail: %v", err)
+			}
+		},
+	}
+	for name, breakIt := range breakTail {
+		t.Run(name, func(t *testing.T) {
+			mgr, fs := newTestManager(t)
+			st := newRewindState(t, mgr, fs, "s1", userMsgs("hello", "world"))
+			undoDir := filepath.Join(st.GetPersistedSessionDir(), rewindUndoDirName)
+			if _, err := mgr.RewindSession("s1", 1); err != nil {
+				t.Fatalf("RewindSession: %v", err)
+			}
+			breakIt(t, filepath.Join(undoDir, "tail.json"))
+
+			if _, err := undoCurrentRewind(mgr, "s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
+				t.Fatalf("want ErrRewindUndoUnavailable, got %v", err)
+			}
+			if _, err := os.Stat(undoDir); !os.IsNotExist(err) {
+				t.Fatalf("a tail that is gone or corrupt must retire the snapshot: %v", err)
+			}
+		})
+	}
+}
+
+// A tail that exists but cannot be read right now - a sharing violation or an
+// antivirus lock on Windows - is not a spent record. Retiring the snapshot over
+// it would throw away the only copy of the cut history over a hiccup.
+func TestRewindUndoReadFailureKeepsTheSnapshot(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	st := newRewindState(t, mgr, fs, "s1", userMsgs("hello", "world"))
+	undoDir := filepath.Join(st.GetPersistedSessionDir(), rewindUndoDirName)
+	if _, err := mgr.RewindSession("s1", 1); err != nil {
+		t.Fatalf("RewindSession: %v", err)
+	}
+	tail := filepath.Join(undoDir, "tail.json")
+	if err := os.Remove(tail); err != nil {
+		t.Fatalf("remove tail: %v", err)
+	}
+	if err := os.Mkdir(tail, 0o755); err != nil {
+		t.Fatalf("stand in the way of the read: %v", err)
+	}
+
+	_, err := undoCurrentRewind(mgr, "s1")
+	if errors.Is(err, ErrRewindUndoUnavailable) {
+		t.Fatalf("a tail that only failed to read must stay on offer, got %v", err)
+	}
+	if err == nil {
+		t.Fatal("an unreadable tail cannot be restored")
+	}
+	if _, statErr := os.Stat(undoDir); statErr != nil {
+		t.Fatalf("an unreadable tail must not retire the snapshot: %v", statErr)
+	}
+}
+
+// The cut detail is parked for the undo, never deleted on the way. An extra
+// folder under tool_calls/ is harmless; losing the only copy is not.
+func TestRewindCleanupKeepsCutDetailWhenTheParkFails(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "ask"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_cut", Name: "write"}}},
+		{Role: llm.RoleTool, ToolCallID: "call_cut", Content: "out"},
+	}
+	st := newRewindState(t, mgr, fs, "s1", msgs)
+	dir := st.GetPersistedSessionDir()
+	if err := WriteToolCallResult(dir, "call_cut", "full call_cut"); err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	// A park the move cannot reach: the parent of the keep folder is a file.
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+		t.Fatalf("blocker: %v", err)
+	}
+
+	rewindCleanupArtifacts(dir, []llm.Message{{Role: llm.RoleUser, Content: "ask"}}, filepath.Join(blocked, "tool_calls"))
+
+	dirs, err := ListToolCalls(dir)
+	if err != nil {
+		t.Fatalf("ListToolCalls: %v", err)
+	}
+	if len(dirs) != 1 || dirs[0] != ToolCallDirName("call_cut") {
+		t.Fatalf("a park that failed must leave the cut detail in tool_calls/, got %v", dirs)
+	}
+}
+
+// A turn marker only proves that some watcher wrote one. When the turn runs in
+// this process and no watcher of ours holds that marker, the process that wrote
+// it died mid-turn and nothing will ever read a cancel: refusing now is the
+// answer the caller would get only after polling for a stop that never comes.
+func TestRewindUndoCancelRefusesAStaleTurnMarker(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	st := newRewindState(t, mgr, fs, "s1", userMsgs("hello", "world"))
+	dir := st.GetPersistedSessionDir()
+	undoDir := filepath.Join(dir, rewindUndoDirName)
+	if _, err := mgr.RewindSession("s1", 1); err != nil {
+		t.Fatalf("RewindSession: %v", err)
+	}
+	snap := readRewindUndoSnapshot(dir)
+	if snap == nil {
+		t.Fatal("no snapshot after the rewind")
+	}
+	if err := writeJSONAtomic(filepath.Join(undoDir, "turn.json"), rewindUndoTurn{SnapshotID: snap.snapshotID(), TurnID: "gone"}); err != nil {
+		t.Fatalf("stale marker: %v", err)
+	}
+	release := mgr.markTurnActive("s1")
+	defer release()
+
+	if err := mgr.RequestRewindUndoCancel("s1", snap.snapshotID()); !errors.Is(err, ErrSessionTurnActive) {
+		t.Fatalf("a marker nobody answers must refuse at once, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(undoDir, "turn.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("the stale marker must be taken down, got %v", statErr)
+	}
+}
+
+// The other half of the refusal: a marker its watcher is still standing behind
+// is answered, and is left where the watcher can find it.
+func TestRewindUndoCancelReachesALiveWatcher(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	st := newRewindState(t, mgr, fs, "s1", userMsgs("hello", "world"))
+	dir := st.GetPersistedSessionDir()
+	undoDir := filepath.Join(dir, rewindUndoDirName)
+	if _, err := mgr.RewindSession("s1", 1); err != nil {
+		t.Fatalf("RewindSession: %v", err)
+	}
+	snap := readRewindUndoSnapshot(dir)
+	if snap == nil {
+		t.Fatal("no snapshot after the rewind")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	finish := watchRewindUndoCancel(ctx, st, cancel)
+	t.Cleanup(func() { cancel(); finish() })
+
+	release := mgr.markTurnActive("s1")
+	defer release()
+
+	if err := mgr.RequestRewindUndoCancel("s1", snap.snapshotID()); err != nil {
+		t.Fatalf("a live watcher must be reached, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(undoDir, "turn.json")); statErr != nil {
+		t.Fatalf("a live marker must stay where its watcher reads it: %v", statErr)
+	}
 }

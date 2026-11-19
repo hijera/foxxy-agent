@@ -83,6 +83,12 @@ type State struct {
 	// historyRewriteID identifies the last rewind or undo persisted with Messages.
 	historyRewriteID string
 
+	// undoWatchTurn names the turn a live watchRewindUndoCancel of THIS process
+	// stands behind (rewind_undo_cancel.go). A turn marker on disk is only
+	// trusted while its turn is the one held here, so a marker left behind by a
+	// watcher whose process died is told from one that will still answer.
+	undoWatchTurn string
+
 	// persistID tells this State apart from any other over the same bundle.
 	// The counters above start at zero in every State, so a session that was
 	// closed and reopened can reach a revision its predecessor already wrote;

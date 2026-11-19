@@ -112,8 +112,15 @@ func (snap *rewindUndoSnapshot) snapshotID() string {
 	return snap.CreatedAt
 }
 
+// errRewindUndoTailBroken marks a tail record that is there but cannot be
+// decoded - a spent record, as one that is gone - apart from a read that merely
+// failed and may well work on the next try.
+var errRewindUndoTailBroken = errors.New("rewind undo tail is broken")
+
 // readRewindUndoTail fills in the tail of a record read by
-// readRewindUndoSnapshot.
+// readRewindUndoSnapshot. A tail that is absent or undecodable is reported as
+// gone or broken; any other error is a read that failed and says nothing about
+// the record.
 func readRewindUndoTail(sessionDir string, snap *rewindUndoSnapshot) error {
 	data, err := os.ReadFile(filepath.Join(sessionDir, rewindUndoDirName, "tail.json"))
 	if err != nil {
@@ -121,7 +128,7 @@ func readRewindUndoTail(sessionDir string, snap *rewindUndoSnapshot) error {
 	}
 	var tail rewindUndoTail
 	if err := json.Unmarshal(data, &tail); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errRewindUndoTailBroken, err)
 	}
 	snap.Messages, snap.UILog = tail.Messages, tail.UILog
 	return nil
@@ -231,11 +238,23 @@ func (m *Manager) UndoRewind(sessionID, snapshotID string) (uint64, error) {
 		return 0, ErrRewindUndoUnavailable
 	}
 	undoDir := filepath.Join(dir, rewindUndoDirName)
-	if !st.rewindUndoValid(snap) || readRewindUndoTail(dir, snap) != nil {
+	if !st.rewindUndoValid(snap) {
 		// A snapshot that no longer continues the history is retired rather
 		// than kept around to refuse again on every read.
 		_ = os.RemoveAll(undoDir)
 		return 0, ErrRewindUndoUnavailable
+	}
+	if err := readRewindUndoTail(dir, snap); err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, errRewindUndoTailBroken) {
+			// A tail that is gone or cannot be decoded is a spent record: the
+			// same retirement as a snapshot that stopped continuing the history.
+			_ = os.RemoveAll(undoDir)
+			return 0, ErrRewindUndoUnavailable
+		}
+		// Anything else is a read that failed for now, not a record that is
+		// gone. A sharing violation or an antivirus lock must not throw away
+		// the only copy of the cut history; say so and let the caller retry.
+		return 0, fmt.Errorf("read rewind undo tail: %w", err)
 	}
 	if err := st.restoreRewoundTail(snap.BaseLen, snap.Messages, snap.UILog, rand.Text(), func() bool {
 		return m.SessionTurnActiveInProcess(sessionID)
