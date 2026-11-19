@@ -252,18 +252,20 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// whose JSON stops short surfaces here as a syntax error at the end
 		// of its input: a cut inside the event (issue #384), held to the
 		// truncation contract of the branch below - the delivered text and
-		// thinking next to the error, no tool_use blocks, whose input may be
-		// cut mid-JSON, the decoder's error kept as the cause. With nothing
-		// delivered the truncation error goes back alone, unlike the stall
+		// thinking and whole tool calls next to the error, with unfinished
+		// tool_use blocks excluded and the decoder's error kept as the cause.
+		// With nothing delivered the truncation error goes back alone, unlike the stall
 		// branch, whose transport wrapper carries the guard's own error: here
 		// the decoder's error is the more specific cause.
 		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
 			truncErr := fmt.Errorf("anthropic stream: %w", trunc)
-			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+			whole := WholeToolCalls(finalizeAnthropicToolUses())
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" || len(whole) > 0 {
 				return &Response{
 					Content:            fullContent,
 					Reasoning:          thinkingBuf.String(),
 					ReasoningSignature: thinkingSig,
+					ToolCalls:          whole,
 					InputTokens:        inputTokens,
 					OutputTokens:       outputTokens,
 					CachedInputTokens:  cachedInputTokens,
@@ -274,6 +276,19 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// Same transport wrapper as the openai path: the emitted flag lets
 		// classification retry status-less failures only while nothing was
 		// delivered. HTTP errors keep their status reachable through Unwrap.
+		// The whole tool calls survive it like the truncation below; content
+		// alone stays out.
+		if whole := WholeToolCalls(finalizeAnthropicToolUses()); len(whole) > 0 {
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          thinkingBuf.String(),
+				ReasoningSignature: thinkingSig,
+				ToolCalls:          whole,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		}
 		return nil, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
 	}
 
@@ -281,14 +296,17 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// The stream ended without a stop_reason-bearing message_delta: the
 		// terminal event never arrived and the response was cut
 		// mid-generation. Mirror the openai path: keep the delivered text
-		// and reasoning next to the truncation error, and drop unfinished
-		// tool_use blocks, whose input JSON may be cut mid-way.
+		// and reasoning next to the truncation error, and the tool_use blocks
+		// whose input arrived whole - fork(cut-keeps-complete-calls); a block
+		// cut mid-JSON does not run.
 		truncErr := fmt.Errorf("anthropic stream: %w", &streamTruncatedError{emitted: emitted})
-		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+		whole := WholeToolCalls(finalizeAnthropicToolUses())
+		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" || len(whole) > 0 {
 			return &Response{
 				Content:            fullContent,
 				Reasoning:          thinkingBuf.String(),
 				ReasoningSignature: thinkingSig,
+				ToolCalls:          whole,
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,

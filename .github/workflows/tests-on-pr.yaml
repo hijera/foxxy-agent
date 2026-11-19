@@ -37,8 +37,8 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
-      - name: Test the OpenCode rules plugin
-        run: make test-opencode-rules
+      - name: Test project rule adapters
+        run: make test-agent-rules
 
       - name: Read the tag combinations
         id: sets

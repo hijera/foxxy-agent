@@ -457,10 +457,13 @@ type SessionMeta struct {
 	// below) it names the job the run belongs to, with SchedulerTrigger
 	// ("cron" or "manual") and SchedulerFireSlot (the committed UTC minute of
 	// a cron fire, RFC3339) saying how the run started.
-	SchedulerRun      bool   `json:"schedulerRun,omitempty"`
-	SchedulerJobID    string `json:"schedulerJobId,omitempty"`
-	SchedulerTrigger  string `json:"schedulerTrigger,omitempty"`
-	SchedulerFireSlot string `json:"schedulerFireSlot,omitempty"`
+	SchedulerRun   bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID string `json:"schedulerJobId,omitempty"`
+	// SchedulerJobWorkspace is the canonical workspace of a project job (its
+	// file is <workspace>/.foxxycode/scheduler/<id>.md); empty for a user job.
+	SchedulerJobWorkspace string `json:"schedulerJobWorkspace,omitempty"`
+	SchedulerTrigger      string `json:"schedulerTrigger,omitempty"`
+	SchedulerFireSlot     string `json:"schedulerFireSlot,omitempty"`
 	// Legacy top-level sched_ run fields remain readable after the job-session
 	// migration. New runs use background task records instead.
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
@@ -1313,6 +1316,7 @@ func (f *FileStore) Save(state *State) error {
 	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true
 		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
+		meta.SchedulerJobWorkspace = strings.TrimSpace(state.GetSchedulerJobWorkspace())
 		if strings.HasPrefix(state.ID, "sched_") {
 			// Keep the old run timestamps and outcome when its transcript or
 			// session metadata is saved by a newer binary.
@@ -1331,6 +1335,7 @@ func (f *FileStore) Save(state *State) error {
 		meta.SubagentDepth = sub.Depth
 		if sub.Scheduler != nil {
 			meta.SchedulerJobID = strings.TrimSpace(sub.Scheduler.JobID)
+			meta.SchedulerJobWorkspace = strings.TrimSpace(sub.Scheduler.Workspace)
 			meta.SchedulerTrigger = strings.TrimSpace(sub.Scheduler.Trigger)
 			if !sub.Scheduler.FireSlot.IsZero() {
 				meta.SchedulerFireSlot = sub.Scheduler.FireSlot.UTC().Format(time.RFC3339)

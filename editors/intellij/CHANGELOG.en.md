@@ -7,9 +7,35 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-14
+## Unreleased — 2026-11-19
 
-**Chat notifications.** Permissions, questions, ready plans and finished tasks appear in IDE notification balloons with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. In IntelliJ the standard signal is played by the IDE itself (the system notification sound); a custom file plays inside the chat panel. Radio options switch between the Windows system notification sound (ding) and a custom file.
+**Diagrams and formulas in answers.**
+Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
+Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
+Inline formulas copy their LaTeX source in the editor panel even when its embedded browser denies the Clipboard API.
+
+**Project jobs and memory.**
+The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask policy, jobs from the repository require approval and file changes require fresh approval. During an upgrade, jobs from the legacy `scheduler.dir` are copied to Global with their state. Job files with mixed-case Markdown extensions remain discoverable and editable. The `max_note_chars` memory setting limits note length in characters. A notice appears when text is truncated, including text in Cyrillic.
+
+**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
+
+**Chat notifications.** Permissions, questions, ready plans and finished tasks appear in IDE notification balloons with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. In IntelliJ the standard signal is played by the IDE itself (the system notification sound); with a custom file the IDE stays quiet and the clip plays inside the chat panel. Radio options switch between the Windows system notification sound (ding) and a custom file.
+
+## 0.3.49 — 2026-11-15
+
+**Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
+
+**Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
+
+**Keep the agent home private.**
+Messenger users without admin rights can search and read workspace files, while `grep`, `glob` and `print_tree` hide the agent home even when it is nested inside the project. Private contents and file names stay out of results and do not consume the search limit.
+
+## 0.3.48 — 2026-11-14
+
+- An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
+- A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
+- Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet. This also covers a subsequent JSON event cut short on Anthropic-compatible providers.
+- A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
 
 ## 0.3.47 — 2026-11-12
 
@@ -64,7 +90,6 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
-
 
 ## 0.3.38 — 2026-10-26
 

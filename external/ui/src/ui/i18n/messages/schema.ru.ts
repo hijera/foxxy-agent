@@ -374,6 +374,7 @@ export const schemaTextRu: Record<string, string> = {
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
 
   // Memory
+  "Memory": "Память",
   "Long-term memory": "Долговременная память",
   "Optional memory subagent (requires the memory build tag and a provider).":
     "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
@@ -412,6 +413,9 @@ export const schemaTextRu: Record<string, string> = {
   "Max search hits": "Макс. результатов поиска",
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
+  "Note size cap (characters)": "Предел размера заметки (символы)",
+  "Longest body one saved note may have, in characters; 0 means no cap (default 900).":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
 
   // Compaction
   "Automatic context compaction": "Автоматическое сжатие контекста",
@@ -434,6 +438,8 @@ export const schemaTextRu: Record<string, string> = {
   "Threshold percent": "Порог, %",
   "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
     "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (foxxycode) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
   "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
     "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
@@ -474,6 +480,9 @@ export const schemaTextRu: Record<string, string> = {
     "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
+  "Project jobs": "Проектные задания",
+  "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.":
+    "Задания в .foxxycode/scheduler рабочей папки приходят вместе с репозиторием. ask: показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). allow: запускать как свои. deny: никогда не запускать.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",
@@ -819,6 +828,26 @@ export const schemaTextRu: Record<string, string> = {
   "${FOXXYCODE_HOME}/logs/foxxycode.log": "${FOXXYCODE_HOME}/logs/foxxycode.log",
   "${FOXXYCODE_HOME}/sessions": "${FOXXYCODE_HOME}/sessions",
   "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+
+  "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).": "Боты Telegram и Пачки (нужен тег gateway или gateway.telegram / gateway.pachca для одного из них).",
+  "Pachca": "Пачка",
+  "Pachca integration bot settings.": "Настройки бота интеграции Пачки.",
+  "Pachca user IDs with elevated rights; admins always pass access checks.": "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
+  "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.": "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
+  "Run the Pachca bot (requires the gateway or gateway.pachca build tag).": "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
+  "Poll interval, seconds": "Интервал опроса, секунды",
+  "How often the bot reads its events history, 1 to 60 seconds (default 2).": "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
+  "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.": "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none отключает его.",
+  "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.": "Токен доступа бота интеграции Пачки. Необязателен: если оставить пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
+  "Pachca user IDs that belong to this group.": "Идентификаторы пользователей Пачки, входящие в эту группу.",
+  "Mini App": "Mini App",
+  "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.": "Открыть этот веб-интерфейс как Mini App бота в Telegram: кнопка меню и /app открывают его на текущем разговоре. Telegram открывает Mini App только по https: опубликуйте веб-интерфейс через TLS-прокси и оставьте вход включённым.",
+  "Menu button": "Кнопка меню",
+  "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.": "Открывать веб-интерфейс кнопкой меню бота. Если выключить её, очистить адрес или оставить веб-интерфейс без входа, бот вернёт прежнюю кнопку, если она всё ещё открывает назначенный им адрес.",
+  "Web UI address": "Адрес веб-интерфейса",
+  "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.": "Публичный https-адрес веб-интерфейса, например https://foxxycode.example.com/. Без фрагмента. Пусто: бот не предлагает Mini App и не меняет кнопку, заданную в @BotFather.",
+  "Allow disabling reasoning": "Разрешить отключение рассуждения",
+  "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.": "Показывает Off в селекторе рассуждения этой модели. Включайте только если это развёртывание провайдера и модели выполняет запрос FoxxyCode на отключение рассуждения; FoxxyCode не может проверить это автоматически.",
 };
 
 /**

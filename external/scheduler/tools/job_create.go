@@ -3,12 +3,13 @@
 package schedtools
 
 import (
+	schedservice "github.com/hijera/foxxycode-agent/external/scheduler/service"
+
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxycode-agent/external/scheduler/service"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
@@ -18,20 +19,23 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: toolJobCreate,
-			Description: "Creates a new flat scheduler job markdown file (.md directly under scheduler.dir). " +
+			Description: "Creates a new scheduler job markdown file: a user job in ${FOXXYCODE_HOME}/scheduler, or with scope project a project job in <session cwd>/.foxxycode/scheduler that travels with the repository (approved at once for the operator; a project job may not take the id of a user job, nor a user job the id of a project job). " +
 				"Provide job_id plus YAML fields description, schedule (5-field cron UTC line), optional cwd/model/mode/paused, optional agent (a subagent definition name) and permission_mode (ask, accept_edits, bypass; empty is bypass), " +
 				"and markdown instruction body. Validates cron, the permission mode and the agent name before writing. Conflict if job_id exists. Requires permission.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"job_id":      map[string]interface{}{"type": "string", "description": "New job basename (no slashes)"},
-					"description": map[string]interface{}{"type": "string"},
-					"schedule":    map[string]interface{}{"type": "string", "description": "5-field cron in UTC"},
-					"paused":      map[string]interface{}{"type": "boolean", "description": "When true, job will not run until resumed"},
-					"cwd":         map[string]interface{}{"type": "string"},
-					"model":       map[string]interface{}{"type": "string"},
-					"mode":        map[string]interface{}{"type": "string", "description": "agent, plan, docs, ask, or debug"},
-					"body":        map[string]interface{}{"type": "string", "description": "Markdown instruction executed as the initial user prompt"},
+					"scope":           scopeProperty(),
+					"job_id":          map[string]interface{}{"type": "string", "description": "New job basename (no slashes)"},
+					"description":     map[string]interface{}{"type": "string"},
+					"schedule":        map[string]interface{}{"type": "string", "description": "5-field cron in UTC"},
+					"paused":          map[string]interface{}{"type": "boolean", "description": "When true, job will not run until resumed"},
+					"cwd":             map[string]interface{}{"type": "string"},
+					"model":           map[string]interface{}{"type": "string"},
+					"mode":            map[string]interface{}{"type": "string", "description": "agent, plan, docs, ask, or debug"},
+					"agent":           map[string]interface{}{"type": "string", "description": "Subagent definition the run is made under (its role, tool allowlist, model and permission narrowing); empty runs a general agent"},
+					"permission_mode": map[string]interface{}{"type": "string", "description": "ask, accept_edits or bypass; empty is bypass, the unattended default. Nobody answers a prompt in a scheduled run, so under ask or accept_edits a gated call is denied"},
+					"body":            map[string]interface{}{"type": "string", "description": "Markdown instruction executed as the initial user prompt"},
 				},
 				"required": []interface{}{"job_id", "description", "schedule", "body"},
 			},
@@ -42,7 +46,7 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 			if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 				return "", err
 			}
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
+			op := toolService(cfg, env)
 			if err := op.CreateJob(in); err != nil {
 				return "", err
 			}

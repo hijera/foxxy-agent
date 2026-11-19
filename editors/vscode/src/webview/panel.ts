@@ -5,6 +5,8 @@ import { readSettings } from "../settings";
 import { info } from "../notifications";
 import { OPEN_EXTERNAL_MESSAGE_TYPE, externalUrlFromMessage } from "./externalLink";
 import { chatNotificationFromMessage } from "./chatNotification";
+import { DOWNLOAD_TEXT_MESSAGE_TYPE, textDownloadFromMessage, type TextDownload } from "./textDownload";
+import { homedir } from "os";
 
 /** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
  *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
@@ -72,6 +74,11 @@ export class FoxxyCodePanelController {
     // changes forwarded from the embedded SPA by the wrapper script.
     webview.onDidReceiveMessage((msg: { type?: string; locale?: string; url?: string; id?: string }) => {
       switch (msg?.type) {
+        case DOWNLOAD_TEXT_MESSAGE_TYPE: {
+          const download = textDownloadFromMessage(msg);
+          if (download) void this.saveTextDownload(download);
+          break;
+        }
         case "foxxycode:notification": {
           const n = chatNotificationFromMessage(msg);
           if (!n || this.liveNotifications.has(n.id)) break;
@@ -124,6 +131,20 @@ export class FoxxyCodePanelController {
         }
       }),
     );
+  }
+
+  private async saveTextDownload(download: TextDownload): Promise<void> {
+    try {
+      const folder = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir());
+      const extension = download.filename.endsWith(".mmd") ? "mmd" : "svg";
+      const target = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(folder, download.filename),
+        filters: { [extension.toUpperCase()]: [extension] },
+      });
+      if (target) await vscode.workspace.fs.writeFile(target, Buffer.from(download.text, "utf8"));
+    } catch (error) {
+      void vscode.window.showErrorMessage(t("download.errorSave", String(error)));
+    }
   }
 
   /** Show a status message while the server is booting (no iframe yet). */
@@ -300,6 +321,9 @@ export class FoxxyCodePanelController {
           }
           if (d.type === "${OPEN_EXTERNAL_MESSAGE_TYPE}" && typeof d.url === "string") {
             vscodeApi.postMessage({ type: d.type, url: d.url });
+          }
+          if (d.type === "${DOWNLOAD_TEXT_MESSAGE_TYPE}" && typeof d.filename === "string" && typeof d.text === "string") {
+            vscodeApi.postMessage({ type: d.type, filename: d.filename, text: d.text });
           }
           return;
         }

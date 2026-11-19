@@ -10,6 +10,7 @@ const rootSchema: JsonSchema = {
     "providers",
     "models",
     "agent",
+    "compaction",
     "tools",
     "subagents",
     "skills",
@@ -26,10 +27,11 @@ const rootSchema: JsonSchema = {
     providers: { type: "array", title: "LLM providers", items: { type: "object" } },
     models: { type: "array", title: "Logical models", items: { type: "object" } },
     agent: { type: "object", title: "ReAct agent", properties: {} },
+    compaction: { type: "object", title: "Context compaction", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
     subagents: { type: "object", title: "Subagents", properties: {} },
     skills: { type: "object", title: "Skills", properties: {} },
-    memory: { type: "object", title: "Long-term memory", properties: {} },
+    memory: { type: "object", title: "Memory", properties: {} },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
     prompts: { type: "object", title: "Prompts", properties: {} },
     instructions: { type: "object", title: "Instructions", properties: {} },
@@ -50,6 +52,7 @@ test("derives tabs in schema order with General and Appearance first and System 
     "providers",
     "models",
     "agent",
+    "compaction",
     "tools",
     "mcp_servers",
     "subagents",
@@ -73,6 +76,18 @@ test("array sections carry their label field", () => {
   expect(byId.providers!.labelField).toBe("name");
   expect(byId.models!.kind).toBe("array");
   expect(byId.models!.labelField).toBe("model");
+});
+
+// The logger and the messenger gateways are features with tabs of their own.
+test("the logger and the gateways are tabs of their own, out of System", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.logger?.kind).toBe("object");
+  expect(byId.logger?.label).toBe("Logger");
+  expect(byId.gateways?.kind).toBe("object");
+  expect(byId.gateways?.label).toBe("Gateways");
+  expect(byId.gateways?.description).toBe("Telegram and Pachca bots");
 });
 
 test("mcp_servers is its own managed tab", () => {
@@ -108,13 +123,47 @@ test("System group folds the rarely edited tail keys", () => {
   expect(system?.childKeys).toEqual(["prompts", "instructions"]);
 });
 
-test("skills is its own combined tab; labels prefer the curated i18n form", () => {
-  const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
-  expect(byId.skills!.kind).toBe("skills");
-  expect(byId.agent!.kind).toBe("object");
-  // The curated short label (`settings.section.agent.label`) wins over the
-  // schema title, which reads as a sentence and would overflow the tiles.
-  expect(byId.agent!.label).toBe("ReAct loop");
+test("skills is its own combined tab; english labels match schema titles", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.skills?.kind).toBe("skills");
+  expect(byId.agent?.kind).toBe("object");
+  expect(byId.agent?.label).toBe("ReAct loop");
+  expect(byId.memory?.label).toBe("Memory");
+});
+
+test("known section labels and descriptions follow the active locale", () => {
+  initLocale("ru");
+  try {
+    const byId = Object.fromEntries(
+      deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+    );
+    expect(byId.appearance?.label).toBe("Оформление");
+    expect(byId.providers?.label).toBe("Провайдеры LLM");
+    expect(byId.tools?.label).toBe("Инструменты и разрешения");
+    expect(byId.memory?.label).toBe("Память");
+    expect(byId.scheduler?.label).toBe("Планировщик");
+    expect(byId.compaction?.label).toBe("Сжатие контекста");
+    expect(byId.compaction?.description).toBe("Сжатие истории диалога");
+    expect(byId.subagents?.label).toBe("Субагенты");
+    expect(byId.subagents?.description).toBe("Пул делегирования и доверие");
+  } finally {
+    initLocale("en");
+  }
+});
+
+// Hybrid tab: the generated form still edits the config section, so the tab
+// keeps its schema key, while the kind routes it to the panel that also lists
+// the definitions and records approvals.
+test("subagents is a hybrid tab that keeps its schema key, label and blurb", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.subagents?.kind).toBe("subagents");
+  expect(byId.subagents?.schemaKey).toBe("subagents");
+  expect(byId.subagents?.label).toBe("Subagents");
+  expect(byId.subagents?.description).toBe("Delegation pool & trust");
 });
 
 test("an unknown schema section keeps its server-provided title", () => {

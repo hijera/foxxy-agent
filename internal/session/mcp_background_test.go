@@ -135,6 +135,19 @@ func newBackgroundFixture(t *testing.T, runner AgentRunner, setup func(*Manager)
 	f.st = f.mgr.SessionByID(res.SessionID)
 	t.Cleanup(f.mgr.CloseMCP)
 	t.Cleanup(f.st.CloseAll)
+	// The gated stub writes its "started" marker into dir from a process of
+	// its own as soon as it spawns. A test that ends before that write lets it
+	// land while t.TempDir() removes dir, and the cleanup fails with
+	// "directory not empty" (TestReloadClearsTheConnectRecord, then
+	// TestReloadDuringPendingConnectTellsTheSurface on CI). Every test here
+	// starts the stub, so wait for the marker; the connect stays in flight,
+	// since the stub still waits for release.
+	if !waitUntil(t, 10*time.Second, func() bool {
+		_, err := os.Stat(f.started)
+		return err == nil
+	}) {
+		t.Fatal("the gated server did not start")
+	}
 	return f
 }
 
@@ -296,7 +309,10 @@ func TestReloadDuringPendingConnectLeavesNoDuplicates(t *testing.T) {
 // done, with the server it cut short marked cancelled rather than failed -
 // otherwise the console's footer would count a server nobody dials any more.
 func TestReloadDuringPendingConnectTellsTheSurface(t *testing.T) {
-	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
+	// Long enough that the connect is still pending when the reload comes,
+	// however slowly the stub spawned: a dial that ran out of time first
+	// would be failed, not cut short.
+	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(2 * time.Second) })
 	replaceMCPServers(t, f.mgr, reloadTestMCPServer("good"))
 	// The reload has sent its snapshot by the time it returns. The
 	// connect's first update, read before the reload, can still land after
@@ -480,16 +496,6 @@ func TestReloadClearsTheConnectRecord(t *testing.T) {
 	first, _ := f.st.MCPConnectSnapshot()
 	if first.Generation == 0 {
 		t.Fatal("the first snapshot carries no generation")
-	}
-	// The gated stub writes this marker as soon as it spawns. A spawn still
-	// in flight at teardown lands that write while t.TempDir() removes the
-	// fixture dir and fails the cleanup with "directory not empty". The
-	// connect stays in flight regardless: the stub still waits for release.
-	if !waitUntil(t, 10*time.Second, func() bool {
-		_, err := os.Stat(f.started)
-		return err == nil
-	}) {
-		t.Fatal("the gated server did not start")
 	}
 	replaceMCPServers(t, f.mgr, reloadTestMCPServer("good"))
 	if _, recorded := f.st.MCPConnectSnapshot(); recorded {

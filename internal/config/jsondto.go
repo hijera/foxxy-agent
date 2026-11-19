@@ -83,6 +83,20 @@ type UIJSON struct {
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
 type GatewaysJSON struct {
 	Telegram TelegramGatewayJSON `json:"telegram,omitempty"`
+	Pachca   PachcaGatewayJSON   `json:"pachca,omitempty"`
+}
+
+// PachcaGatewayJSON mirrors PachcaGatewayConfig.
+type PachcaGatewayJSON struct {
+	Enabled             bool                    `json:"enable,omitempty"`
+	Token               string                  `json:"token,omitempty"`
+	Proxy               string                  `json:"proxy,omitempty"`
+	PollIntervalSeconds int                     `json:"poll_interval_seconds,omitempty"`
+	Admins              []int64                 `json:"admins,omitempty"`
+	DefaultAccess       string                  `json:"default_access,omitempty"`
+	DefaultIsolation    string                  `json:"default_isolation,omitempty"`
+	UserGroups          []TelegramUserGroupJSON `json:"user_groups,omitempty"`
+	Chats               []TelegramChatJSON      `json:"chats,omitempty"`
 }
 
 // TelegramGatewayJSON mirrors TelegramGatewayConfig.
@@ -96,6 +110,13 @@ type TelegramGatewayJSON struct {
 	DefaultIsolation string                  `json:"default_isolation,omitempty"`
 	UserGroups       []TelegramUserGroupJSON `json:"user_groups,omitempty"`
 	Chats            []TelegramChatJSON      `json:"chats,omitempty"`
+	MiniApp          TelegramMiniAppJSON     `json:"mini_app"`
+}
+
+// TelegramMiniAppJSON mirrors TelegramMiniAppConfig.
+type TelegramMiniAppJSON struct {
+	URL        string `json:"url,omitempty"`
+	MenuButton *bool  `json:"menu_button,omitempty"`
 }
 
 // TelegramUserGroupJSON mirrors TelegramUserGroup.
@@ -143,8 +164,9 @@ type ModelJSON struct {
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
-	ReasoningLevels  *[]string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string    `json:"reasoning_default,omitempty"`
+	ReasoningLevels   *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault  string    `json:"reasoning_default,omitempty"`
+	AllowReasoningOff bool      `json:"allow_reasoning_off,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
@@ -327,6 +349,7 @@ type MemoryJSON struct {
 	PersistMaxTurns          int    `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens         int    `json:"copilot_max_tokens,omitempty"`
 	MaxSearchHits            int    `json:"max_search_hits,omitempty"`
+	MaxNoteChars             *int   `json:"max_note_chars,omitempty"`
 	AdditionalPrompt         string `json:"additional_prompt,omitempty"`
 	AdditionalPromptMaxChars int    `json:"additional_prompt_max_chars,omitempty"`
 	// FallbackModels rides the DTO so a settings save keeps it: upstream left it
@@ -518,10 +541,10 @@ type HooksJSON struct {
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
 	Enabled        bool   `json:"enable,omitempty"`
-	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
 	RetainSessions int    `json:"retain_sessions,omitempty"`
+	ProjectTrust   string `json:"project_trust,omitempty"`
 }
 
 // ConfigToJSONDTO copies a loaded Config into ConfigJSON (for GET /foxxycode/config).
@@ -636,6 +659,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(c.Memory.MaxNoteChars),
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
 	out.Compaction = CompactionJSON{
@@ -730,8 +754,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Scheduler = SchedulerJSON{
-		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
+		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
+		ProjectTrust: c.Scheduler.ProjectTrust,
 	}
 	out.Subagents = SubagentsJSON{
 		Enabled:               cloneBoolPtr(c.Subagents.Enabled),
@@ -756,6 +781,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Admins:           append([]int64(nil), tg.Admins...),
 		DefaultAccess:    string(tg.DefaultAccess),
 		DefaultIsolation: string(tg.DefaultIsolation),
+		MiniApp:          TelegramMiniAppJSON{URL: tg.MiniApp.URL, MenuButton: cloneBoolPtr(tg.MiniApp.MenuButton)},
 	}
 	for _, g := range tg.UserGroups {
 		tgJSON.UserGroups = append(tgJSON.UserGroups, TelegramUserGroupJSON{
@@ -767,7 +793,16 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			ChatID: ch.ChatID, Isolation: string(ch.Isolation), Access: string(ch.Access),
 		})
 	}
-	out.Gateways = GatewaysJSON{Telegram: tgJSON}
+	pc := c.Gateways.Pachca
+	pcJSON := PachcaGatewayJSON{
+		Enabled: pc.Enabled, Token: pc.Token, Proxy: pc.Proxy, PollIntervalSeconds: pc.PollIntervalSeconds,
+		Admins:           append([]int64(nil), pc.Admins...),
+		DefaultAccess:    string(pc.DefaultAccess),
+		DefaultIsolation: string(pc.DefaultIsolation),
+		UserGroups:       userGroupsToJSON(pc.UserGroups),
+		Chats:            chatsToJSON(pc.Chats),
+	}
+	out.Gateways = GatewaysJSON{Telegram: tgJSON, Pachca: pcJSON}
 	out.UI = UIJSON{
 		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
 		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
@@ -932,6 +967,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(j.Memory.MaxNoteChars),
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
 	cfg.Compaction = CompactionConfig{
@@ -1019,8 +1055,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Scheduler = SchedulerConfig{
-		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
+		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
+		ProjectTrust: j.Scheduler.ProjectTrust,
 	}
 	cfg.Subagents = Subagents{
 		Enabled:               cloneBoolPtr(j.Subagents.Enabled),
@@ -1045,6 +1082,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Admins:           append([]int64(nil), jt.Admins...),
 		DefaultAccess:    AccessLevel(jt.DefaultAccess),
 		DefaultIsolation: IsolationMode(jt.DefaultIsolation),
+		MiniApp:          TelegramMiniAppConfig{URL: jt.MiniApp.URL, MenuButton: cloneBoolPtr(jt.MiniApp.MenuButton)},
 	}
 	for _, g := range jt.UserGroups {
 		tg.UserGroups = append(tg.UserGroups, TelegramUserGroup{
@@ -1056,7 +1094,16 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			ChatID: ch.ChatID, Isolation: IsolationMode(ch.Isolation), Access: AccessLevel(ch.Access),
 		})
 	}
-	cfg.Gateways = GatewayConfig{Telegram: tg}
+	jp := j.Gateways.Pachca
+	pc := PachcaGatewayConfig{
+		Enabled: jp.Enabled, Token: jp.Token, Proxy: jp.Proxy, PollIntervalSeconds: jp.PollIntervalSeconds,
+		Admins:           append([]int64(nil), jp.Admins...),
+		DefaultAccess:    AccessLevel(jp.DefaultAccess),
+		DefaultIsolation: IsolationMode(jp.DefaultIsolation),
+		UserGroups:       userGroupsFromJSON(jp.UserGroups),
+		Chats:            chatsFromJSON(jp.Chats),
+	}
+	cfg.Gateways = GatewayConfig{Telegram: tg, Pachca: pc}
 	cfg.UI = UIConfig{
 		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
 		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
@@ -1075,6 +1122,38 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		TimeoutSeconds: j.VCS.SVN.TimeoutSeconds, BranchLookup: j.VCS.SVN.BranchLookup,
 	}}
 	return cfg
+}
+
+func userGroupsToJSON(groups []GatewayUserGroup) []TelegramUserGroupJSON {
+	var out []TelegramUserGroupJSON
+	for _, g := range groups {
+		out = append(out, TelegramUserGroupJSON{Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...)})
+	}
+	return out
+}
+
+func chatsToJSON(chats []GatewayChatConfig) []TelegramChatJSON {
+	var out []TelegramChatJSON
+	for _, ch := range chats {
+		out = append(out, TelegramChatJSON{ChatID: ch.ChatID, Isolation: string(ch.Isolation), Access: string(ch.Access)})
+	}
+	return out
+}
+
+func userGroupsFromJSON(groups []TelegramUserGroupJSON) []GatewayUserGroup {
+	var out []GatewayUserGroup
+	for _, g := range groups {
+		out = append(out, GatewayUserGroup{Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...)})
+	}
+	return out
+}
+
+func chatsFromJSON(chats []TelegramChatJSON) []GatewayChatConfig {
+	var out []GatewayChatConfig
+	for _, ch := range chats {
+		out = append(out, GatewayChatConfig{ChatID: ch.ChatID, Isolation: IsolationMode(ch.Isolation), Access: AccessLevel(ch.Access)})
+	}
+	return out
 }
 
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
@@ -1186,6 +1265,7 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	out.Gateways.Pachca.Proxy = escapeYAMLDollar(cfg.Gateways.Pachca.Proxy)
 	// An argon2id hash is "$argon2id$v=19$m=...", which the load-time expansion
 	// would otherwise read as a row of empty environment references and hand
 	// back as rubble. Doubling the signs here is what makes the hash a literal,

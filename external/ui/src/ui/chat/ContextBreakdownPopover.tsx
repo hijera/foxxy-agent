@@ -359,13 +359,18 @@ export function ContextBreakdownPopover(props: {
     </>
   );
 
+  // Over the docked composer the sheet is placed from the composer's card; on
+  // the start screen its class puts it at the bottom, which is what a Mini App
+  // lifts (ui/telegram/telegram.css), the way the slash and @ picker does.
   const menuStyle: CSSProperties | undefined = useSheet
-    ? {
-        bottom: sheetBottom,
-        ...(props.composerDocked && sheetBottom > 0
-          ? { ["--context-sheet-bottom" as string]: `${sheetBottom}px` }
-          : {}),
-      }
+    ? props.composerDocked
+      ? {
+          bottom: sheetBottom,
+          ...(sheetBottom > 0
+            ? { ["--context-sheet-bottom" as string]: `${sheetBottom}px` }
+            : {}),
+        }
+      : undefined
     : floatRect
       ? {
           left: floatRect.left,

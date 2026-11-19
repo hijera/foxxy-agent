@@ -26,7 +26,8 @@ func TestJobSessionIDForSkipsLegacyRunBundles(t *testing.T) {
 	if err := os.MkdirAll(schedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	jobPath := filepath.Join(schedDir, "nightly.md")
+	ref := storage.Roots{Home: root, User: schedDir}.UserRef("nightly")
+	jobPath := ref.Path
 	if err := os.WriteFile(jobPath, []byte("---\nschedule: \"0 3 * * *\"\n---\nhello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestJobSessionIDForSkipsLegacyRunBundles(t *testing.T) {
 	if err := store.Save(legacy); err != nil {
 		t.Fatal(err)
 	}
-	if got := JobSessionIDFor(store, jobPath); got != "" {
+	if got := JobSessionIDFor(store, ref); got != "" {
 		t.Fatalf("a legacy run bundle was taken for the job session: %q", got)
 	}
 	// A real job session is found by the job it names.
@@ -57,14 +58,14 @@ func TestJobSessionIDForSkipsLegacyRunBundles(t *testing.T) {
 	if err := store.Save(js); err != nil {
 		t.Fatal(err)
 	}
-	if got := JobSessionIDFor(store, jobPath); got != jobSID {
+	if got := JobSessionIDFor(store, ref); got != jobSID {
 		t.Fatalf("job session = %q, want %q", got, jobSID)
 	}
 	// The sidecar pointer wins over the walk.
-	if err := storage.WriteJobSessionID(storage.StatePath(jobPath), "sess_fedcba9876543210fedcba98"); err != nil {
+	if err := storage.WriteJobSessionID(ref.StatePath, "sess_fedcba9876543210fedcba98"); err != nil {
 		t.Fatal(err)
 	}
-	if got := JobSessionIDFor(store, jobPath); got != "sess_fedcba9876543210fedcba98" {
+	if got := JobSessionIDFor(store, ref); got != "sess_fedcba9876543210fedcba98" {
 		t.Fatalf("pointer ignored: %q", got)
 	}
 }
@@ -104,9 +105,9 @@ func TestListJobRunsIncludesLegacyBundles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacyDir, "session.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{Paths: config.Paths{Home: root}, Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir}}
+	cfg := &config.Config{Paths: config.Paths{Home: root}, Scheduler: config.SchedulerConfig{Enabled: true}}
 	svc := NewService(cfg, nil, root)
-	rows, err := svc.ListJobRuns("nightly", 50)
+	rows, err := svc.ListJobRuns(UserJob("nightly"), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
