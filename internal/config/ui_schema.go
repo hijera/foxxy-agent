@@ -760,12 +760,6 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{
-				"engine": map[string]interface{}{
-					"type":        "string",
-					"title":       "Compaction engine",
-					"description": "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
-					"enum":        []string{CompactionEngineFoxxyCode, CompactionEngineOpenCode},
-				},
 				"enable":      boolProp("Enabled", "Master switch for manual and automatic compaction. Defaults to true."),
 				"auto_enable": boolProp("Automatic compaction", "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true."),
 				"model":       strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
@@ -775,9 +769,8 @@ func UISchemaMap() map[string]interface{} {
 					"title":       "Fallback summarizer models",
 					"description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
 				},
-				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode)."),
+				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80."),
 				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none."),
-				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation (opencode engine only)."),
 				"result_eviction": objectSchema("Read/grep result eviction",
 					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
 					map[string]interface{}{
@@ -789,7 +782,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "keep_recent", "min_result_bytes", "start_percent"},
 					nil),
 			},
-			[]string{"engine", "enable", "auto_enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
+			[]string{"enable", "auto_enable", "model", "fallback_models", "threshold_percent", "keep_recent_turns", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{

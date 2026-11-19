@@ -41,6 +41,15 @@ Feature: Checking config.yaml before anything starts
     And the report says the config is valid
     And the report warns at line 3 that "enabled" is read as "enable"
 
+  Scenario: an OpenCode compaction config passes with the Coddy migration notice
+    Given a config.yaml with the OpenCode compaction engine
+    When I run foxxycode serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And the report points at line 3 of the config file
+    And the report says the OpenCode compaction engine was replaced by Coddy
+    And nothing was created under the home besides config.yaml
+
   Scenario: a value outside the allowed set comes with the values that are allowed
     Given a config.yaml whose logger.level is "verbose"
     When I run foxxycode serve with --test-config

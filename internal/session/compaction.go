@@ -24,9 +24,8 @@ func llmWindowStart(msgs []llm.Message) int {
 
 // MessagesForLLM returns the slice of history visible to the LLM: everything
 // from the last compaction summary (inclusive) to the end. Messages before the
-// summary stay in the persisted transcript for UI replay only. This is the coddy
-// compaction engine's windowing; the opencode engine instead flags older
-// messages Compacted and keeps the full slice.
+// summary stay in the persisted transcript for UI replay only. Older OpenCode
+// transcripts also have this summary boundary and can be read directly.
 func MessagesForLLM(msgs []llm.Message) []llm.Message {
 	return msgs[llmWindowStart(msgs):]
 }

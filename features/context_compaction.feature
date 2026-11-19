@@ -13,6 +13,28 @@ Feature: Context compaction
     And the next LLM request contains the last 2 exchanges verbatim
     And the next LLM request does not contain the older exchanges
 
+  Scenario: Coddy continues an OpenCode-compacted session
+    Given a session with 4 completed exchanges
+    And OpenCode previously summarized the first exchange
+    When the session is compacted keeping the last 2 user turns
+    Then Coddy folds the OpenCode summary into its new summary
+    And the transcript still contains all 4 original exchanges
+    And the next LLM request starts from the summary
+    And the next LLM request contains the last 2 exchanges verbatim
+    And the next LLM request does not contain the older exchanges
+
+  Scenario Outline: The summarizer respects result eviction and the kept-turn boundary
+    Given a session with a file read made stale by a kept turn
+    And result eviction starts at <percent> percent of the model window
+    When the session is compacted keeping the last 2 user turns
+    Then the summarizer reads "<text>" from the older turn
+    And the summarizer does not read the kept turns
+
+    Examples:
+      | percent | text                     |
+      | 50      | STALE FILE CONTENT       |
+      | 0       | modified after this read |
+
   Scenario: The agent continues the conversation after compaction
     Given a session with 4 completed exchanges
     And the session is compacted keeping the last 2 user turns

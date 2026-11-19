@@ -421,9 +421,6 @@ export const schemaTextRu: Record<string, string> = {
   "Automatic context compaction": "Автоматическое сжатие контекста",
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
-  "Compaction engine": "Движок сжатия",
-  "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.":
-    "Какую реализацию сжатия использовать. «foxxycode» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё. «opencode» помечает старые шаги и исключает их из отправляемого контекста. Обе отвечают на /compact, на эндпоинт сжатия и на инструмент модели compact_context, сворачивают длинную историю в несколько проходов и перебирают запасные модели.",
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
@@ -436,16 +433,11 @@ export const schemaTextRu: Record<string, string> = {
   "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.":
     "Модели, которые агент памяти пробует по порядку при сбое до начала ответа. Модель сессии остаётся последним вариантом, даже если её нет в списке.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
-    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
-  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).":
-    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (foxxycode) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80.":
+    "Порог срабатывания в процентах от окна контекста модели. Размер окна берётся из max_context_tokens, из данных провайдера или равен 128000. По умолчанию 80 %.",
   "Keep recent turns": "Сохранять последних шагов",
   "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
     "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
-  "Summary max tokens": "Макс. токенов сводки",
-  "Completion token cap for the summary generation (opencode engine only).":
-    "Лимит токенов ответа для генерации сводки (только движок opencode).",
   "Read/grep result eviction": "Вытеснение результатов read/grep",
   "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.":
     "Заменяет устаревшие результаты read/grep плейсхолдерами в запросе LLM; сохранённая история не изменяется.",
@@ -893,9 +885,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // agent.loop_stuck_action
   quarantine: "Карантин вызовов",
   stop: "Остановить ход",
-  // compaction.engine
   foxxycode: "foxxycode",
-  opencode: "opencode",
   brave: "Brave",
   bing: "Bing",
   ddg: "DuckDuckGo",

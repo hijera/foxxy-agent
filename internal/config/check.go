@@ -269,6 +269,15 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 			findings = append(findings, f)
 		}
 	}
+	if cfg.Compaction.migratedOpenCode {
+		_, compaction := mappingEntryEffective(body, "compaction")
+		if key, _ := mappingEntryEffective(compaction, "engine"); key != nil {
+			findings = append(findings, Finding{
+				Severity: SeverityWarning, Path: "compaction.engine", Line: key.Line, Column: key.Column,
+				Message: openCodeCompactionNotice, Fix: openCodeCompactionFix,
+			})
+		}
+	}
 	findings = append(findings, unsentSettingFindings(&cfg, body)...)
 	findings = append(findings, memoryAddendumFindings(&cfg, body)...)
 	return sortFindings(findings)

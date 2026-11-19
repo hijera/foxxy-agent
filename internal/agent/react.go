@@ -48,7 +48,6 @@ type SessionState interface {
 	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
-	ReplaceMessagesAndPersist(msgs []llm.Message)
 	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
 	GetMCPToolFilter() func(server, tool string) bool
@@ -419,13 +418,13 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// permission prompt, and to nothing after that.
 	defer a.releasePlanContext()
 
-	// FoxxyCode engine: buildSystemPromptParts refreshed the context breakdown, so
+	// buildSystemPromptParts refreshed the context breakdown, so
 	// compact before the first LLM call when the estimate crossed the
 	// auto-compaction threshold, then rebuild the payload from the windowed
 	// history. A compaction is a legitimate reason to render the system message
 	// again: the prefix behind it has just been rewritten anyway.
 	finishCompaction := a.debugStage(ctx, "initial_compaction")
-	if a.cfg.Compaction.EngineIsCoddy() && a.maybeAutoCompact(ctx) {
+	if a.maybeAutoCompact(ctx) {
 		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 		messages = a.buildMessages(sys.Content)
 	}
@@ -799,7 +798,6 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenReissues int
-	var lastInputTokens int
 	// Numbers every model call of the turn, retries and continuations included,
 	// for the debug log and the network trace that carries it.
 	var llmCalls int
@@ -985,26 +983,12 @@ func (a *Agent) runReActLoop(
 		}
 		turnCtx := a.buildTurnContext(sys)
 
-		// Auto-compaction: when the conversation approaches the context window, summarize older
-		// turns and rebuild the payload from the rewritten history. Non-fatal on error. The foxxycode
-		// engine re-checks between turns (the first check ran before the loop); the opencode engine
-		// checks every turn against the provider's real input-token count.
-		//
-		// The estimate is refreshed first: the system message no longer is, and the
-		// estimate is what the foxxycode trigger reads while tool results grow.
-		// A model switch also rechecks the first request against its new context window.
+		// Recheck context usage between rounds as tool results grow. The first
+		// check ran before the loop, but a model switch also needs a check
+		// against the new model's window before its first request.
 		a.refreshContextBreakdown(sys, turnCtx)
-		compacted := false
 		finishCompaction := a.debugStage(ctx, "turn_compaction")
-		if a.cfg.Compaction.EngineIsCoddy() {
-			compacted = (turn > 0 || switched) && a.maybeAutoCompact(ctx)
-		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
-			if a.log != nil {
-				a.log.Warn("context compaction failed", "err", err)
-			}
-		} else {
-			compacted = did
-		}
+		compacted := (turn > 0 || switched) && a.maybeAutoCompact(ctx)
 		if compacted {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
@@ -1012,6 +996,8 @@ func (a *Agent) runReActLoop(
 				messages = emptyRecoveryProjection(messages, emptyContinuations)
 			}
 			turnCtx = a.buildTurnContext(sys)
+			// Count the rebuilt block that the next request will send.
+			a.refreshContextBreakdown(sys, turnCtx)
 		}
 		finishCompaction()
 		messages = closeInterruptedToolCalls(messages)
@@ -1795,7 +1781,6 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
-		lastInputTokens = response.InputTokens
 		// All three counters are cumulative for this turn. Sending the last call's
 		// input/output next to a cumulative total would make Input + Output != Total in
 		// every client that renders the three together.
@@ -2893,13 +2878,7 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 // so the LLM sees the full skill instructions immediately before the user's request.
 // The stored history content is never modified — only the slice sent to the LLM differs.
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
-	history := a.state.GetMessages()
-	// The foxxycode compaction engine replays only the window from the last summary onward; earlier
-	// history stays in the transcript for the UI. The opencode engine keeps the full slice and
-	// relies on isLLMHistoryMessage to drop messages flagged Compacted.
-	if a.cfg.Compaction.EngineIsCoddy() {
-		history = session.MessagesForLLM(history)
-	}
+	history := a.llmVisibleMessages()
 	// UI-only rows (a bare plan document between a call and its result) must be
 	// out of the analysis: they would cut a batch's contiguous result chain and
 	// make a healthy pair look misplaced.

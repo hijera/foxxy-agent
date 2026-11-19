@@ -10,22 +10,10 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-// llmVisibleMessages returns exactly the history slice buildMessages sends to the model, so a
-// context estimate never counts turns the active compaction engine already dropped. The coddy
-// engine replays only the window after the last summary row; the opencode engine keeps the full
-// slice and filters messages flagged Compacted.
+// llmVisibleMessages returns the history window from the most recent summary
+// onward. The transcript keeps the original turns for replay.
 func (a *Agent) llmVisibleMessages() []llm.Message {
-	history := a.state.GetMessages()
-	if a.cfg.Compaction.EngineIsCoddy() {
-		return session.MessagesForLLM(history)
-	}
-	out := make([]llm.Message, 0, len(history))
-	for _, m := range history {
-		if isLLMHistoryMessage(m) {
-			out = append(out, m)
-		}
-	}
-	return out
+	return session.MessagesForLLM(a.state.GetMessages())
 }
 
 // setContextBreakdown stores and publishes the current model-window estimate.

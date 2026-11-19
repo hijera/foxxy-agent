@@ -1277,43 +1277,6 @@ func TestCompactionSummaryInsertIsPersistedInFull(t *testing.T) {
 	}
 }
 
-// The compaction engine of this fork swaps the older turns for a summary
-// through ReplaceMessagesAndPersist (internal/agent/compaction.go). The shorter
-// history is what has to be on disk afterwards, and the next append builds on
-// it rather than on the history the store remembered from before the swap.
-func TestReplaceMessagesAndPersistWritesTheCompactedHistory(t *testing.T) {
-	fs, st := savedState(t, "sess_engine_compacted", 8)
-	kept := st.GetMessages()[6:]
-	compacted := append([]llm.Message{NewCompactionSummaryMessage("what came before", "test-model")}, kept...)
-	st.ReplaceMessagesAndPersist(compacted)
-	if err := fs.Save(st); err != nil {
-		t.Fatal(err)
-	}
-	snap, err := fs.ReadSnapshot("sess_engine_compacted")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snap.Messages) != 3 || !snap.Messages[0].CompactionSummary {
-		t.Fatalf("disk holds %d messages after the swap, want the summary and the two kept ones", len(snap.Messages))
-	}
-
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "after the summary"})
-	if err := fs.Save(st); err != nil {
-		t.Fatal(err)
-	}
-	onDisk, err := os.ReadFile(filepath.Join(st.SessionDir, messagesFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: st.GetMessages()}, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(onDisk, append(want, '\n')) {
-		t.Fatalf("the append after a compaction did not build on the compacted history")
-	}
-}
-
 // A long-lived server opens many sessions; the copy of each history the store
 // keeps to splice appends onto must leave with the session, and a reopened
 // session still persists correctly after it did.

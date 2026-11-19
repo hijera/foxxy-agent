@@ -172,7 +172,7 @@ Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from anot
 Where it is applied:
 
 - **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), around the language directive and the rendered template — covers every mode, a user's own **`prompts.dir`** template, and the render fallback;
-- both compaction engines (`internal/agent/compact.go`, `internal/agent/compaction.go`) — a summarizer is its own request with its own system prompt;
+- context compaction (`internal/agent/compact.go`) — a summarizer is its own request with its own system prompt;
 - the auxiliary prompts: session titles (`internal/agent/title.go`), chat-title descriptions (`external/httpserver/foxxycode_foxxycode.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory subagent (`external/memory/agent.go`).
 
 Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):

@@ -154,7 +154,6 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Model:            "",
 			ThresholdPercent: CompactionDefaultThresholdCoddy,
 			KeepRecentTurns:  &compactionKeepRecent,
-			MaxTokens:        CompactionDefaultMaxTokens,
 		},
 		Title: TitleJSON{
 			Enabled:   &titleEnabled,
