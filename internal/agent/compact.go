@@ -23,11 +23,6 @@ import (
 // fold away before the keep-recent boundary.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
-// ErrEmptyCompactionSummary is a summarizer that answered with nothing. History
-// is never discarded for it: the manual command reports it, the automatic
-// trigger skips the compaction and the turn goes on with the full window.
-var ErrEmptyCompactionSummary = errors.New("compaction produced an empty summary")
-
 // ErrCompactionBlocked wraps the reason a PreCompact hook vetoed a compaction.
 var ErrCompactionBlocked = errors.New("compaction blocked by hook")
 
@@ -78,8 +73,8 @@ type CompactionResult struct {
 	Steps int
 }
 
-// foxxycodeCompactionSystemPrompt instructs the summarizer model.
-const foxxycodeCompactionSystemPrompt = `You are compacting the conversation history of a coding agent so the session can continue in a smaller context window.
+// compactionSystemPrompt instructs the summarizer model.
+const compactionSystemPrompt = `You are compacting the conversation history of a coding agent so the session can continue in a smaller context window.
 
 Write a dense summary of the transcript you are given. Preserve, in this order:
 1. The user's goals, requirements, and constraints (including exact wording of still-relevant instructions).
@@ -104,6 +99,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
+	instructions, force := opts.Instructions, opts.Force
 	// A summarizer named for this call is resolved before anything runs: a name
 	// that matches nothing is an answer to give, not a reason to fall through to
 	// the configured chain.
@@ -119,11 +115,11 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// PreCompact hooks see the trigger and may veto: the manual command
 	// reports the veto, an automatic compaction is skipped for this check.
 	trigger := compactTriggerAuto
-	if opts.Force {
+	if force {
 		trigger = compactTriggerManual
 	}
 	mode := a.state.EffectiveMode()
-	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, opts.Instructions); vetoed {
+	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
 		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
 	}
 
@@ -135,7 +131,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// the prompt being answered would send the model a turn with no prompt in
 	// it.
 	minKeep := 1
-	if opts.Force {
+	if force {
 		minKeep = 0
 	}
 	if keep < minKeep {
@@ -168,8 +164,9 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if splitIdx < visibleStart || splitIdx > len(msgs) {
 		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
 	}
-	// Pins and writes in the kept tail can make an older result useful or stale,
-	// so project the whole visible window before slicing the summarizer head.
+	// Analyze the full visible window before selecting the compacted head: pins
+	// and writes in the kept tail can change whether an older result is useful or
+	// stale, even though the tail itself is not sent to the summarizer.
 	projected := a.prunedForSummary(visible)
 	head := projected[:splitIdx-visibleStart]
 
@@ -192,10 +189,10 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateTokens(opts.Instructions))
+	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
 
 	row := a.newCompactionRow()
-	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, opts.Instructions, budget, row.step)
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
 	if err != nil {
 		row.failed(err)
 		return nil, err
@@ -609,7 +606,7 @@ func compactionRequest(carry, body, instructions string) []llm.Message {
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: prompts.WithIdentity(foxxycodeCompactionSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }

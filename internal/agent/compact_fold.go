@@ -64,7 +64,7 @@ func compactionInputBudget(window, instructionTokens int) int {
 		window = 0
 	}
 	budget := window*compactionInputSharePercent/100 -
-		session.EstimateTokens(foxxycodeCompactionSystemPrompt) - instructionTokens
+		session.EstimateTokens(compactionSystemPrompt) - instructionTokens
 	if budget < compactionMinChunkTokens {
 		return compactionMinChunkTokens
 	}
@@ -172,7 +172,7 @@ func (a *Agent) foldCompactionHead(
 		rest = rest[done:]
 	}
 	if strings.TrimSpace(carry) == "" {
-		return "", "", steps, ErrEmptyCompactionSummary
+		return "", "", steps, fmt.Errorf("compaction produced an empty summary")
 	}
 	return carry, used, steps, nil
 }
@@ -197,7 +197,7 @@ func (a *Agent) foldOnePass(
 			if callErr == nil {
 				out := strings.TrimSpace(resp.Content)
 				if out == "" {
-					return "", "", 0, ErrEmptyCompactionSummary
+					return "", "", 0, fmt.Errorf("compaction produced an empty summary")
 				}
 				return out, cand.modelID, chunk.count, nil
 			}

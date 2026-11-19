@@ -211,48 +211,45 @@ func transcriptText(msgs []llm.Message) string {
 	return b.String()
 }
 
-func TestCoddyCompactionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
-	st := &session.State{ID: "sess_compact_stale_read", CWD: t.TempDir(), Mode: session.ModeAgent}
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
-	st.AddMessage(asstRead("read", "big.go", 1, 500, true))
-	st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
-	st.AddMessage(asstWrite("write", "write", "big.go"))
-	st.AddMessage(toolResult("write", "written"))
-
-	keepTurns := 1
-	keepResults := 0
+func (s *compactionFeatureState) sessionWithStaleRead() error {
+	if err := s.sessionWithExchanges(0); err != nil {
+		return err
+	}
+	s.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
+	s.st.AddMessage(asstRead("read", "big.go", 1, 500, true))
+	s.st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
+	// A cancelled call can survive in old transcripts. A provider-request
+	// repair that removes the row must not move the compaction boundary.
+	s.st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "cancelled", Name: "read_file"}}})
+	s.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
+	s.st.AddMessage(asstWrite("write", "write", "big.go"))
+	s.st.AddMessage(toolResult("write", "written"))
+	s.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "follow up on the change"})
 	minBytes := 10
-	cfg := &config.Config{
-		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
-		Agent:     config.Agent{Model: "fake/model"},
-		Compaction: config.CompactionConfig{
-			Engine:          config.CompactionEngineCoddy,
-			KeepRecentTurns: &keepTurns,
-			ResultEviction: config.ResultEviction{
-				KeepRecent:     &keepResults,
-				MinResultBytes: &minBytes,
-			},
-		},
-	}
-	disableTitlePass(cfg)
-	provider := &bddCompactionProvider{}
-	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
-	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
-		return provider, nil
-	}
+	s.ag.cfg.Compaction.ResultEviction.MinResultBytes = &minBytes
+	return nil
+}
 
-	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err != nil {
-		t.Fatal(err)
+func (s *compactionFeatureState) resultEvictionStart(percent int) error {
+	s.ag.cfg.Compaction.ResultEviction.StartPercent = &percent
+	return nil
+}
+
+func (s *compactionFeatureState) summarizerReads(text string) error {
+	if request := transcriptText(s.provider.completeSeen[0]); !strings.Contains(request, text) {
+		return fmt.Errorf("summarizer did not read %q: %s", text, request)
 	}
-	request := transcriptText(provider.completeSeen[0])
-	if strings.Contains(request, "STALE FILE CONTENT") {
-		t.Fatalf("compaction retained a read made stale by a write in the kept tail:\n%s", request)
+	return nil
+}
+
+func (s *compactionFeatureState) summarizerOmitsKeptTurns() error {
+	request := transcriptText(s.provider.completeSeen[0])
+	for _, text := range []string{"now change it", "follow up on the change"} {
+		if strings.Contains(request, text) {
+			return fmt.Errorf("kept turn %q leaked into the summarization request: %s", text, request)
+		}
 	}
-	if !strings.Contains(request, "modified after this read") {
-		t.Fatalf("compaction request missing stale-read placeholder:\n%s", request)
-	}
+	return nil
 }
 
 // nextLLMRequest sends a probe prompt through the agent and returns the
@@ -615,6 +612,10 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a session with (\d+) completed exchanges$`, s.sessionWithExchanges)
+	sc.Step(`^a session with a file read made stale by a kept turn$`, s.sessionWithStaleRead)
+	sc.Step(`^result eviction starts at (\d+) percent of the model window$`, s.resultEvictionStart)
+	sc.Step(`^the summarizer reads "([^"]+)" from the older turn$`, s.summarizerReads)
+	sc.Step(`^the summarizer does not read the kept turns$`, s.summarizerOmitsKeptTurns)
 	sc.Step(`^the session is compacted keeping the last 2 user turns$`, s.compactSession)
 	sc.Step(`^the compaction summary is inserted into the transcript$`, s.summaryInsertedIntoTranscript)
 	sc.Step(`^the transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptContainsAllExchanges() })

@@ -111,7 +111,7 @@ In the web UI the summary is a foldout row labelled **context compacted**, style
 
 ## Upgrading from OpenCode
 
-FoxxyCode now uses Coddy for all compaction. Coddy can summarize short histories on demand, preserves the tool call that requested compaction, and replays from the latest summary without changing archived messages.
+FoxxyCode uses the Coddy 1.2.72 compaction engine. It can summarize short histories on demand, preserves the tool call that requested compaction, and replays from the latest summary without changing archived messages. [Coddy 1.2.72 source](https://github.com/coddy-project/coddy-agent/blob/1.2.72/internal/agent/compact.go)
 
 A config with `compaction.engine: opencode` switches to Coddy when loaded. FoxxyCode logs the change at startup or reload, and `--test-config` reports it with the setting's line number. The original YAML stays as written. Existing sessions resume from their latest OpenCode summary, which Coddy includes the next time it folds the history.
 
@@ -166,9 +166,13 @@ throws away the cached copy of every message behind it. With a sliding working
 window that happens on nearly every step, and a long conversation is then
 reprocessed at full price to save a few thousand tokens the window was not short
 of yet. Below the mark the history therefore goes out exactly as the provider
-already has it; above it, the room matters more than the cache. A model entry
-without `max_context_tokens` cannot be measured and evicts from the first result,
-as it always did. See *The turn context block* in
+already has it; above it, the room matters more than the cache. Agent requests
+measure the threshold against the resolved context window. A compaction
+summarizer follows Coddy 1.2.72 and measures against the session model's
+configured `max_context_tokens`. If that value is unset, summarization applies
+result eviction from the first result. When eviction applies, it inspects the
+whole visible window for writes and pins before sending the older turns to the
+summarizer. See *The turn context block* in
 [react-agent.md](../contributing/react-agent.md) for the other half of the same
 story - what FoxxyCode stopped putting in the system prompt for the same reason.
 
