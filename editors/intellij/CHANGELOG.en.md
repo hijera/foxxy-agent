@@ -7,7 +7,11 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-19
+## Unreleased — 2026-11-20
+
+**Coddy compaction.** The more advanced Coddy engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
+
+## 0.3.50 — 2026-11-19
 
 **Diagrams and formulas in answers.**
 Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.

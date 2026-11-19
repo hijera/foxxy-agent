@@ -109,11 +109,13 @@ The web UI also updates the session's context window from `usage_update.size` on
 
 In the web UI the summary is a foldout row labelled **context compacted**, styled like the thinking disclosure, whose body renders the summary - what is now in the model's context. The row sits at the boundary, above the turns kept verbatim, not at the end of the chat; after a forced compaction of a short session it is the last row. The `/compact` command and its one-line reply are ordinary user and assistant rows. `GET /foxxycode/sessions/{id}/messages` returns every original row, the summary carrying `compaction_summary: true`, and an export writes it as a `compaction_summary` entry ([Session export](session-export.md)). An ACP client, and with it the console, sees the row on replay as a user message beginning with the preamble above.
 
-## Two engines
+## Upgrading from OpenCode
 
-This fork carries two implementations behind `compaction.engine`. Everything above describes the default, **`foxxycode`** (the value `coddy` is accepted as an alias of it): a summary row is inserted and only the window from the last summary onward is replayed. The fork's original engine, **`opencode`**, flags the older messages `compacted` and filters them out of the payload while the transcript keeps them; it triggers at 85 % by default (clamped to 50..99) and caps the summary at `compaction.max_tokens` (4096). Both republish the context estimate right after they fold history, so the context ring drops without a reload.
+FoxxyCode now uses Coddy for all compaction. Coddy can summarize short histories on demand, preserves the tool call that requested compaction, and replays from the latest summary without changing archived messages.
 
-The two differ only in how the summary is written back. Everything else on this page holds for both, because both come through the same door (`CompactSession`): `/compact`, `POST /foxxycode/sessions/{id}/compact` and the model's own `compact_context` tool fold with whichever engine the session runs on; a history larger than the summarizer's window is folded in passes; `compaction.fallback_models` is walked when a summarizer fails; the `PreCompact` and `PostCompact` hooks fire; and the live `compact_context` row says what is running. A second compaction on the `opencode` engine reads the summary the first one wrote, so nothing it held is lost. The one thing the `opencode` engine does not have is "summarize everything": it always keeps at least the last user turn verbatim, for the manual command too.
+A config with `compaction.engine: opencode` switches to Coddy when loaded. FoxxyCode logs the change at startup or reload, and `--test-config` reports it with the setting's line number. The original YAML stays as written. Existing sessions resume from their latest OpenCode summary, which Coddy includes the next time it folds the history.
+
+Remove `compaction.engine` or change it to `coddy` to clear the notice. The legacy spelling `foxxycode` still resolves to Coddy. OpenCode configurations keep their effective automatic threshold during migration. To keep the old default after removing or changing the engine setting, set `threshold_percent: 85` explicitly. The old `compaction.max_tokens` can be removed because Coddy ignores it.
 
 ## Result eviction
 
@@ -133,7 +135,6 @@ Eviction is the second projection over the same history: the persisted transcrip
 
 ```yaml
 compaction:
-  engine: foxxycode        # foxxycode (default) or opencode, see Two engines
   enable: true             # master switch: the command and the automatic trigger
   auto_enable: true        # false keeps manual compaction and disables the threshold trigger
   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
@@ -148,11 +149,9 @@ compaction:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `engine` | `foxxycode` | the implementation: `foxxycode` inserts a summary row, `opencode` flags and filters older messages |
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
 | `auto_enable` | `true` | automatic threshold trigger; manual actions remain available when false |
-| `threshold_percent` | `80` (`85` for opencode) | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
-| `max_tokens` | `4096` | the completion cap of the opencode engine's summary |
+| `threshold_percent` | `80` | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |
 | `model` | `""` | a `models[].model` for the summariser when the session's model should not summarise its own history |
 | `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |

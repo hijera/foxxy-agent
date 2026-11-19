@@ -100,41 +100,14 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 // verbatim, and with a single user turn there is nothing to fold. A session of
 // a few long agent turns is what that fallback is for: without it, a window of
 // keep_recent_turns turns would grow past the threshold and never compact.
-//
-// Both compaction engines come through here. They differ in two places only -
-// which head is folded (compactionHead) and how the summary is written back
-// (the foxxycode engine inserts a summary row and replays the window after it, the
-// opencode engine flags the folded messages Compacted) - and share everything
-// else: the hooks, the summarizer chain, the fold in passes, the live row.
 func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*CompactionResult, error) {
-	// fork(compaction-both-engines): a per-call summarizer works with either engine.
-	return a.compactSession(ctx, opts.Instructions, opts.Force, compactionRun{
-		opencode: !a.cfg.Compaction.EngineIsCoddy(), model: opts.Model, fromTool: opts.FromTool,
-	})
-}
-
-// compactionRun is what one compaction was asked to be.
-type compactionRun struct {
-	// opencode selects the engine. It is a parameter rather than a read of the
-	// configuration because the opencode trigger (maybeCompact) names its own
-	// engine whatever compaction.engine says.
-	opencode bool
-	// turnProvider, when set, stands in for the session model's summarizer: the
-	// turn that triggered the compaction already holds a provider for that
-	// model, with its transport and its retry state.
-	turnProvider llm.Provider
-	model        string
-	fromTool     bool
-}
-
-func (a *Agent) compactSession(ctx context.Context, instructions string, force bool, run compactionRun) (*CompactionResult, error) {
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
-	opts := CompactOptions{Model: run.model, FromTool: run.fromTool}
 	// A summarizer named for this call is resolved before anything runs: a name
 	// that matches nothing is an answer to give, not a reason to fall through to
 	// the configured chain.
+	// fork(compaction-model-override): resolve the per-call summarizer before any hooks run.
 	override := ""
 	if strings.TrimSpace(opts.Model) != "" {
 		id, err := a.cfg.MatchModelID(opts.Model)
@@ -143,22 +116,18 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 		}
 		override = id
 	}
-	run.model = override
 	// PreCompact hooks see the trigger and may veto: the manual command
 	// reports the veto, an automatic compaction is skipped for this check.
 	trigger := compactTriggerAuto
-	if force {
+	if opts.Force {
 		trigger = compactTriggerManual
 	}
 	mode := a.state.EffectiveMode()
-	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
+	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, opts.Instructions); vetoed {
 		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
 	}
 
 	msgs := a.state.GetMessages()
-	if run.opencode {
-		return a.compactOpenCode(ctx, msgs, instructions, run, mode, trigger)
-	}
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
 	// The floor holds for the configured value too, not only for the retries
 	// below it: keep_recent_turns: 0 means "summarize everything", which is a
@@ -166,7 +135,7 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 	// the prompt being answered would send the model a turn with no prompt in
 	// it.
 	minKeep := 1
-	if force {
+	if opts.Force {
 		minKeep = 0
 	}
 	if keep < minKeep {
@@ -204,7 +173,7 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 	projected := a.prunedForSummary(visible)
 	head := projected[:splitIdx-visibleStart]
 
-	chain, err := a.compactionChainFor(run)
+	chain, err := a.compactionChain(override)
 	if err != nil {
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
@@ -223,10 +192,10 @@ func (a *Agent) compactSession(ctx context.Context, instructions string, force b
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+	budget := compactionInputBudget(window, session.EstimateTokens(opts.Instructions))
 
 	row := a.newCompactionRow()
-	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, opts.Instructions, budget, row.step)
 	if err != nil {
 		row.failed(err)
 		return nil, err
@@ -508,9 +477,6 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 type compactionCandidate struct {
 	provider llm.Provider
 	modelID  string
-	// system is the summarizer's system prompt; empty means the foxxycode engine's.
-	// It rides the candidate so the fold keeps one signature for both engines.
-	system string
 }
 
 // compactionChain is the summarizers a compaction tries, in order: the model
@@ -522,23 +488,12 @@ type compactionCandidate struct {
 // of room has left, and one bad entry must not be the end of it (issue #247).
 // The error is returned only when nothing in the chain resolves.
 func (a *Agent) compactionChain(override string) ([]compactionCandidate, error) {
-	return a.compactionChainFor(compactionRun{model: override})
-}
-
-// compactionChainFor is compactionChain for one engine: the opencode engine
-// summarizes with its own system prompt and honours compaction.max_tokens, and
-// a turn that triggered the compaction lends its provider to the session model.
-func (a *Agent) compactionChainFor(run compactionRun) ([]compactionCandidate, error) {
-	system := ""
-	if run.opencode {
-		system = compactionSystemPrompt
-	}
 	sessionModel := a.state.EffectiveModelID(a.cfg)
 	configured := strings.TrimSpace(a.cfg.Compaction.Model)
 	if configured == "" {
 		configured = sessionModel
 	}
-	wanted := []string{run.model, configured}
+	wanted := []string{override, configured}
 	for _, m := range a.cfg.Compaction.FallbackModels {
 		wanted = append(wanted, strings.TrimSpace(m))
 	}
@@ -556,19 +511,12 @@ func (a *Agent) compactionChainFor(run compactionRun) ([]compactionCandidate, er
 			continue
 		}
 		seen[modelID] = true
-		if run.turnProvider != nil && modelID == sessionModel {
-			out = append(out, compactionCandidate{provider: run.turnProvider, modelID: modelID, system: system})
-			continue
-		}
 		rm, err := a.cfg.ResolveLLM(modelID)
 		if err == nil {
-			if limit := a.cfg.Compaction.MaxTokens; run.opencode && limit > 0 && (rm.MaxTokens <= 0 || rm.MaxTokens > limit) {
-				rm.MaxTokens = limit
-			}
 			var provider llm.Provider
 			provider, err = mk(a.llmProviderInput(rm))
 			if err == nil {
-				out = append(out, compactionCandidate{provider: provider, modelID: modelID, system: system})
+				out = append(out, compactionCandidate{provider: provider, modelID: modelID})
 				continue
 			}
 		}
@@ -644,25 +592,6 @@ func buildCompactionRequest(head []llm.Message, instructions string) []llm.Messa
 // part of the same user message so a provider that caches by prefix is not
 // asked to keep a message that changes every pass.
 func compactionRequest(carry, body, instructions string) []llm.Message {
-	return compactionRequestWith("", carry, body, instructions)
-}
-
-// summarizerPromptTokens is the room a pass leaves for the summarizer's system
-// prompt: the larger of the two engines', so one budget fits either.
-func summarizerPromptTokens() int {
-	n := session.EstimateTokens(foxxycodeCompactionSystemPrompt)
-	if m := session.EstimateTokens(compactionSystemPrompt); m > n {
-		n = m
-	}
-	return n
-}
-
-// compactionRequestWith is compactionRequest under a given system prompt; empty
-// means the foxxycode engine's.
-func compactionRequestWith(system, carry, body, instructions string) []llm.Message {
-	if strings.TrimSpace(system) == "" {
-		system = foxxycodeCompactionSystemPrompt
-	}
 	var b strings.Builder
 	if strings.TrimSpace(carry) != "" {
 		b.WriteString("This conversation is being summarized in several passes because it does not fit one request. ")
@@ -680,7 +609,7 @@ func compactionRequestWith(system, carry, body, instructions string) []llm.Messa
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: prompts.WithIdentity(system)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(foxxycodeCompactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }

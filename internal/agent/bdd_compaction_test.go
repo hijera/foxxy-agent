@@ -66,7 +66,6 @@ type compactionFeatureState struct {
 	ag         *Agent
 	provider   *bddCompactionProvider
 	sender     *compactionUsageSender
-	engine     string
 	exchanges  int
 	beforeUsed int
 	// filler pads every answer, so a scenario can build a history no single
@@ -78,7 +77,6 @@ func (s *compactionFeatureState) reset() error {
 	s.close()
 	s.provider = &bddCompactionProvider{}
 	s.sender = &compactionUsageSender{}
-	s.engine = ""
 	s.exchanges = 0
 	s.beforeUsed = 0
 	s.filler = ""
@@ -130,7 +128,6 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
 		Agent:     config.Agent{Model: "fake/model"},
 		Compaction: config.CompactionConfig{
-			Engine:          s.engine,
 			KeepRecentTurns: &keep,
 		},
 	}
@@ -143,14 +140,32 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 	return nil
 }
 
-func (s *compactionFeatureState) useCompactionEngine(engine string) error {
-	switch engine {
-	case config.CompactionEngineCoddy, config.CompactionEngineOpenCode:
-		s.engine = engine
-		return nil
-	default:
-		return fmt.Errorf("unknown compaction engine %q", engine)
+func (s *compactionFeatureState) seedOpenCodeSummary() error {
+	msgs := s.st.GetMessages()
+	msgs[0].Compacted = true
+	msgs[1].Compacted = true
+	s.st.ReplaceMessagesWithoutPersist(msgs)
+	s.st.InsertCompactionSummary(2, llm.Message{
+		Role:              llm.RoleUser,
+		Content:           "Summary of the earlier conversation (older turns were compacted to save context):\n\nLEGACY-SUMMARY",
+		CompactionSummary: true,
+	})
+	return nil
+}
+
+func (s *compactionFeatureState) foldsOpenCodeSummary() error {
+	if len(s.provider.completeSeen) != 1 {
+		return fmt.Errorf("expected one summarizer request, got %d", len(s.provider.completeSeen))
 	}
+	request := transcriptText(s.provider.completeSeen[0])
+	if !strings.Contains(request, "LEGACY-SUMMARY") || strings.Contains(request, "question 1") {
+		return fmt.Errorf("summarizer did not use the archived summary in place of the folded exchange: %s", request)
+	}
+	window := session.MessagesForLLM(s.st.GetMessages())
+	if len(window) == 0 || !window[0].CompactionSummary || !strings.Contains(window[0].Content, "CANNED-SUMMARY") {
+		return fmt.Errorf("the replay window does not start at the new summary: %+v", window)
+	}
+	return nil
 }
 
 func (s *compactionFeatureState) compactSession() error {
@@ -370,22 +385,6 @@ func (s *compactionFeatureState) clientReceivesSmallerContextUsage() error {
 	return nil
 }
 
-// llmWindowForEngine mirrors buildMessages: the coddy engine replays only the window after the
-// last summary row, the opencode engine keeps everything not flagged Compacted.
-func (s *compactionFeatureState) llmWindowForEngine() []llm.Message {
-	history := s.st.GetMessages()
-	if s.ag.cfg.Compaction.EngineIsCoddy() {
-		return session.MessagesForLLM(history)
-	}
-	out := make([]llm.Message, 0, len(history))
-	for _, m := range history {
-		if isLLMHistoryMessage(m) {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
 func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
 	used, _, err := s.lastACPUsageUpdate()
 	if err != nil {
@@ -395,7 +394,7 @@ func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
 	if b == nil {
 		return fmt.Errorf("session has no context breakdown after compaction")
 	}
-	window := s.llmWindowForEngine()
+	window := session.MessagesForLLM(s.st.GetMessages())
 	wantConversation := conversationTokens(window, s.ag.modelReadsImages())
 	if b.Conversation != wantConversation {
 		return fmt.Errorf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
@@ -410,47 +409,6 @@ func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
 	return nil
 }
 
-// compactSessionOnActiveEngine folds history the way the configured engine does: the coddy engine
-// exposes CompactSession, while the opencode engine only compacts from inside a turn.
-func (s *compactionFeatureState) compactSessionOnActiveEngine() error {
-	if s.ag == nil {
-		return fmt.Errorf("no session prepared")
-	}
-	if s.ag.cfg.Compaction.EngineIsCoddy() {
-		return s.compactSession()
-	}
-	// The fold scenario shrinks the model's window to one token so a pass holds
-	// a single exchange. The opencode trigger's threshold is a percent of that
-	// window and means nothing at one token, so that scenario goes through the
-	// door both engines share; every other one exercises the trigger itself.
-	if s.ag.cfg.Models[0].MaxContextTokens == 1 {
-		return s.compactSession()
-	}
-	// A large lastInputTokens puts the opencode engine over its threshold deterministically.
-	did, err := s.ag.maybeCompact(context.Background(), s.provider, 1_000_000)
-	if err != nil {
-		return err
-	}
-	if !did {
-		return fmt.Errorf("opencode engine did not compact")
-	}
-	return nil
-}
-
-func (s *compactionFeatureState) llmWindowOmitsOlderExchanges() error {
-	joined := transcriptText(s.llmWindowForEngine())
-	for i := 1; i <= s.exchanges-2; i++ {
-		if strings.Contains(joined, fmt.Sprintf("question %d", i)) ||
-			strings.Contains(joined, fmt.Sprintf("answer %d", i)) {
-			return fmt.Errorf("older exchange %d still inside the LLM window", i)
-		}
-	}
-	return nil
-}
-
-// summarizerFitsPartOfTheHistory shrinks the summarizer's window so the fold
-// cannot send the whole head in one request, the situation a session that ran
-// far past its window arrives at /compact in.
 func (s *compactionFeatureState) summarizerFitsPartOfTheHistory() error {
 	if s.ag == nil {
 		return fmt.Errorf("no session prepared")
@@ -669,9 +627,8 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the ACP client has observed the context usage before compaction$`, s.clientObservedContextUsageBeforeCompaction)
 	sc.Step(`^the ACP client receives a smaller context usage update$`, s.clientReceivesSmallerContextUsage)
 	sc.Step(`^the reported ACP usage matches the compacted LLM context$`, s.reportedACPUsageMatchesContext)
-	sc.Step(`^the "([^"]*)" compaction engine is active$`, s.useCompactionEngine)
-	sc.Step(`^the session is compacted by the active engine$`, s.compactSessionOnActiveEngine)
-	sc.Step(`^the LLM context window no longer holds the older exchanges$`, s.llmWindowOmitsOlderExchanges)
+	sc.Step(`^OpenCode previously summarized the first exchange$`, s.seedOpenCodeSummary)
+	sc.Step(`^Coddy folds the OpenCode summary into its new summary$`, s.foldsOpenCodeSummary)
 	sc.Step(`^the summarizer model has room for only part of the history per request$`, s.summarizerFitsPartOfTheHistory)
 	sc.Step(`^the summarizer was called more than once$`, s.summarizerCalledMoreThanOnce)
 	sc.Step(`^every summarization request after the first carries the summary so far$`, s.laterRequestsCarryTheSummarySoFar)
@@ -699,21 +656,5 @@ func TestContextCompactionFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("context compaction feature suite failed")
-	}
-}
-
-func TestContextCompactionEngineParityFeature(t *testing.T) {
-	suite := godog.TestSuite{
-		Name:                "context-compaction-engines",
-		ScenarioInitializer: initializeCompactionScenario,
-		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/context_compaction_engines.feature"},
-			TestingT: t,
-			Strict:   true,
-		},
-	}
-	if suite.Run() != 0 {
-		t.Fatal("context compaction engine parity feature suite failed")
 	}
 }

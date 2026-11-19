@@ -64,7 +64,7 @@ func compactionInputBudget(window, instructionTokens int) int {
 		window = 0
 	}
 	budget := window*compactionInputSharePercent/100 -
-		summarizerPromptTokens() - instructionTokens
+		session.EstimateTokens(foxxycodeCompactionSystemPrompt) - instructionTokens
 	if budget < compactionMinChunkTokens {
 		return compactionMinChunkTokens
 	}
@@ -193,7 +193,7 @@ func (a *Agent) foldOnePass(
 	var lastErr error
 	for i, cand := range chain {
 		for attempt := 0; ; attempt++ {
-			resp, callErr := cand.provider.Complete(ctx, compactionRequestWith(cand.system, carry, chunk.body, instructions), nil)
+			resp, callErr := cand.provider.Complete(ctx, compactionRequest(carry, chunk.body, instructions), nil)
 			if callErr == nil {
 				out := strings.TrimSpace(resp.Content)
 				if out == "" {

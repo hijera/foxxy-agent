@@ -13,6 +13,16 @@ Feature: Context compaction
     And the next LLM request contains the last 2 exchanges verbatim
     And the next LLM request does not contain the older exchanges
 
+  Scenario: Coddy continues an OpenCode-compacted session
+    Given a session with 4 completed exchanges
+    And OpenCode previously summarized the first exchange
+    When the session is compacted keeping the last 2 user turns
+    Then Coddy folds the OpenCode summary into its new summary
+    And the transcript still contains all 4 original exchanges
+    And the next LLM request starts from the summary
+    And the next LLM request contains the last 2 exchanges verbatim
+    And the next LLM request does not contain the older exchanges
+
   Scenario: The agent continues the conversation after compaction
     Given a session with 4 completed exchanges
     And the session is compacted keeping the last 2 user turns

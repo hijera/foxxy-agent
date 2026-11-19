@@ -1121,12 +1121,13 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Compaction implementation: \"foxxycode\" (default) keeps a summary row and replays only the window after it; \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models.",
+          "description": "Coddy summarizes older turns and replays the session from the most recent summary. The legacy values foxxycode and opencode also resolve to Coddy. Loading opencode prints a migration notice.",
           "enum": [
+            "coddy",
             "foxxycode",
             "opencode"
           ],
-          "default": "foxxycode"
+          "default": "coddy"
         },
         "enable": {
           "type": "boolean",
@@ -1148,11 +1149,11 @@
           "items": {
             "type": "string"
           },
-          "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain."
+          "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction."
         },
         "threshold_percent": {
           "type": "integer",
-          "description": "Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (foxxycode) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "description": "Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80. Configurations migrated from OpenCode keep their previous effective threshold.",
           "default": 80,
           "minimum": 1,
           "maximum": 100
@@ -1164,8 +1165,8 @@
         },
         "max_tokens": {
           "type": "integer",
-          "description": "Completion token cap for the summary generation (opencode engine only).",
-          "default": 4096
+          "description": "Legacy OpenCode setting accepted for compatibility. Coddy ignores it.",
+          "deprecated": true
         },
         "result_eviction": {
           "type": "object",

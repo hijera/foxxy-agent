@@ -73,8 +73,8 @@ type Message struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	// PlanDocument holds a persisted design plan snapshot for the bundled UI (excluded from LLM prompts).
 	PlanDocument *PlanDocumentSnapshot `json:"plan_document,omitempty"`
-	// Compacted marks a message that was superseded by a compaction summary. It stays in the
-	// persisted transcript (and UI/replay) but is excluded from the payload sent to the model.
+	// Compacted is a legacy OpenCode transcript flag for a message superseded
+	// by a summary. Keep decoding it so archived rows stay out of model requests.
 	Compacted bool `json:"compacted,omitempty"`
 	// CompactionSummary marks the synthetic message holding a concise summary of earlier turns
 	// produced by auto-compaction. Unlike Compacted messages, it IS sent to the model.

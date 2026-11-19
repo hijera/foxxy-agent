@@ -1481,7 +1481,7 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.
 		}
 		// Compaction markers so the SPA renders the summary row as its own
 		// CompactionMessage foldout and hides messages folded away by the
-		// opencode engine. The foxxycode engine sets compaction_summary; the
+		// retired OpenCode engine. Coddy sets compaction_summary; the
 		// opencode engine additionally sets compacted on the folded head.
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
