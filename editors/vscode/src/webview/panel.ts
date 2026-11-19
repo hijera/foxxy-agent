@@ -4,7 +4,7 @@ import { currentFoxxyCodeTheme } from "./themeBridge";
 import { readSettings } from "../settings";
 import { info } from "../notifications";
 import { OPEN_EXTERNAL_MESSAGE_TYPE, externalUrlFromMessage } from "./externalLink";
-import { chatNotificationFromMessage } from "./chatNotification";
+import { chatNotificationFromMessage, escapeNotificationMarkdown } from "./chatNotification";
 import { DOWNLOAD_TEXT_MESSAGE_TYPE, textDownloadFromMessage, type TextDownload } from "./textDownload";
 import { homedir } from "os";
 
@@ -85,7 +85,10 @@ export class FoxxyCodePanelController {
           this.liveNotifications.add(n.id);
           if (this.liveNotifications.size > 128) this.liveNotifications.delete(this.liveNotifications.values().next().value!);
           const buttons = n.actions.map((a) => ({ title: a.label, id: a.id }));
-          void vscode.window.showInformationMessage(`${n.title}\n${n.body}`, ...buttons).then((choice) => {
+          void vscode.window.showInformationMessage(
+            `${escapeNotificationMarkdown(n.title)}\n${escapeNotificationMarkdown(n.body)}`,
+            ...buttons,
+          ).then((choice) => {
             if (!this.liveNotifications.delete(n.id) || !choice) return;
             if ("reveal" in this.target) this.target.reveal(undefined, false);
             else this.target.show(false);

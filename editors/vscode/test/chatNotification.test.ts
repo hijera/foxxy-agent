@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { chatNotificationFromMessage } from "../src/webview/chatNotification";
+import {
+  chatNotificationFromMessage,
+  escapeNotificationMarkdown,
+} from "../src/webview/chatNotification";
 
 test("editor notifications retain action IDs, without interpreting commands", () => {
   const message = {
@@ -81,4 +84,13 @@ test("oversized or malformed payloads are rejected or capped", () => {
   expect(capped?.title.length).toBe(256);
   expect(capped?.body.length).toBe(500);
   expect(capped?.actions[0].label.length).toBe(120);
+});
+
+test("notification text is inert under the notification's Markdown renderer", () => {
+  expect(
+    escapeNotificationMarkdown("[click](https://example.com) **now** `cmd` - 1."),
+  ).toBe('\\[click\\]\\(https://example\\.com\\) \\*\\*now\\*\\* \\`cmd\\` \\- 1\\.');
+  expect(escapeNotificationMarkdown("snake_case, C:\\Users\\x")).toBe(
+    'snake\\_case, C:\\\\Users\\\\x',
+  );
 });

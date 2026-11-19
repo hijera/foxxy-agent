@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   dismissHostNotification,
+  dismissSessionNotifications,
   receiveNotificationAction,
   showHostNotification,
   limitNotificationActions,
@@ -82,6 +83,8 @@ test("a host that owns the system sound still plays a custom clip in page", asyn
     vi.fn(),
   );
   expect(playNotificationSound).toHaveBeenCalledTimes(1);
+  // The IDE beeps only for its standard sound: a custom clip plays alone.
+  expect(host).toHaveBeenCalledWith(expect.objectContaining({ silent: true }));
 });
 
 test("native notifications receive the selected custom audio", async () => {
@@ -136,6 +139,53 @@ test("muting during custom audio loading sends a silent native notification", as
   expect(
     vi.mocked(window.foxxycodeHostNotify).mock.calls[0]?.[0]?.soundData,
   ).toBeUndefined();
+});
+
+test("a selection change during clip loading stages the new file", async () => {
+  window.foxxycodeHostIsActive = vi.fn().mockResolvedValue(false);
+  window.foxxycodeHostPlaySound = vi.fn().mockResolvedValue(undefined);
+  window.foxxycodeHostNotify = vi.fn().mockResolvedValue(true);
+  vi.mocked(notificationSoundData).mockImplementation(async (file) => {
+    if (file === "old.wav")
+      applyNotificationConfig({ ui: { notification_sound_file: "new.wav" } });
+    return file === "new.wav" ? "TkVX" : "T0xE";
+  });
+  applyNotificationConfig({ ui: { notification_sound_file: "old.wav" } });
+  await showHostNotification(
+    {
+      id: "reload-selection",
+      sessionId: "s",
+      title: "Chat",
+      body: "Done",
+      actions: [],
+    },
+    vi.fn(),
+  );
+  expect(
+    vi.mocked(notificationSoundData).mock.calls.map((call) => call[0]),
+  ).toEqual(["old.wav", "new.wav"]);
+  expect(window.foxxycodeHostNotify).toHaveBeenCalledWith(
+    expect.objectContaining({ soundData: "TkVX", silent: false }),
+  );
+});
+
+test("dismissing session notifications spares plan alerts", async () => {
+  const host = vi.fn().mockResolvedValue(true);
+  const dismiss = vi.fn();
+  window.foxxycodeHostNotify = host;
+  window.foxxycodeHostDismiss = dismiss;
+  vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  await showHostNotification(
+    { id: "plan_s_1", sessionId: "s", title: "Plan", body: "Ready", actions: [] },
+    vi.fn(),
+  );
+  await showHostNotification(
+    { id: "done_s_2", sessionId: "s", title: "Chat", body: "Done", actions: [] },
+    vi.fn(),
+  );
+  dismissSessionNotifications("s", (id) => id.startsWith("plan_"));
+  expect(dismiss).toHaveBeenCalledWith("done_s_2");
+  expect(dismiss).not.toHaveBeenCalledWith("plan_s_1");
 });
 
 test("foreground notifications can be enabled with actions and sound", async () => {

@@ -54,10 +54,14 @@ The filename wraps on narrow panels and the existing button tokens apply in both
 
 Windows plays custom audio through the native player while silencing the toast's
 standard sound. MP3 is decoded into bounded PCM in process before playback. Editor
-panels use Web Audio for the same selected file. A missing or unplayable custom file
+panels use Web Audio for the same selected file, and while they do the host's own
+signal is marked silent (the IDE stays quiet for a custom clip), so one alert never
+sounds twice. A missing or unplayable custom file
 falls back to the standard signal for automatic alerts and reports an error for Preview.
 Only one clip plays at a time; Stop playback, disabling sound/notifications, changing the selection,
 or returning to the foreground stops automatic audio (unless foreground alerts are enabled).
+When the selection changes while a clip loads, the alert stages the newly selected
+file before it goes out; changes in a row beyond that fall back to the standard signal.
 Default audio belongs to Windows on desktop (the `Notification.Default` system event,
 including Preview); editor alerts use the Web Audio chime. Host alerts do not
 render an additional in-window stack when delivery succeeds. The permission stack is

@@ -42,7 +42,12 @@ export function plainTurnExcerpt(content: string, max = 300): string {
         .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/, "")
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
         .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/(\*\*|__|\*|_|~~|`)/g, ""),
+        .replace(/\*\*|\*|~~|`/g, "")
+        // Underscores survive inside words (snake_case identifiers) but not
+        // where they act as emphasis markers. Runs are cut only at word edges,
+        // and the leading context must not be an underscore itself, or `$1`
+        // would re-insert the first one.
+        .replace(/(^|[^\p{L}\p{N}_])_+|_+(?![\p{L}\p{N}_])/gu, "$1"),
     );
   }
   const text = kept

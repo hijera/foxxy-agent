@@ -42,6 +42,14 @@ test("notification excerpts keep fenced code as text without markers", () => {
   );
 });
 
+test("notification excerpts keep underscores inside words, not emphasis", () => {
+  expect(
+    plainTurnExcerpt(
+      "call snake_case_name and snake__case with _emphasis_ and __strong__",
+    ),
+  ).toBe("call snake_case_name and snake__case with emphasis and strong");
+});
+
 test("notification excerpts cap on a word boundary", () => {
   const text = "word ".repeat(100).trim();
   const excerpt = plainTurnExcerpt(text, 50);

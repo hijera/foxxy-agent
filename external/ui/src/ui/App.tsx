@@ -1166,7 +1166,9 @@ export function App() {
           newId,
           reasoningDurations: reasoningDurationMsByContentRef.current,
         }).items;
-        dismissSessionNotifications(sid);
+        // Plan alerts outlive the turns that follow them: a ready plan is
+        // still waiting for its Run decision when a later task completes.
+        dismissSessionNotifications(sid, (id) => id.startsWith("plan_"));
         const { reply, plans } = finishedTurnContent(rows);
         const plan = plans.find((it) => it.type === "plan_document" && !notifiedPlanKeysRef.current.has(`${sid}:${it.slug}`));
         if (plan?.type === "plan_document") {

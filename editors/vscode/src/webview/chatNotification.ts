@@ -6,6 +6,16 @@ export type ChatNotification = {
   actions: { id: string; label: string }[];
 };
 
+/**
+ * VS Code renders notification text as Markdown, so model output could smuggle
+ * links or emphasis into the system notification. Escaping every punctuation
+ * character leaves the bridge's promise of inert text true: each one still
+ * renders as itself.
+ */
+export function escapeNotificationMarkdown(text: string): string {
+  return text.replace(/[\\`*_{}[\]()#+\-.!|>~]/g, "\\$&");
+}
+
 /** The bridge accepts text and opaque action IDs, never commands or URLs. */
 export function chatNotificationFromMessage(
   message: unknown,

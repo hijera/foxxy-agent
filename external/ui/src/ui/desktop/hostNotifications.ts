@@ -135,7 +135,10 @@ export async function showHostNotification(
     id: n.id,
     title: n.title,
     body: n.body.slice(0, 500),
-    silent: !prefs.sound,
+    // A custom clip the page plays itself (editor hosts) silences the host's
+    // own signal, so the IDE beep and the clip never sound together. The host
+    // stays loud only for its standard sound.
+    silent: !prefs.sound || (isEditorEmbed() && !!prefs.soundFile),
     whenFocused: prefs.whenFocused,
     actions: n.actions.map(({ id, label }) => ({ id, label })),
   };
@@ -145,20 +148,31 @@ export async function showHostNotification(
     window.foxxycodeHostPlaySound &&
     !isEditorEmbed()
   ) {
-    try {
-      payload.soundData = await notificationSoundData(prefs.soundFile);
-    } catch {
-      /* Use the standard system sound when the file is unavailable. */
-    }
-    const now = getNotificationPreferences();
-    if (!pending.has(n.id) || !now.enabled) {
-      pending.delete(n.id);
-      return true;
-    }
-    payload.silent = !now.sound;
-    payload.whenFocused = now.whenFocused;
-    if (!now.sound || now.soundFile !== prefs.soundFile)
+    // The selection can change while a clip loads; keep loading until the
+    // staged audio matches what is selected when the alert goes out.
+    let file = prefs.soundFile;
+    for (let attempt = 0; attempt < 2 && file; attempt++) {
+      try {
+        payload.soundData = await notificationSoundData(file);
+      } catch {
+        /* Use the standard system sound when the file is unavailable. */
+      }
+      const now = getNotificationPreferences();
+      if (!pending.has(n.id) || !now.enabled) {
+        pending.delete(n.id);
+        return true;
+      }
+      payload.silent = !now.sound;
+      payload.whenFocused = now.whenFocused;
+      if (!now.sound || !now.soundFile) {
+        delete payload.soundData;
+        break;
+      }
+      if (now.soundFile === file) break;
+      // Selection changed mid-load: drop the stale clip and load the new one.
       delete payload.soundData;
+      file = now.soundFile;
+    }
   }
   let handled = false;
   try {
@@ -204,7 +218,11 @@ export async function showHostNotification(
   return handled || (active && !latest.whenFocused);
 }
 
-export function dismissSessionNotifications(sessionId: string): void {
+/** `keep` spares live notifications (plan alerts) a finished turn must not clear. */
+export function dismissSessionNotifications(
+  sessionId: string,
+  keep?: (id: string) => boolean,
+): void {
   for (const [id, entry] of pending)
-    if (entry.n.sessionId === sessionId) dismissHostNotification(id);
+    if (entry.n.sessionId === sessionId && !keep?.(id)) dismissHostNotification(id);
 }
