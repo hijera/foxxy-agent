@@ -11,6 +11,10 @@
 
 **Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
 
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
+## 0.3.50 — 2026-11-19
+
 **Diagrams and formulas in answers.**
 Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
 Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
@@ -19,7 +23,7 @@ Inline formulas copy their LaTeX source in the editor panel even when its embedd
 **Project jobs and memory.**
 The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask policy, jobs from the repository require approval and file changes require fresh approval. During an upgrade, jobs from the legacy `scheduler.dir` are copied to Global with their state. Job files with mixed-case Markdown extensions remain discoverable and editable. The `max_note_chars` memory setting limits note length in characters. A notice appears when text is truncated, including text in Cyrillic.
 
-**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to. While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
 
 ## 0.3.49 — 2026-11-15
 
