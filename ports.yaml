@@ -13849,3 +13849,269 @@ ports:
   reason: Redundant integration merge; its net changes are already represented by
     the adapted constituent commits.
   remaining: []
+- upstream_sha: 421f379872c9507376962a2f13e726ed7be2811d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 1d59d56ca4ed0d9cacee151458af67e534d6e340
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 85b15f429cf78ec33d9176a871c1e2ea3025b7e3
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 3f18e9922d46495d27267310a72898325f0bef17
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 1f3ad4a4475e6f7cd025feb72051ee0ef24d0766
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 014432e2e55d67b3b96c549bb31bc89481c9936f
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 4bb7222a1840c23e5d4bea1500c1b027b6d20987
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 1dfa507b9389c4c15ce347924d975e6641a81d59
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 9da3277e1b858fba8399120eaed2d1404107f63c
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: d31d9be115f78402c757fbee65d1cc75c86df3e5
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 7a62d3c69326cf57d0ead2d293e7d8eed3c43c91
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 33905d27fb51109c99e9a4bc39db03583905fa61
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 75dceaabc93fd6a5d764385039abfafb5a66718b
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 6047a7d7e121c64c68e36ba8ce780fe7191051c8
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 927d0b45c4321b4b78bff453fbe59cac7a8518a5
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 3ef9d8e3caf544177ffb60bd73908a7b39c24384
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 0bd6a50be6f3994769faefe4a35955ad03fb3689
+  status: skipped
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: 'Redundant integration merge: the constituent changes are already included
+    in the consolidated 1.2.61-1.2.70 port.'
+  remaining: []
+- upstream_sha: 85f41595362db2c352d9e5f587d9d4a19dd300d3
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: b16641a0e66ffc0daa4d730f3c627d711929998d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: a4537028c3f7eec83a70eb600898e60e14f34411
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: cb892a973be4d55adf071ee8b91d70eaac5b0f1f
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 11add1726d7085d760888fd5bd400370a00039d2
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 0d4d0f51ed4fb706bd30ea9c4889f8fde25f1688
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: a4b6c9a2bfdf32e067133375305dcaaacb4cae1d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 362b2c9e7a66f56d7d9cccea36d73538a2b91882
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: c1ba25d9ceeae2738da6eb1c363d818694f94134
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 740a72489a0a9e2a2a6318344e379f55de32919e
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: c8be9f1acf0e699ca09c8d874310675ea627fcdb
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: da3d064ed3447b49ce038c45b524de07fe95332d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 8d52b22c6cf6a26db0a9bf09835c9867b4009348
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 4e3a543ecf9df116657d8fbaccd545c0f1fa94e0
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 5badb678bb33ff583fac17aef91ee9719232779d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 6d19498380dd8f044949fb6555a6d10c76f73b1d
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 7bb87c8aecb03b0c72c4e2bfb7ab8956045a78f1
+  status: skipped
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: 'Redundant integration merge: the constituent changes are already included
+    in the consolidated 1.2.61-1.2.70 port.'
+  remaining: []
+- upstream_sha: 8a5ffd13952d7ae8c6759b5ee5ada2630090b836
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 029a675acda0985ecabb3ce8eec7c68e56cddee5
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 872386817a82a5b529f98507e85190f4ff22d1db
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []
+- upstream_sha: 706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25
+  status: adapted
+  fork_commits:
+  - 0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7
+  reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
+    compatibility behavior, localization and documentation.
+  remaining: []

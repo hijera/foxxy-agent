@@ -254,9 +254,9 @@ Clear the field to use the session model for summarization.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory copilot**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
+- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
-- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory copilot, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
+- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
 - A map of values, such as the **Default headers** of **HTTP requests** (`tools.http_request.default_headers`), is a row per entry: the name and the value side by side, a trash button, and **Add** under the rows. A row without a name stays on screen and out of the saved configuration; an empty value is saved, and for a header it means "leave this header out".
 - Empty path fields show where the default leads (`${FOXXYCODE_HOME}/sessions`, `${FOXXYCODE_HOME}/memory`) or an example of what to write.
@@ -592,9 +592,9 @@ a fresh panel must first obtain a successful listing.
 
 *Grouped by folder: the heading is the folder name, and the plus on it opens a new chat already pointed at that workspace. Pinned conversations lead the list as their own group, each row carrying its folder and its tags*
 
-![The pinned group, mid-drag](../assets/sessions-history-pinned-dark-1280.png)
+![The pinned group, mid-drag by the row itself](../assets/sessions-history-pinned-dark-1280.png)
 
-*Pinned conversations lead every mode as one group, dragged into order by the grip on the left; the row being moved fades and the one it would land on is picked out*
+*Pinned conversations lead every mode as one group, dragged into order by the row itself; the row being moved fades and the one it would land on is picked out*
 
 ![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
 
@@ -629,8 +629,8 @@ a fresh panel must first obtain a successful listing.
   - **Folder** keys on the full path and shows the folder name, so two checkouts called `one` stay apart - and when a name really is carried by more than one heading, each of them spells out its full path underneath, because the name alone cannot tell them apart. Sessions with no workspace go last. A folder heading also carries a **+** that starts a new chat already pointed at that workspace - the pick goes through the same pre-session path as the composer's folder chip, so the server resolves the folder's current git branch for the new conversation.
   - **Tag** puts untagged sessions last.
 - **What can be done to one conversation is behind its ⋮**: **Pin to the top**, **Rename** and **Tags** - the three that change where the row sits or what it says about itself - then below a rule **Archive** and **Delete**, the two that take the conversation out of the list, with delete in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
-- **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves. A pinned row carries a small accent mark beside its title and a **grip** on the left.
-- **The pins are reordered by dragging** that grip, with a mouse or a finger: the drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /foxxycode/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
+- **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves.
+- **The pins are reordered by dragging the row itself**: with a mouse, press and move it (a plain click still opens the conversation); with a finger, hold the row for a moment, then drag (a quick swipe still scrolls the list). The drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /foxxycode/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
 - **An archived conversation is dimmed in the list and cannot be written to**: its row is muted, and opening it replaces the composer with a notice saying it is archived and one button that takes it back out. Nothing is refused on the server - the archive is a shelf, not a lock - but leaving the composer there would invite a prompt that silently undoes the operator's own *not now*. The composer learns this from **`GET /foxxycode/sessions/{id}/messages`**, which carries **`archived`**: the session listing skips the archive, so the conversation on screen may be in no page the client holds.
 - **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row leaves the list at once, the request goes behind it, and the list is not read again, so the rows scrolling has loaded and the place in the list stay where they were - the next conversation to archive is right there. A refused request puts the row back where it stood and says so on the row itself (*The conversation was not archived*), because the top of the list, where a list error shows, is usually out of view by then; the note goes when you try again or close History. A listing already on its way when the request settled cannot put the row back, and the next page starts one row earlier for each conversation archived out of the loaded part, so none falls between two pages. An archived row carries the archive **mark** beside its title - the state a conversation is in, not a label among its tags - and the same menu item puts it back. Archiving the conversation that is on screen swaps the composer for the same archived notice at once, and putting it back brings the composer back - the flag follows the **`PATCH`** answer, so it does not wait for the next transcript load. The **Status** filter remembers what it was set to, so a session put aside stays out of the way until the operator asks for it.
 - **Tags** of a row render under its title as small chips (the title keeps the first line to itself). They are proposed by the title generation, edited by hand in the **Tags** editor of the row menu, and written by the model's own `session_describe` tool ([Sessions](../features/sessions.md#tags-and-the-archive)).
@@ -1341,6 +1341,50 @@ Automated checks:
 - Label fences with the language (for example `js`, `css`, `html`, `json`, `ts`, `python`, or `go`) to enable highlighting. Unlabelled or unsupported languages stay plain text. Highlighting also works while an answer is streaming.
 - Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
+- Mermaid and SVG fences are drawn as pictures and LaTeX as formulas: see [Diagrams and formulas](#diagrams-and-formulas).
+
+## Diagrams and formulas
+
+An answer that holds a diagram or a formula shows it drawn, not as source. This covers what an agent writes when asked to "draw the flow" or "show the formula": a Mermaid fence, an SVG fence, and LaTeX between dollars or LaTeX's own delimiters. The web UI and the Telegram Mini App draw them; the console, ACP clients and the messenger bots keep the text.
+
+![A Mermaid flowchart drawn in an answer, with the MMD and SVG buttons and the source switch in its head](../assets/web-ui/diagrams-flowchart-dark-864.png)
+*A Mermaid fence in an answer: drawn by default, its source one click away.*
+
+![The source of a long Mermaid diagram, scrolling in its box, the source switch lit and the copy button in the corner of the text](../assets/web-ui/diagrams-source-dark-864.png)
+*The source switch pressed: the diagram's text with its copy button.*
+
+- **What is drawn.** A fence labelled **`mermaid`** (flowcharts, sequence, class, state, ER, Gantt, pie, mindmap and the rest of what Mermaid draws) and a fence labelled **`svg`**. Any other label stays a code block: an **`xml`** fence that happens to hold an `<svg>` is not drawn.
+- **Editor compatibility.** The same diagrams and formulas render in IntelliJ's Chromium 104 panel. Local compatibility functions cover the renderer dependencies' newer JavaScript APIs; linked Mermaid nodes keep a valid standalone SVG namespace when displayed or saved.
+- **The block.** A head row names the kind (**Mermaid diagram**, **SVG image**) and carries, on the right, the formats to save it as and the source switch. **MMD** saves the Mermaid source (**`diagram.mmd`**) and **SVG** the drawn picture (**`diagram.svg`**); an SVG fence has **SVG** only, which saves its source (**`image.svg`**). In the VS Code panel, these buttons open the editor's Save As picker and save through the extension, including in remote workspaces. The source switch is an icon of angle brackets, off by default, so the picture is what you see; pressed, it shows the source with a copy button in the top right corner of the text, and a source longer than about twenty lines scrolls in its box. A click on the picture opens it in the image viewer with zoom and pan.
+- **Errors.** A diagram Mermaid cannot parse shows its source with the reason under the head (**Could not draw the picture: Parse error on line 3: ... Expecting ..., got ...**), and the source switch stays pressed and disabled. If the renderer cannot be loaded at all (offline, a page older than the binary), the block shows the source with **Could not load the diagram renderer: reload the page**.
+- **Streaming.** A fence that is still arriving is drawn when it first appears and then again once its text has not changed for 300 ms, so Mermaid is not run on every token of a half-written diagram.
+- **Themes.** A diagram takes all its colours from the active appearance and is drawn again when the theme changes: nodes are tinted with the accent, edges are the text colour, and pie slices, chart series and git branches use the theme's accent and syntax colours, each kept far enough from the surface that the slice stands out and its label reads (4.5:1). This holds in all seven themes. An SVG is drawn as written.
+
+![A Gantt chart and a pie chart drawn in the dark theme, slices in the theme's accent and syntax colours](../assets/web-ui/diagrams-charts-dark-888.png)
+*Charts take the theme's colours: the dark theme...*
+
+![The same Gantt chart and pie chart in the light theme](../assets/web-ui/diagrams-charts-light-888.png)
+*...and the light one.*
+
+- **Safety.** The picture is an `<img>` with the SVG as a `data:` URL: an SVG drawn that way runs no script, loads nothing from the network and cannot style the page, so an SVG the model wrote is shown as it is. Mermaid runs with **`securityLevel: "strict"`**.
+
+![Inline and display formulas typeset by KaTeX, with the source switch on each display block](../assets/web-ui/diagrams-formulas-dark-892.png)
+*Inline and display formulas; a price in the same paragraph stays text.*
+
+- **Formulas.** **`$...$`** and **`\(...\)`** are inline formulas; **`$$...$$`**, **`\[...\]`** and a **`math`** fence are display formulas. KaTeX typesets them (no **`\href`**, **`\url`** or **`\includegraphics`**: untrusted commands are off), building the formula's nodes itself in the page (**`katex.render`**), so no HTML string made from an answer is ever parsed. A display formula has the same head as a diagram with the source switch only (the source view carries the copy button), and scrolls sideways when it is wider than the transcript. An inline formula shows its source as a tooltip and copies it, dollars included, on a click (or Enter / Space). A **`\[...\]`** inside a quote or a list item stays on its line (typeset inline) rather than breaking the quote or the list, and LaTeX delimiters inside fenced or indented code are left as they are; a pair never spans a blank line, a new list item or a change of quote depth. Escaped brackets in prose (`a\[0\]`, `\(see below\)`) stay text.
+
+Click an inline formula in the IntelliJ or VS Code panel to copy its LaTeX source, including the dollar delimiters. The panel uses its clipboard fallback if the webview refuses the Clipboard API.
+
+Fenced code stays literal even when its opening backticks or tildes follow a list marker on the same line, including nested lists and quotes. LaTeX delimiters in such examples are displayed and copied unchanged, including across blank lines.
+
+![A Python code fence in a list item keeps its literal backslashes while the formula outside it is typeset](../assets/web-ui/code-fences-list-dark-1280.png)
+*Code inside a list stays literal; formulas outside the code still render.*
+
+- **Dollars that are not math.** A single-dollar span is a formula only when no space follows the opening dollar or precedes the closing one and no letter or digit touches either dollar from outside (Pandoc's rule), and when it does not open as **`${NAME}`**. So "it costs $5 and $10", **`${FOXXYCODE_HOME}/hooks.json`**, **`$HOME$PATH`** and an argon2 hash stay text. Dollars inside code spans and fences are never math. Bad TeX shows KaTeX's own red source rather than an error.
+- **The agent knows.** Every turn the web UI sends names it (**`metadata.surface: "webui"`**), and the server adds a block to that turn's system prompt: the web UI draws **`mermaid`** and **`svg`** fences and typesets LaTeX, so a diagram, a chart or a formula is the answer when it says more than prose would, and colours are left to the theme. The block belongs to the turn and is never stored; the console, the remote console, the messenger bots and API clients do not get it and keep answering in text. A session used from the web UI and from another surface in turn pays for it with a cache miss on the switching turn.
+- **Where.** Everywhere the web UI renders Markdown: answers, thinking, tool cards, the plan card and the documentation reader.
+- **Loading.** Mermaid and KaTeX are not part of **`app.js`**. They are separate files under **`/chunks/`** (content-hashed names, embedded in the binary like the rest of the SPA), fetched the first time a page shows a diagram or a formula and then cached by the browser for good. A chat with neither downloads nothing extra.
+- **Code.** **`ui/markdown/DiagramBlock.tsx`** (the block), **`ui/markdown/pictureRender.ts`** (Mermaid's configuration, the theme palette, the SVG sizing and the cache), **`ui/markdown/MathFormula.tsx`** (KaTeX), **`ui/markdown/mathDelimiters.ts`** (LaTeX delimiters and the dollar rule), **`ui/markdown/renderers.ts`** (the on-demand imports). Tests: **`ui/markdown/DiagramsAndMath.test.tsx`**, **`ui/markdown/mathDelimiters.test.ts`**, **`features/web_ui_diagrams.feature`**; browser check: **`npm run check:diagrams`** (see [Checking diagrams and formulas](#checking-diagrams-and-formulas)).
 
 ## Markdown line editor (shared)
 
@@ -1791,6 +1835,17 @@ FOXXYCODE_BIN=../../build/foxxycode npm run check:telegram
 ```
 
 `FOXXYCODE_BROWSER_PATH` points at an installed Chromium instead of Playwright's download, `FOXXYCODE_SCENARIOS` runs some of `bot`, `open`, `half`, `sheets`, `theme` and `signin`, `FOXXYCODE_SCREENSHOTS` writes the captures this page and the gateway page show, and `FOXXYCODE_E2E_KEEP=1` leaves the stand running for a look.
+
+### Checking diagrams and formulas
+
+Whether Mermaid draws, whether the browser decodes the picture, whether KaTeX's fonts arrive and whether a picture fits the transcript are facts of a real engine. **`external/ui/scripts/diagram-check.mjs`** opens **`src/diagram-check.html`**, a stand that mounts an answer with six Mermaid diagrams (a flowchart, a sequence diagram, a mindmap, a Gantt chart, a pie and a class diagram), an SVG, a broken diagram, inline and display formulas and a price from the real components against the real stylesheet, in all seven themes at **360** and **1280px**, and fails when a picture is not drawn or sticks out of the column, the broken diagram does not name its error, a formula is not typeset, KaTeX's font did not load, the price became a formula, the page scrolls sideways, Mermaid and KaTeX were not fetched on demand, or anything was logged as an error.
+
+```bash
+cd external/ui && npx vite --port 5247 &
+FOXXYCODE_UI_URL=http://127.0.0.1:5247 npm --prefix external/ui run check:diagrams
+```
+
+The stand also takes **`?theme=<id>`**, **`?lang=ru`** and **`?case=<name>`** (one answer of the stand) for screenshots. **`FOXXYCODE_BROWSER_PATH`** and **`FOXXYCODE_ENGINE=webkit`** work as in the checks above. It is **not part of `make test`**: run it when a change touches the Markdown renderers, their styles or the build of the chunks.
 
 ### Checking the transcript at every width of the grid
 

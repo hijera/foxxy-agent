@@ -924,6 +924,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// it carries, and nothing below (skills, hooks, MCP) is for it, since
 		// no turn ever runs on it.
 		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		st.SetSchedulerJobWorkspaceWithoutPersist(snap.Meta.SchedulerJobWorkspace)
 		jobSession = true
 	} else if kept, ok := m.keptProcessSettings(params.SessionID); ok {
 		// A surface let go of this session earlier in this process: its

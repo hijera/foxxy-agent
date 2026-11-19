@@ -10,7 +10,7 @@ Before you tell the user that a UI change is complete or merge-ready:
 
 1. Run **`npm run test:layout`** in **`external/ui`** after **`npm ci`**. The test starts Vite on a free loopback port, requires readiness within **10 seconds**, checks **390px** and **1280px** viewports in headless Chrome/Chromium, and always stops both Vite and the browser. The browser phase has a **20-second** deadline and the outer Go test timeout is **45 seconds**, leaving cleanup headroom.
 2. The test opens **`/layout-scroll-check.html`** and compares **`getBoundingClientRect()`** edges for **`.chat-header`**, **`.messages-inner`** first child, and **`.composer-card`**. Left and right must match within **1px**.
-3. For feature-specific visual or interactive changes, also use Playwright MCP (or the repo browser tools) against **`/`** on a running FoxxyCode HTTP instance. Keep every navigation/evaluation bounded by the browser tool timeout; do not leave an unmonitored background Vite process.
+3. For feature-specific visual or interactive changes, also use Playwright MCP (or the repo browser tools) against **`/`** on a running FoxxyCode HTTP instance. For a Vite-only check choose a free port (for example **`PORT=5201`**), start **`npx vite --host localhost --port "$PORT"`**, and open **`http://localhost:$PORT/layout-scroll-check.html`** and **`http://localhost:$PORT/`** at **390px** and **1280px**. Keep every navigation/evaluation bounded by the browser tool timeout; do not leave an unmonitored background Vite process.
 4. If anything is off, fix CSS and re-check before reporting done.
 
 This is required for changes to **`external/ui/src/styles.css`**, **`ChatScreen`**, **`Composer`**, or nav layout.
@@ -58,3 +58,11 @@ opens a 3306-message session under CPU throttling, scrolls it without a jump, ed
 older page, runs a turn in a second browser, reads through a swarm relay, and fails past a budget.
 Run it once more with **`FOXXYCODE_ENGINE=webkit`** when the change touches scroll anchoring: WebKit does
 not anchor scrolling, so there the window's own correction is all that keeps the reader's row still.
+
+## Capture isolation and redaction
+
+- Captures use a temporary browser-context page, never the operator's main tab, and close it afterward.
+- Navigate the capture page through localhost to avoid host-specific zoom. Set the viewport explicitly and blur focus unless focus is what the screenshot documents.
+- Screenshot stands use isolated `HOME` and `FOXXYCODE_HOME` with neutral fixtures.
+- Before pushing, inspect every PNG for skill names, hosts, tokens, usernames, and personal paths.
+- Screenshots for English pages and pull requests are taken with `?lang=en`, so the browser's locale does not decide the language of the capture.
