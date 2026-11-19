@@ -12,6 +12,8 @@ type Options = {
   postPending: (sid: string) => boolean;
   onQueueRead: (sid: string) => (queue: QueuedMessageEvent) => void;
   onReconcile: (sid: string, active: boolean, wasActive: boolean) => void;
+  /** Fires once on an observed running -> idle transition, including silent refreshes. */
+  onTurnFinished?: (sid: string) => void;
   /**
    * The running turn's clock and tokens as the activity answer carries them. The relay
    * does not replay a turn_progress frame the transcript snapshot covers, so a tab that
@@ -54,6 +56,7 @@ export function useSessionTurnActivity(options: Options) {
       generation: (previous?.generation ?? 0) + (changed ? 1 : 0),
     });
     if (changed) setEpoch((n) => n + 1);
+    if (previous?.active === true && !active) callbacks.current.onTurnFinished?.(key);
   }, []);
 
   const refresh = useCallback(

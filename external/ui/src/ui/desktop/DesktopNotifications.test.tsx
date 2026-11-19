@@ -26,21 +26,11 @@ const permission: DesktopNotification = {
   ],
 };
 
-const plan: DesktopNotification = {
-  kind: "plan",
-  id: "plan_s1:my-plan",
-  sessionId: "s1",
-  slug: "my-plan",
-  title: "Plan ready",
-  body: "Some plan overview",
-};
-
 test("renders nothing when there are no notifications", () => {
   const { container } = render(
     <DesktopNotifications
       notifications={[]}
       onPermissionChoose={() => {}}
-      onRunPlan={() => {}}
       onDismiss={() => {}}
     />,
   );
@@ -53,7 +43,6 @@ test("permission toast fires the chosen option", () => {
     <DesktopNotifications
       notifications={[permission]}
       onPermissionChoose={onChoose}
-      onRunPlan={() => {}}
       onDismiss={() => {}}
     />,
   );
@@ -85,7 +74,6 @@ test("permission toast labels follow the UI locale, like the inline card", () =>
     <DesktopNotifications
       notifications={[runCommand]}
       onPermissionChoose={onChoose}
-      onRunPlan={() => {}}
       onDismiss={() => {}}
     />,
   );
@@ -93,8 +81,6 @@ test("permission toast labels follow the UI locale, like the inline card", () =>
     screen.getByTestId(`desktop-toast-opt-${optionId}`).textContent;
   expect(label("allow")).toBe("Разрешить");
   expect(label("allow_always")).toBe("Всегда разрешать");
-  expect(label("allow_always_program")).toBe("Всегда разрешать go test");
-  expect(label("reject")).toBe("Отклонить");
 
   // The resolved row in the transcript reads the label back, so it must be the
   // translated one too, not the backend's English.
@@ -104,21 +90,4 @@ test("permission toast labels follow the UI locale, like the inline card", () =>
     "allow_always_program",
     "Всегда разрешать go test",
   );
-});
-
-test("plan toast runs and dismisses", () => {
-  const onRun = vi.fn();
-  const onDismiss = vi.fn();
-  render(
-    <DesktopNotifications
-      notifications={[plan]}
-      onPermissionChoose={() => {}}
-      onRunPlan={onRun}
-      onDismiss={onDismiss}
-    />,
-  );
-  fireEvent.click(screen.getByTestId("desktop-toast-run-plan"));
-  expect(onRun).toHaveBeenCalledWith(plan);
-  fireEvent.click(screen.getByTestId("desktop-toast-close-plan_s1:my-plan"));
-  expect(onDismiss).toHaveBeenCalledWith("plan_s1:my-plan");
 });

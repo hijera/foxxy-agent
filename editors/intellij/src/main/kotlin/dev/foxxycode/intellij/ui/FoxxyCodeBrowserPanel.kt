@@ -71,6 +71,13 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
     private var browser: JBCefBrowser? = null
     /** JS→Kotlin channel: the SPA calls this when its locale changes (single app-wide switcher). */
     private var localeQuery: JBCefJSQuery? = null
+    private var notificationQuery: JBCefJSQuery? = null
+    private val chatNotifications = ChatNotificationBridge(project) { id, action ->
+        browser?.cefBrowser?.executeJavaScript(
+            "window.foxxycodeUi && window.foxxycodeUi.notificationAction(${JsonPrimitive(id)}, ${JsonPrimitive(action)})",
+            browser?.cefBrowser?.url ?: "", 0,
+        )
+    }
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
     private var disposed = false
@@ -214,6 +221,10 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
             query.addHandler { value -> onSpaLocale(value); null }
             Disposer.register(it, query)
             localeQuery = query
+            val notification = JBCefJSQuery.create(it as JBCefBrowserBase)
+            notification.addHandler { value -> chatNotifications.receive(value); null }
+            Disposer.register(it, notification)
+            notificationQuery = notification
             // JS→Kotlin channel for "a file was just dropped on the page"; see onHostDrop.
             val drop = JBCefJSQuery.create(it as JBCefBrowserBase)
             drop.addHandler { _ -> onHostDrop(); null }
@@ -255,6 +266,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                     if (frame?.isMain == true && frame.url == currentUrl) {
                         injectBootstrap()
                         injectLocaleBridge()
+                        injectNotificationBridge()
                         injectDropBridge()
                         syncTheme()
                         syncLocale()
@@ -521,6 +533,16 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
         b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
+    private fun injectNotificationBridge() {
+        val query = notificationQuery ?: return
+        val script = """
+            window.foxxycodeHostNotify = function (n) { ${query.inject("JSON.stringify(n)")}; return true; };
+            window.foxxycodeHostDismiss = function (id) { ${query.inject("JSON.stringify({dismiss:id})")}; };
+            window.foxxycodeHostSystemSound = true;
+        """.trimIndent()
+        browser?.cefBrowser?.executeJavaScript(script, browser?.cefBrowser?.url ?: "", 0)
+    }
+
     /**
      * Subscribes to SPA-driven locale changes: when the user flips the single
      * app-wide switcher (SPA Settings → General), the SPA calls back through the
@@ -741,6 +763,7 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
 
     override fun dispose() {
         disposed = true
+        chatNotifications.clear()
         panelsByProject.remove(project, this)
         if (!project.isDisposed) backendLifecycle.dispose()
         // JBCefBrowser is released via its Disposer registration on this panel.

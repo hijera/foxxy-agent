@@ -19,6 +19,8 @@ The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask p
 
 **History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
 
+**Chat notifications.** Permissions, questions, ready plans and finished tasks appear in IDE notification balloons with the chat name, text and action buttons. Settings → General → Notifications independently controls delivery and sound. The Windows desktop now sends system notifications that open the corresponding chat when clicked, only while its window is minimized or in the background. Editor alerts stay quiet by default while the FoxxyCode chat panel has focus. Show notifications in the active window enables foreground alerts too. Completion alerts start with Task finished and the latest answer excerpt as plain text, without Markdown syntax. Choose a custom MP3/WAV up to 5 MiB, preview it, stop playback or return to the standard sound in the same settings section; the selection is shared by desktop and editor panels. In IntelliJ the standard signal is played by the IDE itself (the system notification sound); with a custom file the IDE stays quiet and the clip plays inside the chat panel. Radio options switch between the Windows system notification sound (ding) and a custom file.
+
 ## 0.3.49 — 2026-11-15
 
 **Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.

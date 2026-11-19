@@ -14,8 +14,10 @@ exact upstream commit this fork is synced to.
 - **Native desktop window (WebView2)** - a standalone desktop build (`foxxycode-desktop.exe`) that
   hosts the embedded UI in a native window instead of a browser tab - see
   [`cmd/foxxycode/desktop.go`](../../cmd/foxxycode/desktop.go), [`internal/desktop/`](../../internal/desktop).
-- **Desktop notifications + audio chime + nav plus icon** - bottom-right toasts and a WebAudio cue
-  for permission prompts and plan-ready events, with a plus-icon brand mark on the nav rail.
+- **Host notifications + audio + nav plus icon** - native Windows desktop toasts and editor
+  notifications for permissions, questions, ready plans and completed tasks. General settings
+  controls delivery, sound and optional foreground alerts (off by default), with a plus-icon
+  brand mark on the nav rail. See [host notifications](../surfaces/web-ui.md#notifications-in-desktop-and-editor-hosts).
 - **Guided tour / onboarding** - a first-run desktop tour after the settings form closes, plus a
   "Restart onboarding" control in Appearance to replay it.
 - **Project folder picker** - open projects as folders from the UI - see

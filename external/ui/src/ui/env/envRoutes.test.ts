@@ -18,7 +18,7 @@ import {
 beforeEach(() => {
   localStorage.clear();
   setEnv({ mode: "local" });
-  const loc = { hash: "", reload: vi.fn() };
+  const loc = { hash: "", search: "", reload: vi.fn() };
   vi.stubGlobal("location", loc as unknown as Location);
   Object.defineProperty(window, "location", {
     value: loc,
@@ -169,5 +169,32 @@ describe("switching in place", () => {
     expect(reload).toHaveBeenCalledTimes(1);
     connectLocal();
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops notification actions and preferences when changing remotes", async () => {
+    const { showHostNotification, receiveNotificationAction } = await import("../desktop/hostNotifications");
+    const { applyNotificationConfig, getNotificationPreferences } = await import("../desktop/notificationConfig");
+    const run = vi.fn();
+    const dismiss = vi.fn();
+    const stopSound = vi.fn();
+    window.foxxycodeHostNotify = vi.fn().mockResolvedValue(true);
+    window.foxxycodeHostDismiss = dismiss;
+    window.foxxycodeHostStopSound = stopSound;
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    connectRemote("http://a:1", "t", "a");
+    applyNotificationConfig({ ui: { notification_sound: false, notifications_when_focused: true, notification_sound_file: "old.wav" } });
+    await showHostNotification({ id: "old-env", sessionId: "s", title: "Old", body: "Permission", actions: [{ id: "allow", label: "Allow", run }] }, vi.fn());
+    stopSound.mockClear();
+
+    connectRemote("http://b:1", "t", "b");
+
+    receiveNotificationAction("old-env", "allow");
+    expect(run).not.toHaveBeenCalled();
+    expect(dismiss).toHaveBeenCalledWith("old-env");
+    expect(stopSound).toHaveBeenCalled();
+    expect(getNotificationPreferences()).toEqual({ enabled: true, sound: true, whenFocused: false, soundFile: "" });
+    delete window.foxxycodeHostNotify;
+    delete window.foxxycodeHostDismiss;
+    delete window.foxxycodeHostStopSound;
   });
 });
