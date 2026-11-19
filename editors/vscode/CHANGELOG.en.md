@@ -10,6 +10,12 @@
 
 ## Unreleased — 2026-11-19
 
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
+## 0.3.50 — 2026-11-19
+
 **Saving diagrams in VS Code.** The MMD and SVG buttons use the editor's Save As picker and save through the extension, avoiding downloads cancelled inside the webview.
 
 **Diagrams and formulas in answers.**
