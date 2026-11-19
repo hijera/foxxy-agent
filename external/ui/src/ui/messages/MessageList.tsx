@@ -95,6 +95,13 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
+  /** The server index of the prompt loaded into the composer for an edit. */
+  editingUserMsgIdx?: number | null;
+  /** The server index of the prompt the last rewind edited, while it can
+   *  still be taken back; that prompt carries Undo. */
+  rewindUndoUserMsgIdx?: number | null;
+  onUndoEdit?: () => void;
+  undoEditBusy?: boolean;
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
@@ -280,6 +287,17 @@ export function MessageList(props: {
                 ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
+              {...(myIdx !== undefined && props.editingUserMsgIdx === myIdx
+                ? { editing: true }
+                : {})}
+              {...(props.onUndoEdit &&
+              myIdx !== undefined &&
+              props.rewindUndoUserMsgIdx === myIdx
+                ? {
+                    onUndoEdit: props.onUndoEdit,
+                    ...(props.undoEditBusy ? { undoEditBusy: true } : {}),
+                  }
+                : {})}
             />
           );
         }
