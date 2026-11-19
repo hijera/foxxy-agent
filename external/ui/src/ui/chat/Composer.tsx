@@ -406,7 +406,7 @@ export function Composer(props: {
    * card names it, the send button says it sends the edit, and Escape or the
    * banner's cross calls onCancel (which puts back the draft it replaced).
    */
-  editingMessage?: { snippet: string; onCancel: () => void };
+  editingMessage?: { snippet: string; onCancel: () => void; busy?: boolean };
   /**
    * The last edit can still be taken back: the banner slot offers Undo. An
    * edit in progress wins the slot.
@@ -2122,6 +2122,7 @@ export function Composer(props: {
 
   /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
+    if (props.editingMessage?.busy) return;
     if (runLocalCommandFromDraft()) return;
     if (props.generating) {
       // A turn is running: what the operator wrote joins the queue the turn reads
@@ -2145,6 +2146,7 @@ export function Composer(props: {
     }
   }, [
     props.generating,
+    props.editingMessage?.busy,
     props.value,
     props.onSend,
     queueDraft,
@@ -2939,6 +2941,7 @@ export function Composer(props: {
               data-testid="composer-edit-cancel"
               aria-label={t("composer.cancelEdit")}
               title={t("composer.cancelEdit")}
+              disabled={props.editingMessage.busy === true}
               onClick={() => props.editingMessage?.onCancel()}
             >
               ×
@@ -3122,6 +3125,7 @@ export function Composer(props: {
                 }
                 autoComplete="off"
                 value={props.value}
+                readOnly={props.editingMessage?.busy === true}
                 onChange={(ev) => {
                   const v = ev.target.value;
                   const caret = ev.target.selectionStart ?? v.length;
@@ -3246,7 +3250,7 @@ export function Composer(props: {
                     !ev.metaKey
                   ) {
                     ev.preventDefault();
-                    props.editingMessage.onCancel();
+                    if (!props.editingMessage.busy) props.editingMessage.onCancel();
                     return;
                   }
                   if (argOpen && argItems.length > 0) {
@@ -3609,7 +3613,7 @@ export function Composer(props: {
                         ? t("composer.sendEdit")
                         : t("composer.send")
                 }
-                disabled={!props.generating && idleSendDisabled}
+                disabled={props.editingMessage?.busy || (!props.generating && idleSendDisabled)}
                 onClick={() => {
                   if (queueArmed) {
                     queueDraft();

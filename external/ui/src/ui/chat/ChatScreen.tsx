@@ -151,6 +151,7 @@ export function ChatScreen(props: {
   editingUserMsgIdx?: number | null;
   /** What the edit banner names: the text of that prompt. */
   editingSnippet?: string;
+  editingBusy?: boolean;
   /** Leaves the edit and puts back the draft it replaced. */
   onCancelEdit?: () => void;
   /** The prompt of the last edit while the server can still take it back. */
@@ -1015,6 +1016,7 @@ export function ChatScreen(props: {
                         editingMessage: {
                           snippet: props.editingSnippet ?? "",
                           onCancel: props.onCancelEdit,
+                          busy: props.editingBusy === true,
                         },
                       }
                     : {})}

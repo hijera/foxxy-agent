@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-11-19
 
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
 **Saving diagrams in VS Code.** The MMD and SVG buttons use the editor's Save As picker and save through the extension, avoiding downloads cancelled inside the webview.
 
 **Diagrams and formulas in answers.**

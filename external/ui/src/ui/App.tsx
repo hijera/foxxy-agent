@@ -542,6 +542,10 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
+  const rewindSendingRef = useRef(new Set<string>());
+  const [rewindSending, setRewindSending] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   // What the edit banner names: the text of the prompt being edited.
   const [editingSnippet, setEditingSnippet] = useState("");
   // The draft and attachments the pencil replaced, put back when the edit is
@@ -554,9 +558,9 @@ export function App() {
   const [rewindUndo, setRewindUndo] = useState<{
     sid: string;
     userMsgIdx: number;
+    snapshotId: string;
   } | null>(null);
-  // "sid:index" of an undo whose composer banner was put away; the Undo on the
-  // prompt stays.
+  // Snapshot whose composer banner was put away. The prompt keeps its Undo.
   const [rewindUndoDismissed, setRewindUndoDismissed] = useState("");
   const [rewindUndoBusy, setRewindUndoBusy] = useState(false);
   // Held synchronously, so two clicks inside one render post one undo.
@@ -3685,7 +3689,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
-      rewindUndo?: { userMessageIndex?: number } | null;
+      rewindUndo?: { userMessageIndex?: number; snapshotId?: string } | null;
       messagesRev?: number;
       uiLog?: Array<{
         id?: string;
@@ -3778,8 +3782,9 @@ export function App() {
       );
       // Every read says whether the last rewind can still be taken back.
       const undoIdx = res.data.rewindUndo?.userMessageIndex;
-      const offered = typeof undoIdx === "number" && undoIdx >= 0;
-      setRewindUndo(offered ? { sid, userMsgIdx: undoIdx } : null);
+      const snapshotId = res.data.rewindUndo?.snapshotId;
+      const offered = typeof undoIdx === "number" && undoIdx >= 0 && !!snapshotId;
+      setRewindUndo(offered ? { sid, userMsgIdx: undoIdx, snapshotId } : null);
       // A banner put away belongs to that undo only: once it is gone, the
       // next edit of the same prompt announces itself again.
       if (!offered) setRewindUndoDismissed("");
@@ -4537,7 +4542,13 @@ export function App() {
 
   async function handleRewindSend(text: string, userMsgIdx: number) {
     const sid = sessionId.trim();
-    if (!sid) return;
+    if (!sid || rewindSendingRef.current.has(sid)) return;
+    rewindSendingRef.current.add(sid);
+    setRewindSending(new Set(rewindSendingRef.current));
+    const savedDraft = editingPrevDraftRef.current;
+    const stillEditing = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      editingPrevDraftRef.current === savedDraft;
 
     const showRewindError = (msg: string) => {
       applyStreamItemsForSession(sid, (prev) => [
@@ -4553,68 +4564,79 @@ export function App() {
     };
 
     try {
-      const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind`,
-        {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ userMessageIndex: userMsgIdx }),
-        },
-      );
-      if (!res.ok) {
-        let errMsg = t("app.rewindFailed", { status: res.status });
-        try {
-          const body = (await res.json()) as { error?: { message?: string } };
-          if (body?.error?.message) errMsg = body.error.message;
-        } catch {
-          /* ignore */
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind`,
+          {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ userMessageIndex: userMsgIdx }),
+          },
+        );
+        if (!res.ok) {
+          let errMsg = t("app.rewindFailed", { status: res.status });
+          try {
+            const body = (await res.json()) as { error?: { message?: string } };
+            if (body?.error?.message) errMsg = body.error.message;
+          } catch {
+            /* ignore */
+          }
+          // The draft and the editing state stay untouched, so the message is not
+          // lost and the edit can be retried.
+          showRewindError(errMsg);
+          return;
         }
-        // The draft and the editing state stay untouched, so the message is not
-        // lost and the edit can be retried.
-        showRewindError(errMsg);
+      } catch (err) {
+        showRewindError(
+          t("app.rewindError", {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
         return;
       }
-    } catch (err) {
-      showRewindError(
-        t("app.rewindError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
-      return;
+      // The history is cut on the server: drop everything this client kept of the
+      // tail - the shadow transcript and persisted permission prompts - then
+      // reload the kept prefix and send the edited message. The draft and the
+      // editing state stay until the reload and the send have both gone through,
+      // so a failure after the rewind does not lose the edited text.
+      streamShadowBySidRef.current.delete(sid);
+      clearPermissionPromptRecords(sid);
+      try {
+        await loadMessages(sid, { freshLoad: true });
+      } catch (err) {
+        // The cut landed, so a retry is an ordinary send. Keep both drafts.
+        if (stillEditing()) {
+          setDraft((current) =>
+            [current, savedDraft?.draft].filter(Boolean).join("\n\n"),
+          );
+          setComposerFiles(savedDraft?.files ?? []);
+          setEditingUserMsgIdx(null);
+          setEditingAssetNote("");
+          setEditingFiles([]);
+          setEditingSnippet("");
+          editingPrevDraftRef.current = null;
+        }
+        showRewindError(
+          `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      // The edit is on its way: the draft the pencil set aside comes back, so a
+      // follow-up written before the edit is not lost with it.
+      if (stillEditing()) {
+        editingPrevDraftRef.current = null;
+        setDraft(savedDraft?.draft ?? "");
+        setComposerFiles(savedDraft?.files ?? []);
+        setEditingUserMsgIdx(null);
+        setEditingAssetNote("");
+        setEditingFiles([]);
+        setEditingSnippet("");
+      }
+      void streamResponses(text, { restoreOnRefusal: true });
+    } finally {
+      rewindSendingRef.current.delete(sid);
+      setRewindSending(new Set(rewindSendingRef.current));
     }
-    // The history is cut on the server: drop everything this client kept of the
-    // tail - the shadow transcript and persisted permission prompts - then
-    // reload the kept prefix and send the edited message. The draft and the
-    // editing state stay until the reload and the send have both gone through,
-    // so a failure after the rewind does not lose the edited text.
-    streamShadowBySidRef.current.delete(sid);
-    clearPermissionPromptRecords(sid);
-    try {
-      await loadMessages(sid, { freshLoad: true });
-    } catch (err) {
-      // The edited text stays in the field as an ordinary draft; the edit
-      // itself is over, so nothing of it may outlive this branch.
-      setEditingUserMsgIdx(null);
-      setEditingAssetNote("");
-      setEditingFiles([]);
-      setEditingSnippet("");
-      editingPrevDraftRef.current = null;
-      showRewindError(
-        `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-    // The edit is on its way: the draft the pencil set aside comes back, so a
-    // follow-up written before the edit is not lost with it.
-    const prev = editingPrevDraftRef.current;
-    editingPrevDraftRef.current = null;
-    setDraft(prev?.draft ?? "");
-    setComposerFiles(prev?.files ?? []);
-    setEditingUserMsgIdx(null);
-    setEditingAssetNote("");
-    setEditingFiles([]);
-    setEditingSnippet("");
-    void streamResponses(text);
   }
 
   /**
@@ -4622,9 +4644,8 @@ export function App() {
    * the server restores the conversation as it was before the rewind and the
    * transcript is read again.
    */
-  async function handleUndoEdit() {
-    const sid = sessionId.trim();
-    if (!sid || rewindUndoBusyRef.current) return;
+  async function handleUndoEdit(sid: string, snapshotId: string) {
+    if (rewindUndoBusyRef.current || rewindSendingRef.current.has(sid)) return;
     rewindUndoBusyRef.current = true;
     setRewindUndoBusy(true);
     const showUndoError = (error: string) => {
@@ -4640,19 +4661,15 @@ export function App() {
       ]);
     };
     try {
-      if (
-        turnActivity.get(sid) ??
-        activeComposerSidRef.current.has(sid)
-      ) {
-        // Releases this tab's stream of the turn; the server cancels the turn
-        // and waits for it to end before restoring anyway.
-        await stopActiveGeneration();
-      }
       let res: Response;
       try {
         res = await fetch(
           `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind/undo`,
-          { method: "POST", headers: { ...headers } },
+          {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ snapshotId }),
+          },
         );
       } catch (err) {
         showUndoError(err instanceof Error ? err.message : String(err));
@@ -4666,12 +4683,16 @@ export function App() {
         } catch {
           /* ignore */
         }
+        if (res.status === 409) {
+          await loadMessages(sid, { preserveOnError: true }).catch(() => {});
+        }
         showUndoError(errMsg);
         return;
       }
       // The history changed under this client the way a rewind changes it.
-      setRewindUndo(null);
-      setRewindUndoDismissed("");
+      setRewindUndo((current) =>
+        current?.sid === sid && current.snapshotId === snapshotId ? null : current,
+      );
       streamShadowBySidRef.current.delete(sid);
       clearPermissionPromptRecords(sid);
       try {
@@ -7498,6 +7519,7 @@ export function App() {
   // re-render (every streamed token) must not invalidate their props.
   const handleEditUserMessage = useStableHandler(
     (content: string, userMsgIdx: number) => {
+      if (rewindSendingRef.current.has(sessionId.trim())) return;
       const assetNote = extractSessionAssetsXml(content);
       const text = stripFoxxyCodeAttachmentsForUserDisplay(content);
       // The draft to come back to is the one written before the first pencil:
@@ -7516,6 +7538,7 @@ export function App() {
     },
   );
   const handleCancelEdit = useStableHandler(() => {
+    if (rewindSendingRef.current.has(sessionId.trim())) return;
     const prev = editingPrevDraftRef.current;
     editingPrevDraftRef.current = null;
     setEditingUserMsgIdx(null);
@@ -8211,26 +8234,18 @@ export function App() {
               ? {
                   editingUserMsgIdx,
                   editingSnippet,
+                  editingBusy: rewindSending.has(sessionId.trim()),
                   onCancelEdit: handleCancelEdit,
                 }
               : {})}
-            {...(!subagentTranscript
-              ? (() => {
-                  const undoIdx =
-                    rewindUndo && rewindUndo.sid === sessionId.trim()
-                      ? rewindUndo.userMsgIdx
-                      : null;
-                  return {
-                    rewindUndoUserMsgIdx: undoIdx,
-                    rewindUndoBanner:
-                      undoIdx !== null &&
-                      rewindUndoDismissed !== `${sessionId.trim()}:${undoIdx}`,
-                    rewindUndoBusy,
-                    onUndoEdit: () => void handleUndoEdit(),
-                    onDismissRewindUndo: () =>
-                      setRewindUndoDismissed(`${sessionId.trim()}:${undoIdx}`),
-                  };
-                })()
+            {...(!subagentTranscript && rewindUndo?.sid === sessionId.trim()
+              ? {
+                  rewindUndoUserMsgIdx: rewindUndo.userMsgIdx,
+                  rewindUndoBanner: rewindUndoDismissed !== rewindUndo.snapshotId,
+                  rewindUndoBusy: rewindUndoBusy || rewindSending.has(rewindUndo.sid),
+                  onUndoEdit: () => void handleUndoEdit(rewindUndo.sid, rewindUndo.snapshotId),
+                  onDismissRewindUndo: () => setRewindUndoDismissed(rewindUndo.snapshotId),
+                }
               : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onPasteChipCaptured={(key, literal) => {

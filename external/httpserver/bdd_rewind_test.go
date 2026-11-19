@@ -29,14 +29,15 @@ import (
 )
 
 type rewindFeatureState struct {
-	root     string
-	sessRoot string
-	ts       *httptest.Server
-	mgr      *session.Manager
-	srv      *Server
-	store    *session.FileStore
-	sid      string
-	status   int
+	root       string
+	sessRoot   string
+	ts         *httptest.Server
+	mgr        *session.Manager
+	srv        *Server
+	store      *session.FileStore
+	sid        string
+	status     int
+	snapshotID string
 }
 
 func (s *rewindFeatureState) reset() error {
@@ -49,6 +50,7 @@ func (s *rewindFeatureState) reset() error {
 	s.sessRoot = filepath.Join(root, "sessions")
 	s.sid = ""
 	s.status = 0
+	s.snapshotID = ""
 	return nil
 }
 
@@ -294,6 +296,10 @@ func (s *rewindFeatureState) transcriptOffersUndo(idx int) error {
 	if got, _ := undo["userMessageIndex"].(float64); int(got) != idx {
 		return fmt.Errorf("rewindUndo.userMessageIndex = %v, want %d", undo["userMessageIndex"], idx)
 	}
+	s.snapshotID, _ = undo["snapshotId"].(string)
+	if s.snapshotID == "" {
+		return fmt.Errorf("expected a rewindUndo.snapshotId")
+	}
 	return nil
 }
 
@@ -309,7 +315,7 @@ func (s *rewindFeatureState) transcriptOffersNoUndo() error {
 }
 
 func (s *rewindFeatureState) undoLastRewind() error {
-	status, body, err := s.request(http.MethodPost, "/foxxycode/sessions/"+s.sid+"/rewind/undo", nil)
+	status, body, err := s.request(http.MethodPost, "/foxxycode/sessions/"+s.sid+"/rewind/undo", map[string]string{"snapshotId": s.snapshotID})
 	if err != nil {
 		return err
 	}

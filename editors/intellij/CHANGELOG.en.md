@@ -9,6 +9,8 @@
 
 ## Unreleased — 2026-11-19
 
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
 **Diagrams and formulas in answers.**
 Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
 Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.

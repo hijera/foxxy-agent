@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -110,16 +110,29 @@ func (s *Server) foxxycodeRewind(w http.ResponseWriter, r *http.Request) {
 
 // foxxycodeRewindUndo handles POST /foxxycode/sessions/{id}/rewind/undo.
 //
+// The JSON body names the rewindUndo.snapshotId from the transcript.
+//
 // Response:
 //
 //	{ "object": "foxxycode.session_rewind_undone", "sessionId": "...", "messagesRev": N }
 func (s *Server) foxxycodeRewindUndo(w http.ResponseWriter, r *http.Request) {
+	if !isJSONRequest(r) {
+		writeSubagentsError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if err := session.ValidateFolderSessionID(id); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
 
+	var body struct {
+		SnapshotID string `json:"snapshotId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.SnapshotID) == "" {
+		writeSubagentsError(w, http.StatusBadRequest, "snapshotId is required in a JSON object")
+		return
+	}
 	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
@@ -130,31 +143,7 @@ func (s *Server) foxxycodeRewindUndo(w http.ResponseWriter, r *http.Request) {
 		writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
 		return
 	}
-	if _, ok := s.mgr.RewindUndoAvailable(id); !ok {
-		writeSubagentsError(w, http.StatusConflict, "session "+id+" has no rewind to undo")
-		return
-	}
-	// The edited turn is still running: it is stopped first, or it would keep
-	// appending onto the history the undo restores. UndoRewind holds the
-	// prompt turn lock across the restore, so a turn admitted between this
-	// wait and the restore either shows in the flag or runs after it.
-	if s.sessionTurnActive(id) {
-		s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
-		deadline := time.Now().Add(15 * time.Second)
-		for s.sessionTurnActive(id) && time.Now().Before(deadline) {
-			select {
-			case <-r.Context().Done():
-				deadline = time.Now()
-			case <-time.After(25 * time.Millisecond):
-			}
-		}
-		if s.sessionTurnActive(id) {
-			writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
-			return
-		}
-	}
-
-	rev, err := s.mgr.UndoRewind(id)
+	rev, err := s.undoRewind(r.Context(), id, body.SnapshotID)
 	if err != nil {
 		switch {
 		case errors.Is(err, session.ErrRewindUndoUnavailable),
@@ -177,4 +166,33 @@ func (s *Server) foxxycodeRewindUndo(w http.ResponseWriter, r *http.Request) {
 		"sessionId":   id,
 		"messagesRev": rev,
 	})
+}
+
+func (s *Server) undoRewind(ctx context.Context, id, snapshotID string) (uint64, error) {
+	rev, err := s.mgr.UndoRewind(id, snapshotID)
+	if !errors.Is(err, session.ErrSessionTurnActive) {
+		return rev, err
+	}
+	if err := s.mgr.RequestRewindUndoCancel(id, snapshotID); err != nil {
+		// The edited turn may have finished before it was asked to stop.
+		if errors.Is(err, session.ErrSessionTurnActive) && !s.sessionTurnActive(id) {
+			return s.mgr.UndoRewind(id, snapshotID)
+		}
+		return 0, err
+	}
+	deadline, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline.Done():
+			return 0, session.ErrSessionTurnActive
+		case <-ticker.C:
+			rev, err := s.mgr.UndoRewind(id, snapshotID)
+			if !errors.Is(err, session.ErrSessionTurnActive) {
+				return rev, err
+			}
+		}
+	}
 }

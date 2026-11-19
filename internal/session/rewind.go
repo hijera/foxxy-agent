@@ -1,6 +1,7 @@
 package session
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -74,14 +75,10 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 	}
 	defer unlock()
 	m.refreshFromDiskIfChanged(st)
-	// The previous snapshot goes before the cut, not after it: a crash between
-	// the save below and its removal would otherwise leave the tail of the
-	// earlier edit offered as the undo of this one.
-	undoDir := filepath.Join(dir, rewindUndoDirName)
-	_ = os.RemoveAll(undoDir)
+	rewriteID := rand.Text()
 	// The flock is ours, so TurnLockHeld would see only ourselves: the recheck
 	// under the state lock looks at the in-process flag alone.
-	cutMsgs, cutUILog, err := st.TruncateMessagesBeforeUserN(userMessageIndex, func() bool {
+	cutMsgs, cutUILog, err := st.truncateMessagesBeforeUserN(userMessageIndex, rewriteID, func() bool {
 		return m.SessionTurnActiveInProcess(sessionID)
 	})
 	if err != nil {
@@ -94,31 +91,39 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 	if err := m.store.Save(st); err != nil {
 		return 0, fmt.Errorf("persist rewound history: %w", err)
 	}
+	// Replace the previous snapshot only after the cut reached disk. Its
+	// identity cannot match the newly saved transcript during this transition.
+	undoDir := filepath.Join(dir, rewindUndoDirName)
 	// The cut tail is kept as an undo snapshot until a second prompt after
 	// the edited turn (or a rewrite of the kept prefix) retires it; a
 	// snapshot that cannot be written only means the undo is not offered,
 	// it must not fail the rewind itself.
 	keepDir := ""
-	if err := writeRewindUndoSnapshot(undoDir, &rewindUndoSnapshot{
-		UserMessageIndex: userMessageIndex,
-		BaseLen:          len(st.GetMessages()),
-		PrefixDigest:     prefixDigest(st.GetMessages()),
-		Messages:         cutMsgs,
-		UILog:            cutUILog,
-		CreatedAt:        time.Now().UTC().Format(time.RFC3339Nano),
-	}); err != nil {
-		if m.log != nil {
-			m.log.Warn("rewind undo snapshot", "session", sessionID, "error", err)
+	if err := os.RemoveAll(undoDir); err == nil {
+		if err := writeRewindUndoSnapshot(undoDir, &rewindUndoSnapshot{
+			ID:               rewriteID,
+			UserMessageIndex: userMessageIndex,
+			BaseLen:          len(st.GetMessages()),
+			PrefixDigest:     prefixDigest(st.GetMessages()),
+			Messages:         cutMsgs,
+			UILog:            cutUILog,
+			CreatedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		}); err != nil {
+			if m.log != nil {
+				m.log.Warn("rewind undo snapshot", "session", sessionID, "error", err)
+			}
+			_ = os.RemoveAll(undoDir)
+		} else {
+			keepDir = filepath.Join(undoDir, toolCallsDirName)
 		}
-		_ = os.RemoveAll(undoDir)
-	} else {
-		keepDir = filepath.Join(undoDir, toolCallsDirName)
+	} else if m.log != nil {
+		m.log.Warn("replace rewind undo snapshot", "session", sessionID, "error", err)
 	}
 	rewindCleanupArtifacts(dir, st.GetMessages(), keepDir)
 	return st.MessagesRev(), nil
 }
 
-// TruncateMessagesBeforeUserN drops the Nth (0-based) user message and every
+// truncateMessagesBeforeUserN drops the Nth (0-based) user message and every
 // message after it, in place, and hands the cut parts back: cutMsgs is a copy
 // of the dropped tail (the backing array is reused by later appends, so the
 // snapshot an undo reads must not share it) and cutUILog the ui log rows
@@ -128,7 +133,7 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 // re-checked under the state lock right before the cut so a turn admitted
 // after the caller's own check still refuses instead of appending onto a
 // rewound history.
-func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) (cutMsgs []llm.Message, cutUILog []UILogEntry, err error) {
+func (s *State) truncateMessagesBeforeUserN(n int, rewriteID string, turnActive func() bool) (cutMsgs []llm.Message, cutUILog []UILogEntry, err error) {
 	s.mu.Lock()
 	idx := nthUserMessageIndex(s.Messages, n)
 	if idx < 0 {
@@ -154,6 +159,7 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) (cutM
 		}
 	}
 	s.UILog = kept
+	s.historyRewriteID = rewriteID
 	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()

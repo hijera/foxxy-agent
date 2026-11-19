@@ -1,6 +1,7 @@
 package session
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,7 @@ var ErrRewindUndoUnavailable = errors.New("no rewind to undo")
 // rewindUndoSnapshot is the record of one rewind: what it cut, and how to
 // tell the kept prefix is still the history the cut continued.
 type rewindUndoSnapshot struct {
+	ID string `json:"id,omitempty"`
 	// UserMessageIndex is the index the rewind was called with (0-based over
 	// non-summary user messages): the prompt that was edited.
 	UserMessageIndex int `json:"userMessageIndex"`
@@ -103,6 +105,13 @@ func readRewindUndoSnapshot(sessionDir string) *rewindUndoSnapshot {
 	return &snap
 }
 
+func (snap *rewindUndoSnapshot) snapshotID() string {
+	if snap.ID != "" {
+		return snap.ID
+	}
+	return snap.CreatedAt
+}
+
 // readRewindUndoTail fills in the tail of a record read by
 // readRewindUndoSnapshot.
 func readRewindUndoTail(sessionDir string, snap *rewindUndoSnapshot) error {
@@ -129,7 +138,7 @@ func retireStaleRewindUndo(st *State) {
 		return
 	}
 	snap := readRewindUndoSnapshot(dir)
-	if snap == nil || rewindUndoValid(st.GetMessages(), snap) {
+	if snap == nil || st.rewindUndoValid(snap) {
 		return
 	}
 	_ = os.RemoveAll(filepath.Join(dir, rewindUndoDirName))
@@ -141,7 +150,7 @@ func retireStaleRewindUndo(st *State) {
 // itself. A second one (a prompt after the edited turn, a background wake,
 // a compaction summary) ends the undo.
 func rewindUndoValid(msgs []llm.Message, snap *rewindUndoSnapshot) bool {
-	if len(msgs) < snap.BaseLen {
+	if snap.BaseLen < 0 || len(msgs) < snap.BaseLen {
 		return false
 	}
 	if prefixDigest(msgs[:snap.BaseLen]) != snap.PrefixDigest {
@@ -159,32 +168,33 @@ func rewindUndoValid(msgs []llm.Message, snap *rewindUndoSnapshot) bool {
 	return true
 }
 
-// RewindUndoAvailable reports whether the last rewind of the session can be
-// taken back, and the index of the user message it edited.
-func (m *Manager) RewindUndoAvailable(sessionID string) (userMessageIndex int, ok bool) {
-	st := m.getSession(sessionID)
-	if st == nil {
-		return 0, false
+func (st *State) rewindUndoValid(snap *rewindUndoSnapshot) bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return (snap.ID == "" || st.historyRewriteID == snap.ID) && rewindUndoValid(st.Messages, snap)
+}
+
+// RewindUndoOffer identifies the particular edit the client can take back.
+type RewindUndoOffer struct {
+	SnapshotID       string `json:"snapshotId"`
+	UserMessageIndex int    `json:"userMessageIndex"`
+}
+
+// RewindUndoAvailable reports which rewind, if any, can be taken back.
+func (m *Manager) RewindUndoAvailable(sessionID string) (RewindUndoOffer, bool) {
+	if st := m.getSession(sessionID); st != nil {
+		if offer := m.ReadTranscript(st).Undo; offer != nil {
+			return *offer, true
+		}
 	}
-	dir := strings.TrimSpace(st.GetPersistedSessionDir())
-	if dir == "" {
-		return 0, false
-	}
-	snap := readRewindUndoSnapshot(dir)
-	if snap == nil {
-		return 0, false
-	}
-	if !rewindUndoValid(st.GetMessages(), snap) {
-		return 0, false
-	}
-	return snap.UserMessageIndex, true
+	return RewindUndoOffer{}, false
 }
 
 // UndoRewind takes the last rewind back: whatever was appended after the cut
 // (the edited prompt and its turn) is dropped, the cut tail and its ui log
 // rows and tool call detail come back, and the snapshot is spent. Returns the
 // new messages revision.
-func (m *Manager) UndoRewind(sessionID string) (uint64, error) {
+func (m *Manager) UndoRewind(sessionID, snapshotID string) (uint64, error) {
 	if m.store == nil || m.store.Root == "" {
 		return 0, fmt.Errorf("session store unavailable")
 	}
@@ -217,17 +227,17 @@ func (m *Manager) UndoRewind(sessionID string) (uint64, error) {
 	defer unlock()
 	m.refreshFromDiskIfChanged(st)
 	snap := readRewindUndoSnapshot(dir)
-	if snap == nil {
+	if snap == nil || snapshotID == "" || snap.snapshotID() != snapshotID {
 		return 0, ErrRewindUndoUnavailable
 	}
 	undoDir := filepath.Join(dir, rewindUndoDirName)
-	if !rewindUndoValid(st.GetMessages(), snap) || readRewindUndoTail(dir, snap) != nil {
+	if !st.rewindUndoValid(snap) || readRewindUndoTail(dir, snap) != nil {
 		// A snapshot that no longer continues the history is retired rather
 		// than kept around to refuse again on every read.
 		_ = os.RemoveAll(undoDir)
 		return 0, ErrRewindUndoUnavailable
 	}
-	if err := st.restoreRewoundTail(snap.BaseLen, snap.Messages, snap.UILog, func() bool {
+	if err := st.restoreRewoundTail(snap.BaseLen, snap.Messages, snap.UILog, rand.Text(), func() bool {
 		return m.SessionTurnActiveInProcess(sessionID)
 	}); err != nil {
 		return 0, err
@@ -252,9 +262,9 @@ func (m *Manager) UndoRewind(sessionID string) (uint64, error) {
 
 // restoreRewoundTail replaces everything appended after baseLen - the edited
 // prompt and its turn - with the tail a rewind kept. turnActive is re-checked
-// under the state lock, like TruncateMessagesBeforeUserN does, so a turn
+// under the state lock, like truncateMessagesBeforeUserN does, so a turn
 // admitted after the caller's own check still refuses.
-func (s *State) restoreRewoundTail(baseLen int, tail []llm.Message, tailLog []UILogEntry, turnActive func() bool) error {
+func (s *State) restoreRewoundTail(baseLen int, tail []llm.Message, tailLog []UILogEntry, rewriteID string, turnActive func() bool) error {
 	s.mu.Lock()
 	if turnActive != nil && turnActive() {
 		s.mu.Unlock()
@@ -276,6 +286,7 @@ func (s *State) restoreRewoundTail(baseLen int, tail []llm.Message, tailLog []UI
 		}
 	}
 	s.UILog = append(kept, tailLog...)
+	s.historyRewriteID = rewriteID
 	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()

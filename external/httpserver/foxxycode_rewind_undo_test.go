@@ -84,17 +84,12 @@ func postJSON(t *testing.T, url string, payload interface{}) (int, map[string]in
 	return res.StatusCode, body
 }
 
-func TestRewindUndoStopsTheEditedTurn(t *testing.T) {
-	ts, mgr, sid, started := newRewindUndoServer(t)
-	if status, body := postJSON(t, ts.URL+"/foxxycode/sessions/"+sid+"/rewind", map[string]int{"userMessageIndex": 1}); status != http.StatusOK {
-		t.Fatalf("rewind: %d %v", status, body)
-	}
-
-	// The edited prompt starts a turn that only ends when it is cancelled.
+func startBlockedRewindPrompt(t *testing.T, ts *httptest.Server, sid, text string, started <-chan struct{}) <-chan struct{} {
+	t.Helper()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		buf, _ := json.Marshal(map[string]interface{}{"model": "agent", "input": "edited", "stream": false})
+		buf, _ := json.Marshal(map[string]interface{}{"model": "agent", "input": text, "stream": false})
 		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", bytes.NewReader(buf))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-FoxxyCode-Session-ID", sid)
@@ -105,10 +100,20 @@ func TestRewindUndoStopsTheEditedTurn(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the edited turn did not start")
+		t.Fatal("the turn did not start")
 	}
+	return done
+}
 
-	status, body := postJSON(t, ts.URL+"/foxxycode/sessions/"+sid+"/rewind/undo", nil)
+func TestRewindUndoStopsTheEditedTurn(t *testing.T) {
+	ts, mgr, sid, started := newRewindUndoServer(t)
+	path := ts.URL + "/foxxycode/sessions/" + sid
+	if status, body := postJSON(t, path+"/rewind", map[string]int{"userMessageIndex": 1}); status != http.StatusOK {
+		t.Fatalf("rewind: %d %v", status, body)
+	}
+	id := undoSnapshotID(t, ts.Client(), path+"/messages")
+	done := startBlockedRewindPrompt(t, ts, sid, "edited", started)
+	status, body := postJSON(t, path+"/rewind/undo", map[string]string{"snapshotId": id})
 	if status != http.StatusOK {
 		t.Fatalf("undo: %d %v", status, body)
 	}
@@ -134,7 +139,7 @@ func TestRewindUndoStopsTheEditedTurn(t *testing.T) {
 
 func TestRewindUndoWithNothingToUndo(t *testing.T) {
 	ts, _, sid, _ := newRewindUndoServer(t)
-	status, body := postJSON(t, ts.URL+"/foxxycode/sessions/"+sid+"/rewind/undo", nil)
+	status, body := postJSON(t, ts.URL+"/foxxycode/sessions/"+sid+"/rewind/undo", map[string]string{"snapshotId": "expired"})
 	if status != http.StatusConflict {
 		t.Fatalf("undo without a rewind: want 409, got %d %v", status, body)
 	}
@@ -142,8 +147,131 @@ func TestRewindUndoWithNothingToUndo(t *testing.T) {
 
 func TestRewindUndoRejectsBadSessionID(t *testing.T) {
 	ts, _, _, _ := newRewindUndoServer(t)
-	status, _ := postJSON(t, ts.URL+"/foxxycode/sessions/..%2Fetc/rewind/undo", nil)
+	status, _ := postJSON(t, ts.URL+"/foxxycode/sessions/..%2Fetc/rewind/undo", map[string]string{"snapshotId": "expired"})
 	if status != http.StatusBadRequest && status != http.StatusNotFound {
 		t.Fatalf("want 400 or 404 for a traversal id, got %d", status)
+	}
+}
+
+func undoSnapshotID(t *testing.T, client *http.Client, url string) string {
+	t.Helper()
+	res, err := client.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		RewindUndo struct {
+			SnapshotID string `json:"snapshotId"`
+		} `json:"rewindUndo"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("messages: status %d, decode error %v", res.StatusCode, err)
+	}
+	if body.RewindUndo.SnapshotID == "" {
+		t.Fatal("missing rewind undo snapshot ID")
+	}
+	return body.RewindUndo.SnapshotID
+}
+
+func TestRewindUndoAcrossAlreadyLoadedBackends(t *testing.T) {
+	first, manager, sid, _ := newRewindUndoServer(t)
+	cwd := manager.SessionByID(sid).GetCWD()
+	second := newBackendWindow(t, cwd, manager.FileStore().Root)
+	if _, err := second.mgr.LoadPersistedSession(context.Background(), sid, cwd); err != nil {
+		t.Fatal(err)
+	}
+	path := "/foxxycode/sessions/" + sid
+	if status, body := postJSON(t, first.URL+path+"/rewind", map[string]int{"userMessageIndex": 0}); status != http.StatusOK {
+		t.Fatalf("rewind: %d %v", status, body)
+	}
+	snapshotID := undoSnapshotID(t, second.ts.Client(), second.ts.URL+path+"/messages")
+	if status, body := postJSON(t, second.ts.URL+path+"/rewind/undo", map[string]string{"snapshotId": snapshotID}); status != http.StatusOK {
+		t.Fatalf("undo through second backend: %d %v", status, body)
+	}
+	if got := second.mgr.SessionByID(sid).GetMessages(); len(got) != 4 || got[2].Content != "ask 1" {
+		t.Fatalf("expected the original history, got %v", got)
+	}
+}
+
+func TestRewindUndoRejectsSupersededSnapshot(t *testing.T) {
+	ts, _, sid, _ := newRewindUndoServer(t)
+	path := ts.URL + "/foxxycode/sessions/" + sid
+	if status, body := postJSON(t, path+"/rewind", map[string]int{"userMessageIndex": 1}); status != http.StatusOK {
+		t.Fatalf("first rewind: %d %v", status, body)
+	}
+	oldID := undoSnapshotID(t, ts.Client(), path+"/messages")
+	if status, body := postJSON(t, path+"/rewind", map[string]int{"userMessageIndex": 0}); status != http.StatusOK {
+		t.Fatalf("second rewind: %d %v", status, body)
+	}
+	if status, body := postJSON(t, path+"/rewind/undo", map[string]string{"snapshotId": oldID}); status != http.StatusConflict {
+		t.Fatalf("undo of superseded snapshot: %d %v", status, body)
+	}
+	if newID := undoSnapshotID(t, ts.Client(), path+"/messages"); newID == oldID {
+		t.Fatal("rewind reused its predecessor's identity")
+	}
+}
+
+func TestRewindUndoDoesNotCancelFollowUpTurn(t *testing.T) {
+	ts, mgr, sid, started := newRewindUndoServer(t)
+	path := ts.URL + "/foxxycode/sessions/" + sid
+	if status, body := postJSON(t, path+"/rewind", map[string]int{"userMessageIndex": 1}); status != http.StatusOK {
+		t.Fatalf("rewind: %d %v", status, body)
+	}
+	id := undoSnapshotID(t, ts.Client(), path+"/messages")
+	done := startBlockedRewindPrompt(t, ts, sid, "edited", started)
+	mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: sid})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the edited turn did not stop")
+	}
+	followUp := startBlockedRewindPrompt(t, ts, sid, "follow-up", started)
+	if status, body := postJSON(t, path+"/rewind/undo", map[string]string{"snapshotId": id}); status != http.StatusConflict {
+		t.Fatalf("undo after a follow-up: %d %v", status, body)
+	}
+	select {
+	case <-followUp:
+		t.Fatal("a refused undo cancelled the follow-up")
+	default:
+	}
+}
+
+func TestRewindUndoRequiresJSONContentType(t *testing.T) {
+	ts, _, sid, _ := newRewindUndoServer(t)
+	res, err := ts.Client().Post(ts.URL+"/foxxycode/sessions/"+sid+"/rewind/undo", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", res.StatusCode)
+	}
+}
+
+func TestRewindUndoCancelsEditedTurnOnAnotherBackend(t *testing.T) {
+	first, manager, sid, started := newRewindUndoServer(t)
+	cwd := manager.SessionByID(sid).GetCWD()
+	second := newBackendWindow(t, cwd, manager.FileStore().Root)
+	if _, err := second.mgr.LoadPersistedSession(context.Background(), sid, cwd); err != nil {
+		t.Fatal(err)
+	}
+	path := "/foxxycode/sessions/" + sid
+	if status, body := postJSON(t, first.URL+path+"/rewind", map[string]int{"userMessageIndex": 1}); status != http.StatusOK {
+		t.Fatalf("rewind: %d %v", status, body)
+	}
+	snapshotID := undoSnapshotID(t, second.ts.Client(), second.ts.URL+path+"/messages")
+	done := startBlockedRewindPrompt(t, first, sid, "edited", started)
+	status, body := postJSON(t, second.ts.URL+path+"/rewind/undo", map[string]string{"snapshotId": snapshotID})
+	if status != http.StatusOK {
+		t.Fatalf("undo through second backend: %d %v", status, body)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the edited turn on the first backend did not stop")
+	}
+	if got := second.mgr.SessionByID(sid).GetMessages(); len(got) != 4 || got[2].Content != "ask 1" {
+		t.Fatalf("expected the original history, got %v", got)
 	}
 }

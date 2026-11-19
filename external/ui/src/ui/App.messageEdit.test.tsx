@@ -24,7 +24,7 @@ const ORIGINAL: Msg[] = [
 ];
 
 let msgs: Msg[] = [...ORIGINAL];
-let rewindUndo: { userMessageIndex: number } | null = null;
+let rewindUndo: { userMessageIndex: number; snapshotId: string } | null = null;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -51,7 +51,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
   }
   if (path === `/foxxycode/sessions/${SID}/rewind`) {
     msgs = msgs.slice(0, 2);
-    rewindUndo = { userMessageIndex: 1 };
+    rewindUndo = { userMessageIndex: 1, snapshotId: "new-snapshot" };
     return json({ object: "foxxycode.session_rewound", sessionId: SID, messagesRev: 3 });
   }
   if (path === `/foxxycode/sessions/${SID}/rewind/undo`) {
@@ -161,7 +161,7 @@ test("an undoable rewind is offered on its prompt, and Undo restores the convers
     { role: "user", content: "second question, edited" },
     { role: "assistant", content: "edited answer" },
   ];
-  rewindUndo = { userMessageIndex: 1 };
+  rewindUndo = { userMessageIndex: 1, snapshotId: "snapshot-1" };
   renderApp();
   await waitFor(() =>
     expect(prompts()).toEqual(["first question", "second question, edited"]),
@@ -171,9 +171,14 @@ test("an undoable rewind is offered on its prompt, and Undo restores the convers
 
   await act(async () => chat!.onUndoEdit!());
   await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
-  expect(calledPath(`/foxxycode/sessions/${SID}/rewind/undo`)).toBe(true);
+  const [, request] = fetchMock.mock.calls.find(
+    ([path]) => path === `/foxxycode/sessions/${SID}/rewind/undo`,
+  )!;
+  expect(new Headers(request?.headers).get("Content-Type")).toBe("application/json");
+  expect(JSON.parse(String(request?.body))).toEqual({ snapshotId: "snapshot-1" });
+  expect(calledPath(`/foxxycode/sessions/${SID}/cancel`)).toBe(false);
   await waitFor(() => expect(chat!.rewindUndoUserMsgIdx ?? null).toBeNull());
-  expect(chat!.rewindUndoBanner).toBe(false);
+  expect(chat!.rewindUndoBanner ?? false).toBe(false);
 });
 
 test("dismissing the banner keeps Undo on the prompt", async () => {
@@ -183,11 +188,11 @@ test("dismissing the banner keeps Undo on the prompt", async () => {
     { role: "user", content: "second question, edited" },
     { role: "assistant", content: "edited answer" },
   ];
-  rewindUndo = { userMessageIndex: 1 };
+  rewindUndo = { userMessageIndex: 1, snapshotId: "snapshot-1" };
   renderApp();
   await waitFor(() => expect(chat?.rewindUndoUserMsgIdx).toBe(1));
   await act(async () => chat!.onDismissRewindUndo!());
-  expect(chat!.rewindUndoBanner).toBe(false);
+  expect(chat!.rewindUndoBanner ?? false).toBe(false);
   expect(chat!.rewindUndoUserMsgIdx).toBe(1);
 });
 
@@ -209,7 +214,7 @@ test("two clicks on Undo post one undo", async () => {
     { role: "user", content: "second question, edited" },
     { role: "assistant", content: "edited answer" },
   ];
-  rewindUndo = { userMessageIndex: 1 };
+  rewindUndo = { userMessageIndex: 1, snapshotId: "snapshot-1" };
   renderApp();
   await waitFor(() => expect(chat?.rewindUndoUserMsgIdx).toBe(1));
   await act(async () => {
@@ -230,11 +235,11 @@ test("a banner put away comes back for the next edit of the same prompt", async 
     { role: "user", content: "second question, edited" },
     { role: "assistant", content: "edited answer" },
   ];
-  rewindUndo = { userMessageIndex: 1 };
+  rewindUndo = { userMessageIndex: 1, snapshotId: "snapshot-1" };
   renderApp();
   await waitFor(() => expect(chat?.rewindUndoUserMsgIdx).toBe(1));
   await act(async () => chat!.onDismissRewindUndo!());
-  expect(chat!.rewindUndoBanner).toBe(false);
+  expect(chat!.rewindUndoBanner ?? false).toBe(false);
   await act(async () => chat!.onUndoEdit!());
   await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
 
@@ -242,4 +247,36 @@ test("a banner put away comes back for the next edit of the same prompt", async 
   await act(async () => chat!.onSend!("second question, again"));
   await waitFor(() => expect(chat!.rewindUndoUserMsgIdx).toBe(1));
   expect(chat!.rewindUndoBanner).toBe(true);
+});
+
+test("rewind in flight keeps the edit and admits a single send", async () => {
+  await openSession();
+  await act(async () => chat!.onDraftChange("half-written follow-up"));
+  await act(async () => chat!.onEdit!("second question", 1));
+  let finishRewind!: () => void;
+  const rewindResponse = new Promise<void>((resolve) => { finishRewind = resolve; });
+  const originalFetch = fetchMock.getMockImplementation()!;
+  const rewindPath = "/foxxycode/sessions/" + SID + "/rewind";
+  fetchMock.mockImplementation(async (input, init) => {
+    if (new URL(String(input), "http://localhost").pathname === rewindPath) {
+      await rewindResponse;
+    }
+    return originalFetch(input, init);
+  });
+  try {
+    await act(async () => chat!.onSend!("edited question"));
+    await waitFor(() => expect(calledPath(rewindPath)).toBe(true));
+    await act(async () => {
+      chat!.onCancelEdit!();
+      chat!.onSend!("edited question");
+    });
+    expect(chat!.editingUserMsgIdx).toBe(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === rewindPath)).toHaveLength(1);
+    await act(async () => finishRewind());
+    await waitFor(() => expect(calledPath("/v1/responses")).toBe(true));
+    expect(chat!.draft).toBe("half-written follow-up");
+  } finally {
+    finishRewind();
+    fetchMock.mockImplementation(originalFetch);
+  }
 });

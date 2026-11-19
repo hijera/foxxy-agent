@@ -1762,7 +1762,8 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 				"session", id, "error", err)
 		}
 	}
-	msgs, rev := st.MessagesWithRev()
+	transcript := s.mgr.ReadTranscript(st)
+	msgs, rev := transcript.Messages, transcript.Revision
 	page := session.PageMessages(msgs, query)
 	// Both ends of a page move back to the assistant that issued a tool call,
 	// so a from and a before inside one tool step leave nothing whole to
@@ -1813,8 +1814,8 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	}
 	// The last rewind can still be taken back: the client offers Undo on the
 	// prompt it edited.
-	if idx, ok := s.mgr.RewindUndoAvailable(id); ok {
-		out["rewindUndo"] = map[string]int{"userMessageIndex": idx}
+	if transcript.Undo != nil {
+		out["rewindUndo"] = transcript.Undo
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
@@ -1831,7 +1832,7 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	}
 	// A session saved before only the agent's own settings changes were
 	// noted keeps the notices of the operator's: they are not shown.
-	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {
+	if u := page.UILog(msgs, session.VisibleUILog(msgs, transcript.UILog)); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
 			rows = append(rows, map[string]interface{}{

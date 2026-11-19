@@ -80,6 +80,8 @@ type State struct {
 	// the same lock that made the change.
 	msgRev     uint64
 	msgEditRev uint64
+	// historyRewriteID identifies the last rewind or undo persisted with Messages.
+	historyRewriteID string
 
 	// persistID tells this State apart from any other over the same bundle.
 	// The counters above start at zero in every State, so a session that was
@@ -1169,7 +1171,7 @@ var statePersistIDs atomic.Uint64
 // PlanDocument is a pointer, and an in-place plan edit would otherwise rewrite
 // content this snapshot is already encoding, pairing it with the revision from
 // before the edit.
-func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64) {
+func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64, rewriteID string) {
 	s.persistOnce.Do(func() { s.persistID = statePersistIDs.Add(1) })
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1181,7 +1183,7 @@ func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint6
 			msgs[i].PlanDocument = &snapshot
 		}
 	}
-	return msgs, s.msgRev, s.msgEditRev, s.persistID
+	return msgs, s.msgRev, s.msgEditRev, s.persistID, s.historyRewriteID
 }
 
 // GetMessages returns a copy of the message history. The copy is shallow: a
@@ -1890,6 +1892,10 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 // there would change this history without touching its revisions - which
 // persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	s.replaceMessagesWithoutPersist(msgs, nil)
+}
+
+func (s *State) replaceMessagesWithoutPersist(msgs []llm.Message, rewriteID *string) {
 	owned := make([]llm.Message, len(msgs))
 	copy(owned, msgs)
 	for i := range owned {
@@ -1900,6 +1906,9 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	}
 	s.mu.Lock()
 	s.Messages = owned
+	if rewriteID != nil {
+		s.historyRewriteID = *rewriteID
+	}
 	s.markMessagesEdited()
 	s.mu.Unlock()
 }

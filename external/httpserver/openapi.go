@@ -2180,7 +2180,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary":     "Undo the last rewind of the session",
 					"operationId": "foxxycodeRewindUndo",
-					"description": "Takes back the last **POST /foxxycode/sessions/{id}/rewind**: a running turn of the session (the edited prompt) is cancelled first, whatever was appended after the cut is dropped, and the cut messages, their **uiLog** rows and tool-call detail come back. Available while **GET /foxxycode/sessions/{id}/messages** carries **rewindUndo**: until a second prompt follows the edited one, another rewind replaces it, or the kept prefix changes (a compaction). File changes the removed turns made are not reverted. Publishes **session_rewound** on **GET /foxxycode/events**.",
+					"description": "Restores the specific rewind identified by **rewindUndo.snapshotId** from **GET /foxxycode/sessions/{id}/messages**. The server stops the edited prompt if it is still running and restores the cut messages, **uiLog** rows and tool-call detail. A later prompt, a replacement rewind, or a rewritten prefix expires the snapshot. File changes made during the edit stay on disk. Publishes **session_rewound** on **GET /foxxycode/events**.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -2188,9 +2188,23 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id.",
 						},
 					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"snapshotId"},
+									"properties": map[string]interface{}{
+										"snapshotId": map[string]interface{}{"type": "string", "minLength": 1, "description": "The rewindUndo.snapshotId from the transcript."},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Last rewind taken back",
+							"description": "Requested rewind taken back",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2207,14 +2221,16 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "There is no rewind to undo, the edited turn is still running, or the session is a read-only transcript.",
+							"description": "The snapshot expired, the session is busy, or the transcript is read-only.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
 								},
 							},
 						},
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},
@@ -2297,7 +2313,7 @@ func openAPISpec() map[string]interface{} {
 						"A scheduler **job session** instead carries **readOnly** **true** and **schedulerJob** **`{jobId, workspace}`** (**`workspace`** only for a project job: the canonical workspace its definition lives in). The job session is the parent of the job's runs, nobody prompts it, and a UI points at the job's history (**GET /foxxycode/scheduler/jobs/{job_id}/runs**). " +
 						"The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version). **Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, a **limit** outside 1..1000, a **from** at or past its **before**, and a **from** and a **before** that fall inside one tool step are **400** - both ends move back to the assistant that issued the call, so such a window holds no whole step to answer with. " +
 						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
-						"**rewindUndo** **`{userMessageIndex}`** is present while the last rewind can be taken back with **POST /foxxycode/sessions/{id}/rewind/undo**; **userMessageIndex** names the prompt that was edited.",
+						"**rewindUndo** **`{snapshotId, userMessageIndex}`** identifies the rewind that can be taken back with **POST /foxxycode/sessions/{id}/rewind/undo** and the index of the prompt it edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background. A missing managed worktree is also reconciled to the main checkout for an already-loaded session, refreshing its workspace catalogs without rewriting the original persisted path. Windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},

@@ -31,6 +31,14 @@ func sameContents(t *testing.T, got, want []llm.Message) {
 	}
 }
 
+func undoCurrentRewind(mgr *Manager, id string) (uint64, error) {
+	dir := mgr.SessionByID(id).GetPersistedSessionDir()
+	if snap := readRewindUndoSnapshot(dir); snap != nil {
+		return mgr.UndoRewind(id, snap.snapshotID())
+	}
+	return mgr.UndoRewind(id, "")
+}
+
 func TestRewindUndoRestoresTheCutTail(t *testing.T) {
 	mgr, fs := newTestManager(t)
 	original := userMsgs("hello", "world", "again")
@@ -39,18 +47,18 @@ func TestRewindUndoRestoresTheCutTail(t *testing.T) {
 	if _, err := mgr.RewindSession("s1", 1); err != nil {
 		t.Fatalf("RewindSession: %v", err)
 	}
-	if idx, ok := mgr.RewindUndoAvailable("s1"); !ok || idx != 1 {
-		t.Fatalf("undo right after the rewind: idx=%d ok=%v, want 1 true", idx, ok)
+	if offer, ok := mgr.RewindUndoAvailable("s1"); !ok || offer.UserMessageIndex != 1 {
+		t.Fatalf("undo right after the rewind: offer=%+v ok=%v, want index 1", offer, ok)
 	}
 	// The edited turn the client sends after the rewind.
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "edited world"})
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "edited answer"})
-	if idx, ok := mgr.RewindUndoAvailable("s1"); !ok || idx != 1 {
-		t.Fatalf("undo during the edited turn: idx=%d ok=%v, want 1 true", idx, ok)
+	if offer, ok := mgr.RewindUndoAvailable("s1"); !ok || offer.UserMessageIndex != 1 {
+		t.Fatalf("undo during the edited turn: offer=%+v ok=%v, want index 1", offer, ok)
 	}
 	before := st.MessagesRev()
 
-	rev, err := mgr.UndoRewind("s1")
+	rev, err := undoCurrentRewind(mgr, "s1")
 	if err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
@@ -74,7 +82,7 @@ func TestRewindUndoBeforeTheEditIsSent(t *testing.T) {
 	if _, err := mgr.RewindSession("s1", 1); err != nil {
 		t.Fatalf("RewindSession: %v", err)
 	}
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	sameContents(t, st.GetMessages(), original)
@@ -95,7 +103,7 @@ func TestRewindUndoIsGoneOnceTheNextPromptIsSent(t *testing.T) {
 	if _, ok := mgr.RewindUndoAvailable("s1"); ok {
 		t.Fatalf("a prompt after the edited turn must end the undo")
 	}
-	if _, err := mgr.UndoRewind("s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
+	if _, err := undoCurrentRewind(mgr, "s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
 		t.Fatalf("want ErrRewindUndoUnavailable, got %v", err)
 	}
 	if got := st.GetMessages(); len(got) != 6 {
@@ -119,7 +127,7 @@ func TestRewindUndoIsGoneWhenThePrefixChanged(t *testing.T) {
 	if _, ok := mgr.RewindUndoAvailable("s1"); ok {
 		t.Fatalf("a rewritten prefix must end the undo")
 	}
-	if _, err := mgr.UndoRewind("s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
+	if _, err := undoCurrentRewind(mgr, "s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
 		t.Fatalf("want ErrRewindUndoUnavailable, got %v", err)
 	}
 }
@@ -138,10 +146,10 @@ func TestRewindUndoNamesOnlyTheLatestRewind(t *testing.T) {
 	if _, err := mgr.RewindSession("s1", 1); err != nil {
 		t.Fatalf("second RewindSession: %v", err)
 	}
-	if idx, ok := mgr.RewindUndoAvailable("s1"); !ok || idx != 1 {
-		t.Fatalf("the second rewind owns the undo: idx=%d ok=%v", idx, ok)
+	if offer, ok := mgr.RewindUndoAvailable("s1"); !ok || offer.UserMessageIndex != 1 {
+		t.Fatalf("the second rewind owns the undo: offer=%+v ok=%v", offer, ok)
 	}
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	sameContents(t, st.GetMessages(), afterFirstEdit)
@@ -159,7 +167,7 @@ func TestRewindUndoRestoresTheUILogOfTheTail(t *testing.T) {
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "edited world"})
 	st.AppendUILogError(2, "edited turn error")
 
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	log := st.GetUILog()
@@ -199,7 +207,7 @@ func TestRewindUndoRestoresToolCallDetail(t *testing.T) {
 		t.Fatalf("tool call edit: %v", err)
 	}
 
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	dirs, err := ListToolCalls(dir)
@@ -227,7 +235,7 @@ func TestRewindUndoRefusesActiveTurn(t *testing.T) {
 	release := mgr.markTurnActive("s1")
 	defer release()
 
-	if _, err := mgr.UndoRewind("s1"); !errors.Is(err, ErrSessionTurnActive) {
+	if _, err := undoCurrentRewind(mgr, "s1"); !errors.Is(err, ErrSessionTurnActive) {
 		t.Fatalf("want ErrSessionTurnActive, got %v", err)
 	}
 }
@@ -239,7 +247,7 @@ func TestRewindUndoWithoutRewind(t *testing.T) {
 	if _, ok := mgr.RewindUndoAvailable("s1"); ok {
 		t.Fatalf("no rewind, no undo")
 	}
-	if _, err := mgr.UndoRewind("s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
+	if _, err := undoCurrentRewind(mgr, "s1"); !errors.Is(err, ErrRewindUndoUnavailable) {
 		t.Fatalf("want ErrRewindUndoUnavailable, got %v", err)
 	}
 }
@@ -252,7 +260,7 @@ func TestRewindUndoPersistsTheRestoredHistory(t *testing.T) {
 	if _, err := mgr.RewindSession("s1", 1); err != nil {
 		t.Fatalf("RewindSession: %v", err)
 	}
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	snap, err := fs.ReadSnapshot("s1")
@@ -280,7 +288,7 @@ func TestRewindUndoClearsThePermissionPromptOfTheEditedTurn(t *testing.T) {
 		t.Fatalf("pending permission: %v", err)
 	}
 
-	if _, err := mgr.UndoRewind("s1"); err != nil {
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
 		t.Fatalf("UndoRewind: %v", err)
 	}
 	if PendingPermissionHeld(dir) {
@@ -309,4 +317,20 @@ func TestStaleRewindUndoIsRetired(t *testing.T) {
 	if _, err := os.Stat(undoDir); !os.IsNotExist(err) {
 		t.Fatalf("a snapshot a prompt moved past must leave the bundle: %v", err)
 	}
+}
+
+func TestRejectedRewindPreservesPreviousUndo(t *testing.T) {
+	mgr, store := newTestManager(t)
+	original := userMsgs("one", "two", "three")
+	state := newRewindState(t, mgr, store, "s1", original)
+	if _, err := mgr.RewindSession("s1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.RewindSession("s1", 2); !errors.Is(err, ErrRewindOutOfRange) {
+		t.Fatalf("expected out-of-range error, got %v", err)
+	}
+	if _, err := undoCurrentRewind(mgr, "s1"); err != nil {
+		t.Fatalf("rejected rewind destroyed the prior undo: %v", err)
+	}
+	sameContents(t, state.GetMessages(), original)
 }
