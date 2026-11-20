@@ -12,7 +12,7 @@ The Go source is the **repo root** (this extension lives at `editors/vscode/`); 
 copy. Functionally it is the full peer of the [IntelliJ plugin](../intellij), including native
 inline diffs (Accept / Reject / Revert / Show diff) driven by the foxxycode IDE event stream.
 
-In a local chat, open **Edits** and select a text file to compare it in the editor's native diff. The **Classic** chat layout is available from **Settings → Appearance**.
+In a local chat, open **Edits** and select a text file to review the changed blocks in the source editor. The **Classic** chat layout is available from **Settings → Appearance**.
 
 
 ## How it works
@@ -178,10 +178,13 @@ When the agent edits a file inside the open workspace:
   with **Accept** / **Reject** / **Show diff** buttons. Accept/Reject posts to
   `/foxxycode/sessions/<id>/permission`; Show diff opens a VS Code diff editor comparing the
   before/after content as virtual documents.
-- **Applied edit**: the file opens with decorations and a notification with **Revert** / **Show
-  diff**. Revert writes the pre-edit content back via a `WorkspaceEdit`.
-- **Auto-apply** (opt-in): proposed edits are accepted automatically; the diff is still shown with
-  a Revert affordance.
+- For applied edits, **Accept** and **Reject** appear as CodeLens actions above each changed
+  block. **Accept** keeps the block and clears its review marker. **Reject** restores only that
+  block, with editor Undo available. **Show diff** opens the full native comparison.
+- **Auto-apply** skips the proposed edit notification. The applied blocks remain available for review.
+
+For a deleted file or a snapshot that differs from the editor, selecting it in **Edits** opens
+its native comparison directly. The VS Code `editor.codeLens` setting controls CodeLens visibility.
 
 Disable inline diffs in Settings (*Show native inline diffs in the editor when the agent edits
 files*) to let the SPA handle edits on its own.

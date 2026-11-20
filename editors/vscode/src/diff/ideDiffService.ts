@@ -13,17 +13,33 @@ import { readSettings } from "../settings";
 import { t } from "../i18n/bundle";
 import { LineFragment } from "./lineFragments";
 import { InlineHighlightTracker } from "./inlineHighlights";
+import { editorReviewText, moveReviewHunks, reviewHunks, reviewedTextMatches, reviewHunksOverlap, type ReviewHunk } from "./reviewHunks";
 
 interface DecorationPair {
   added: vscode.TextEditorDecorationType;
   removed: vscode.TextEditorDecorationType;
 }
 
+interface ReviewEntry {
+  offer: ReviewOffer;
+  document: vscode.TextDocument;
+  version: number;
+  hunks: (ReviewHunk & { id: number })[];
+}
+
+interface ReviewOffer {
+  event: EditEvent;
+  installed: boolean;
+  pending: boolean;
+}
+
+const REVIEW_COMMAND = "foxxycode.resolveInlineEdit";
+
 /** VS Code port of `editors/intellij/.../diff/FoxxyCodeIdeDiffService.kt`.
  *
  *  Subscribes to the foxxycode IDE event stream and renders each agent file edit
- *  in the real editor with green/red line decorations and an Accept/Reject (or
- *  Revert) decision, plus a Show diff action backed by `vscode.diff`. */
+ *  in the real editor with line decorations and per-block Accept/Reject actions.
+ *  Show diff is available for a separate comparison. */
 export class IdeDiffService {
   private client: IdeEventClient | null = null;
   private clientBase: string | null = null;
@@ -31,19 +47,40 @@ export class IdeDiffService {
   private readonly decorations = new Map<string, DecorationPair>();
   /** Which lines carry the latest edit of each file; see InlineHighlightTracker. */
   private readonly highlights = new InlineHighlightTracker();
-  private readonly docChanges: vscode.Disposable;
+  private readonly subscriptions: vscode.Disposable[];
+  private readonly lensesChanged = new vscode.EventEmitter<void>();
+  private readonly reviews = new Map<string, ReviewEntry>();
+  private readonly offers = new Map<string, ReviewOffer>();
+  private nextHunk = 0;
 
   constructor(
     private readonly workspaceRoot: string | undefined,
     private readonly log?: (line: string) => void,
   ) {
-    this.docChanges = vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e.document));
+    this.subscriptions = [
+      this.lensesChanged,
+      vscode.workspace.onDidChangeTextDocument((event) => this.onDocumentChanged(event)),
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        if (doc.uri.scheme === "file") this.clearDecorations(doc.uri.fsPath);
+      }),
+      vscode.window.onDidChangeVisibleTextEditors((editors) => {
+        for (const editor of editors) {
+          if (editor.document.uri.scheme === "file") this.drawReview(editor.document);
+        }
+      }),
+      vscode.languages.registerCodeLensProvider({ scheme: "file" }, {
+        onDidChangeCodeLenses: this.lensesChanged.event,
+        provideCodeLenses: (doc) => this.reviewLenses(doc),
+      }),
+      vscode.commands.registerCommand(REVIEW_COMMAND, (uri: vscode.Uri, id: number, reject: boolean) =>
+        this.resolveHunk(uri, id, reject)),
+    ];
   }
 
   /** Starts (or, after a server restart on a new port, re-points) the event stream. */
   startIfNeeded(baseUrl: string): void {
     if (this.client && this.clientBase === baseUrl) return;
-    this.client?.stop();
+    this.stop();
     const c = new IdeEventClient(baseUrl, (ev) => this.onEvent(ev));
     this.client = c;
     this.clientBase = baseUrl;
@@ -59,7 +96,7 @@ export class IdeDiffService {
 
   dispose(): void {
     this.stop();
-    this.docChanges.dispose();
+    for (const subscription of this.subscriptions) subscription.dispose();
   }
 
   private onEvent(ev: EditEvent): void {
@@ -78,7 +115,7 @@ export class IdeDiffService {
       return;
     }
     if (ev.type === "open_diff") {
-      void this.showDiff(ev).catch((error) => this.log?.(`[foxxycode] open_diff failed: ${String(error)}`));
+      this.reviewFile(ev, true);
       return;
     }
     const s = readSettings();
@@ -91,7 +128,7 @@ export class IdeDiffService {
       }
       void this.handleProposed(ev);
     } else if (isApplied(ev)) {
-      void this.handleApplied(ev);
+      this.reviewFile(ev, false);
     }
   }
 
@@ -128,9 +165,133 @@ export class IdeDiffService {
     if (editor) this.notifyProposed(ev);
   }
 
-  private async handleApplied(ev: EditEvent): Promise<void> {
-    await this.openAndHighlight(ev, true);
-    this.notifyApplied(ev);
+  private reviewFile(ev: EditEvent, explicit: boolean): void {
+    void this.openReview(ev, explicit).catch((error) =>
+      this.log?.(`[foxxycode] inline review failed: ${String(error)}`));
+  }
+
+  private async openReview(ev: EditEvent, explicit: boolean): Promise<void> {
+    if (!path.isAbsolute(ev.path)) return;
+    const key = this.normalize(ev.path);
+    const offer = { event: ev, installed: false, pending: true };
+    this.offers.set(key, offer);
+    let doc: vscode.TextDocument;
+    try {
+      doc = await vscode.workspace.openTextDocument(vscode.Uri.file(ev.path));
+    } catch {
+      if (this.offers.get(key) === offer) {
+        this.offers.delete(key);
+        if (explicit) await this.showDiff(ev);
+        else this.offerComparison(ev);
+      }
+      return;
+    }
+    if (this.offers.get(key) !== offer) return;
+    this.installReview(doc);
+    if (explicit && !offer.installed) {
+      this.offers.delete(key);
+      await this.showDiff(ev);
+      return;
+    }
+    const editor = await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: !explicit });
+    if (this.offers.get(key) !== offer) return;
+    this.drawReview(doc);
+    if (explicit) {
+      const entry = this.currentReview(doc);
+      const first = entry?.offer === offer ? entry.hunks[0] : undefined;
+      if (first) editor.revealRange(new vscode.Range(doc.positionAt(first.start), doc.positionAt(first.end)),
+        vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    }
+    this.offerComparison(ev);
+  }
+
+  /** The editor's watcher may deliver the write after the SSE event. Inline
+   *  actions are installed only on the exact applied version. */
+  private installReview(doc: vscode.TextDocument): boolean {
+    const key = this.normalize(doc.uri.fsPath);
+    const offer = this.offers.get(key);
+    if (!offer?.pending) return false;
+    const ev = offer.event;
+    const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+    const before = editorReviewText(ev.before, eol);
+    const after = editorReviewText(ev.after, eol);
+    if (before.includes("\uFFFD") || after.includes("\uFFFD")) {
+      offer.pending = false;
+      return false;
+    }
+    if (after !== doc.getText()) return false;
+
+    offer.pending = false;
+    const added = reviewHunks(before, after).map((hunk) => ({ ...hunk, id: ++this.nextHunk }));
+    if (!added.length) return false;
+    const existing = ev.type === "open_diff" ? [] : this.currentReview(doc)?.hunks ?? [];
+    const retained = existing.filter((hunk) => added.every((next) => !reviewHunksOverlap(hunk, next)));
+    offer.installed = true;
+    this.highlights.forget(key);
+    this.reviews.set(key, { offer, document: doc, version: doc.version, hunks: [...retained, ...added] });
+    this.lensesChanged.fire();
+    return true;
+  }
+
+  private currentReview(doc: vscode.TextDocument): ReviewEntry | undefined {
+    const entry = this.reviews.get(this.normalize(doc.uri.fsPath));
+    return entry?.document === doc && entry.version === doc.version ? entry : undefined;
+  }
+
+  private reviewLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
+    return (this.currentReview(doc)?.hunks ?? []).flatMap((hunk) => {
+      const pos = doc.positionAt(hunk.start);
+      const range = new vscode.Range(pos, pos);
+      return [false, true].map((reject) => new vscode.CodeLens(range, {
+        title: t(reject ? "diff.action.reject" : "diff.action.accept"),
+        command: REVIEW_COMMAND,
+        arguments: [doc.uri, hunk.id, reject],
+      }));
+    });
+  }
+
+  private async resolveHunk(uri: vscode.Uri, id: number, reject: boolean): Promise<void> {
+    const key = this.normalize(uri.fsPath);
+    const editor = vscode.window.visibleTextEditors.find((it) =>
+      it.document.uri.scheme === "file" && this.normalize(it.document.uri.fsPath) === key);
+    if (!editor) return;
+    const doc = editor.document;
+    const hunk = this.currentReview(doc)?.hunks.find((it) => it.id === id);
+    if (!hunk || !reviewedTextMatches(hunk, doc.getText())) {
+      void vscode.window.showWarningMessage(t("diff.review.stale"));
+      return;
+    }
+    if (reject) {
+      const range = new vscode.Range(doc.positionAt(hunk.start), doc.positionAt(hunk.end));
+      try {
+        if (!await editor.edit((edit) => edit.replace(range, hunk.before))) {
+          void vscode.window.showWarningMessage(t("diff.review.stale"));
+          return;
+        }
+      } catch (error) {
+        this.log?.(`[foxxycode] Reject failed: ${String(error)}`);
+        void vscode.window.showWarningMessage(t("diff.review.stale"));
+        return;
+      }
+    }
+    const entry = this.reviews.get(key);
+    if (entry) {
+      entry.hunks = entry.hunks.filter((it) => it.id !== id);
+      if (!entry.hunks.length) this.reviews.delete(key);
+    }
+    this.lensesChanged.fire();
+    this.drawReview(doc, true);
+  }
+
+  private drawReview(doc: vscode.TextDocument, clear = false): void {
+    const entry = this.currentReview(doc);
+    if (!entry && !clear) return;
+    const fragments = (entry?.hunks ?? []).filter((hunk) => hunk.start < hunk.end).map((hunk): LineFragment => {
+      const start = doc.positionAt(hunk.start).line;
+      const end = doc.positionAt(Math.max(hunk.start, hunk.end - 1)).line + 1;
+      return { startLine: start, endLine: end, kind: "add" };
+    });
+    this.drawDecorations(this.normalize(doc.uri.fsPath), doc, fragments);
   }
 
   /** Opens the file and highlights changed line ranges. */
@@ -155,14 +316,30 @@ export class IdeDiffService {
     // places the lines on what it has now and redraws when it reloads.
     const fragments = this.highlights.place(key, token, doc.getText());
     if (fragments === null) return editor; // a newer edit of this file owns the highlights
-    this.drawDecorations(key, doc, fragments, editor);
+    if (!this.currentReview(doc)) this.drawDecorations(key, doc, fragments, editor);
     return editor;
   }
 
-  private onDocumentChanged(doc: vscode.TextDocument): void {
-    if (doc.uri.scheme !== "file") return;
+  private onDocumentChanged({ document: doc, contentChanges }: vscode.TextDocumentChangeEvent): void {
+    if (doc.uri.scheme !== "file" || !contentChanges.length) return;
     const key = this.normalize(doc.uri.fsPath);
-    // A dirty document is not reloaded from disk, so whatever it holds now is final.
+    const entry = this.reviews.get(key);
+    if (entry?.document === doc) {
+      const changes = contentChanges.map((change) => ({
+        start: change.rangeOffset,
+        end: change.rangeOffset + change.rangeLength,
+        text: change.text,
+      }));
+      const text = doc.getText();
+      entry.hunks = moveReviewHunks(entry.hunks, changes).filter((hunk) => reviewedTextMatches(hunk, text));
+      entry.version = doc.version;
+      if (!entry.hunks.length) this.reviews.delete(key);
+      this.lensesChanged.fire();
+    }
+    if (this.installReview(doc) || entry) {
+      this.drawReview(doc, true);
+      return;
+    }
     const fragments = this.highlights.documentChanged(key, doc.getText(), doc.isDirty);
     if (fragments !== null) this.drawDecorations(key, doc, fragments);
   }
@@ -210,6 +387,13 @@ export class IdeDiffService {
 
   private clearDecorations(pathArg: string): void {
     const key = this.normalize(pathArg);
+    this.offers.delete(key);
+    this.reviews.delete(key);
+    this.lensesChanged.fire();
+    this.clearHighlights(key);
+  }
+
+  private clearHighlights(key: string): void {
     this.highlights.forget(key);
     const pair = this.decorations.get(key);
     if (pair) {
@@ -220,6 +404,9 @@ export class IdeDiffService {
   }
 
   private clearAllDecorations(): void {
+    this.offers.clear();
+    this.reviews.clear();
+    this.lensesChanged.fire();
     this.highlights.forgetAll();
     for (const pair of this.decorations.values()) {
       pair.added.dispose();
@@ -242,34 +429,23 @@ export class IdeDiffService {
       .then((choice) => {
         if (choice === t("diff.action.accept")) {
           void this.respondPermission(ev, "allow");
-          this.clearDecorations(ev.path);
+          if (!this.reviews.has(this.normalize(ev.path))) this.clearHighlights(this.normalize(ev.path));
         } else if (choice === t("diff.action.reject")) {
           void this.respondPermission(ev, "reject");
-          this.clearDecorations(ev.path);
+          if (!this.reviews.has(this.normalize(ev.path))) this.clearHighlights(this.normalize(ev.path));
         } else if (choice === t("diff.action.showDiff")) {
           void this.showDiff(ev);
         }
       });
   }
 
-  private notifyApplied(ev: EditEvent): void {
-    const fileName = baseName(ev.path);
-    void vscode.window
-      .showInformationMessage(
-        t("diff.notify.applied.title", fileName),
-        t("diff.action.revert"),
-        t("diff.action.showDiff"),
-      )
-      .then((choice) => {
-        if (choice === t("diff.action.revert")) {
-          // Cleared first: the revert changes the document, and a highlight
-          // still waiting for its reload would redraw on the restored text.
-          this.clearDecorations(ev.path);
-          void this.revert(ev);
-        } else if (choice === t("diff.action.showDiff")) {
-          void this.showDiff(ev);
-        }
-      });
+  private offerComparison(ev: EditEvent): void {
+    void vscode.window.showInformationMessage(
+      t("diff.notify.applied.title", baseName(ev.path)),
+      t("diff.action.showDiff"),
+    ).then((choice) => {
+      if (choice === t("diff.action.showDiff")) void this.showDiff(ev);
+    });
   }
 
   private async showDiff(ev: EditEvent): Promise<void> {
@@ -277,18 +453,6 @@ export class IdeDiffService {
     const afterUri = afterUriFor(ev);
     const title = `${baseName(ev.path)} — ${t("diff.window.before")} ⇄ ${t("diff.window.after")}`;
     await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, title);
-  }
-
-  /** Native per-edit rollback: restore the file's pre-edit content. */
-  private async revert(ev: EditEvent): Promise<void> {
-    const uri = vscode.Uri.file(ev.path);
-    try {
-      const ws = new vscode.WorkspaceEdit();
-      ws.replace(uri, fullRange(await vscode.workspace.openTextDocument(uri)), ev.before);
-      await vscode.workspace.applyEdit(ws);
-    } catch (e) {
-      this.log?.(`[foxxycode] revert failed: ${(e as Error).message}`);
-    }
   }
 
   // ---- http -----------------------------------------------------------------
@@ -309,7 +473,8 @@ export class IdeDiffService {
 
   private isInProject(p: string): boolean {
     if (!this.workspaceRoot) return false;
-    return this.normalize(p).startsWith(this.normalize(this.workspaceRoot));
+    const relative = path.relative(this.normalize(this.workspaceRoot), this.normalize(p));
+    return path.isAbsolute(p) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
   }
 
   private normalize(p: string): string {
@@ -332,11 +497,6 @@ function removedDecorationColor(): string {
 
 function baseName(p: string): string {
   return p.replace(/\\/g, "/").split("/").pop() ?? p;
-}
-
-function fullRange(doc: vscode.TextDocument): vscode.Range {
-  const last = doc.lineCount - 1;
-  return new vscode.Range(0, 0, Math.max(0, last), doc.lineAt(Math.max(0, last)).text.length);
 }
 
 // ---- virtual document providers for the Show diff action --------------------
@@ -378,7 +538,7 @@ function afterUriFor(ev: EditEvent): vscode.Uri {
 }
 
 // re-export for tests
-export { baseName, fullRange };
+export { baseName };
 export const _internal = { beforeRegistry, afterRegistry };
 export const BEFORE_SCHEME_NAME = BEFORE_SCHEME;
 export const AFTER_SCHEME_NAME = AFTER_SCHEME;

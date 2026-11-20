@@ -10,7 +10,6 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diff.DiffColors
 import com.intellij.openapi.editor.Editor
@@ -34,18 +33,19 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /**
- * Native inline-diff bridge: subscribes to the foxxycode IDE event stream and renders each agent
- * file edit in the real editor with green/red line highlights and an Accept/Reject (or Revert)
- * decision, driven by IntelliJ's own diff APIs. Registered as a projectService.
+ * Subscribes to the FoxxyCode IDE event stream and opens local source for inline review.
+ * IntelliJ's comparison viewer remains available for complete snapshots.
  */
 class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     private val log = logger<FoxxyCodeIdeDiffService>()
 
     private var client: FoxxyCodeIdeEventClient? = null
     private var clientBase: String? = null
+    private val inlineReview = FoxxyCodeInlineReview(project, this)
 
     private class HighlightSet(val model: MarkupModel, val markers: List<RangeHighlighter>)
 
@@ -70,6 +70,8 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
         val previous = client
         client = null
         clientBase = null
+        val app = ApplicationManager.getApplication()
+        if (app.isDispatchThread) inlineReview.clear() else app.invokeLater { inlineReview.clear() }
         // HttpURLConnection.disconnect can wait for a blocked stream reader; never do it on EDT.
         if (previous != null) ApplicationManager.getApplication().executeOnPooledThread { previous.stop() }
     }
@@ -97,7 +99,7 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
         }
         if (ev.type == "open_diff") {
             ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) showDiff(ev)
+                if (!project.isDisposed) openAppliedReview(ev, explicit = true)
             }
             return
         }
@@ -150,37 +152,46 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
                     respondPermission(ev.sessionId, ev.toolCallId, "allow")
                     return
                 }
-                openAndHighlight(ev, useAfterRanges = false)
+                highlightProposal(ev)
                 notifyProposed(ev)
             }
-            ev.isApplied -> {
-                openAndHighlight(ev, useAfterRanges = true)
-                notifyApplied(ev)
-            }
+            ev.isApplied -> openAppliedReview(ev, explicit = false)
         }
     }
 
     // ---- inline rendering -------------------------------------------------------------
 
-    /** Opens the file and highlights changed line ranges; returns the editor (or null). */
-    private fun openAndHighlight(ev: FoxxyCodeEditEvent, useAfterRanges: Boolean): Editor? {
-        val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(ev.path)) ?: return null
-        // An applied edit is already on disk, but a file that is open (or merely cached by the
-        // VFS) keeps its old document until a refresh notices the change. Refresh now, so the
-        // document is reloaded before it is highlighted rather than after.
-        if (useAfterRanges) VfsUtil.markDirtyAndRefresh(false, false, false, vf)
-        val editor = FileEditorManager.getInstance(project)
-            .openTextEditor(OpenFileDescriptor(project, vf), true) ?: return null
+    private fun openEditor(path: String, refresh: Boolean): Editor? {
+        val localPath = try {
+            Path.of(path)
+        } catch (_: InvalidPathException) {
+            return null
+        }
+        if (!localPath.isAbsolute) return null
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(localPath) ?: return null
+        // A cached document may still contain the pre-edit text until VFS reloads it.
+        if (refresh) VfsUtil.markDirtyAndRefresh(false, false, false, file)
+        return FileEditorManager.getInstance(project).openTextEditor(OpenFileDescriptor(project, file), true)
+    }
+
+    private fun openAppliedReview(ev: FoxxyCodeEditEvent, explicit: Boolean) {
+        val editor = openEditor(ev.path, refresh = true)
+        clearHighlights(ev.path)
+        if ((editor == null || !inlineReview.offer(editor, ev, replace = explicit)) && explicit) {
+            showDiff(ev)
+            return
+        }
+        notifyApplied(ev)
+    }
+
+    private fun highlightProposal(ev: FoxxyCodeEditEvent) {
+        val editor = openEditor(ev.path, refresh = false) ?: return
 
         clearHighlights(ev.path)
         val model = editor.markupModel
         val list = ArrayList<RangeHighlighter>()
         val doc = editor.document
-        val side = if (useAfterRanges) ChangedLineRanges.Side.AFTER else ChangedLineRanges.Side.BEFORE
-        // Ranges are computed against the document's actual text, not taken from the event's
-        // line numbers: if the reload has still not happened (unsaved changes in the editor),
-        // lines the document does not contain stay unhighlighted instead of landing elsewhere.
-        for (r in ChangedLineRanges.inDocument(ev.before, ev.after, doc.immutableCharSequence, side)) {
+        for (r in ChangedLineRanges.inDocument(ev.before, ev.after, doc.immutableCharSequence, ChangedLineRanges.Side.BEFORE)) {
             if (r.start >= doc.lineCount) continue
             val from = doc.getLineStartOffset(r.start)
             val to = doc.getLineEndOffset(minOf(r.end, doc.lineCount) - 1)
@@ -191,7 +202,6 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             list.add(hl)
         }
         if (list.isNotEmpty()) highlighters[normalize(ev.path)] = HighlightSet(model, list)
-        return editor
     }
 
     private fun clearHighlights(path: String) {
@@ -247,11 +257,6 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             FoxxyCodeBundle.message("diff.notify.applied.content"),
             NotificationType.INFORMATION,
         )
-        n.addAction(NotificationAction.createSimple(FoxxyCodeBundle.message("diff.action.revert")) {
-            revert(ev)
-            clearHighlights(ev.path)
-            n.expire()
-        })
         n.addAction(NotificationAction.createSimple(FoxxyCodeBundle.message("diff.action.showDiff")) { showDiff(ev) })
         n.notify(project)
     }
@@ -267,18 +272,6 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             FoxxyCodeBundle.message("diff.window.after"),
         )
         DiffManager.getInstance().showDiff(project, req)
-    }
-
-    /** Native per-edit rollback: restore the file's pre-edit content with undo support. */
-    private fun revert(ev: FoxxyCodeEditEvent) {
-        val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(ev.path)) ?: return
-        try {
-            WriteCommandAction.runWriteCommandAction(project, FoxxyCodeBundle.message("diff.command.revert"), null, {
-                vf.setBinaryContent(ev.before.toByteArray(StandardCharsets.UTF_8))
-            })
-        } catch (e: Exception) {
-            log.warn("revert failed", e)
-        }
     }
 
     // ---- http -------------------------------------------------------------------------
@@ -313,7 +306,10 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
 
     private fun isInProject(path: String): Boolean {
         val base = project.basePath ?: return false
-        return normalize(path).startsWith(normalize(base))
+        return runCatching {
+            val candidate = Path.of(path)
+            candidate.isAbsolute && candidate.normalize().startsWith(Path.of(base).normalize())
+        }.getOrDefault(false)
     }
 
     private fun normalize(p: String): String {

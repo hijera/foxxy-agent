@@ -67,9 +67,9 @@ Open **Files** in the chat header or press **Ctrl+Shift+F** (**Cmd+Shift+F** on 
 
 ## The edits window
 
-**Edits** shows Git changes in the chat's workspace, including changes made outside the agent. The tree jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the IDE's native comparison. The web preview is available for remote sessions and when the native request cannot be dispatched.
+**Edits** shows Git changes in the chat's workspace, including changes made outside the agent. The tree jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
 
-**Accept** marks the reviewed version in this browser or panel and keeps the file on disk. A new version needs review again. **Reject** asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since it was reviewed is left alone. **Discard all** in the menu resets the working copy changes together.
+In the **Edits** window itself, **Accept** marks the reviewed version in this browser or panel and keeps the file on disk. A new version needs review again. **Reject** asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since it was reviewed is left alone. **Discard all** in the menu resets the working copy changes together.
 
 ![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
 
