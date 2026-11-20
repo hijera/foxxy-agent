@@ -7,7 +7,12 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-19
+## Unreleased — 2026-11-20
+
+**Guidance for DeepSeek models.**
+DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
+
+## 0.3.51 — 2026-11-19
 
 **Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
 
