@@ -40,6 +40,11 @@ import {
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
 
+/** How far a mouse press travels before it is a drag of a pinned row, not a click. */
+const PIN_DRAG_SLOP_PX = 4;
+/** How long a finger holds a pinned row before it drags it rather than scrolls. */
+const PIN_HOLD_MS = 400;
+
 function pickFromSessionRowClick(
   ev: MouseEvent<HTMLDivElement>,
   action: () => void,
@@ -72,41 +77,6 @@ function IconFilters() {
       <path d="M12 17h8" />
       <circle cx="16" cy="7" r="2" />
       <circle cx="10" cy="17" r="2" />
-    </svg>
-  );
-}
-
-/** The handle a pinned row is dragged by. */
-function IconGrip() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <circle cx="9" cy="6" r="1.6" />
-      <circle cx="15" cy="6" r="1.6" />
-      <circle cx="9" cy="12" r="1.6" />
-      <circle cx="15" cy="12" r="1.6" />
-      <circle cx="9" cy="18" r="1.6" />
-      <circle cx="15" cy="18" r="1.6" />
-    </svg>
-  );
-}
-
-/** A pin, for the row held at the top of the list. */
-function IconPin() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path d="M14 2l8 8-3 1-1.5 1.5 1 6.5-3-3-5 5 1-6-4.5-1.5L9 10l1-3z" />
     </svg>
   );
 }
@@ -256,6 +226,9 @@ export function SessionsSidebar(props: {
   // A pin being dragged, and where it would land. The pointer is tracked rather
   // than HTML5 drag-and-drop, which a finger cannot start.
   const [drag, setDrag] = useState<{ id: string; over: number } | null>(null);
+  // Set when a drag ends: the release is also a click on the row, and that click
+  // must not open the conversation that was only being moved.
+  const draggedRef = useRef(false);
   const pinnedListRef = useRef<HTMLDivElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   // The menu is portaled out of the drawer (which clips what overflows it), so
@@ -316,49 +289,117 @@ export function SessionsSidebar(props: {
   const pinnedIds = props.sessions.filter((s) => s.pinned).map((s) => s.id);
 
   /**
-   * Drags one pin through the list with the pointer, so a finger can do it too:
-   * HTML5 drag-and-drop never starts from touch. The row follows nothing - the
-   * list shows where the drop would land instead, which survives a scroll and
-   * costs no layer.
+   * Drags one pin through the list by the row itself, so a finger can do it too:
+   * HTML5 drag-and-drop never starts from touch. A mouse or a pen starts the drag
+   * once the press has travelled past the slop, so a plain click still opens the
+   * row; a finger has to hold the row first, so a swipe still scrolls the list.
+   * The row follows nothing - the list shows where the drop would land instead,
+   * which survives a scroll and costs no layer.
    */
   const startPinDrag = (id: string) => (ev: ReactPointerEvent) => {
-    if (!onReorderPins || ev.button !== 0) {
+    draggedRef.current = false;
+    if (!onReorderPins || ev.button !== 0 || renamingRef.current) {
       return;
     }
-    ev.preventDefault();
-    ev.stopPropagation();
+    if ((ev.target as Element).closest("button, input")) {
+      return;
+    }
     const from = pinnedIds.indexOf(id);
     if (from < 0) {
       return;
     }
-    const handle = ev.currentTarget as HTMLElement;
-    handle.setPointerCapture(ev.pointerId);
-    setDrag({ id, over: from });
+    const row = ev.currentTarget as HTMLElement;
+    const { pointerId, clientX: x0, clientY: y0 } = ev;
+    const touch = ev.pointerType === "touch";
+    let dragging = false;
 
     const rowsOf = () =>
       [...(pinnedListRef.current?.querySelectorAll(".session-item") ?? [])].map(
         (el) => el.getBoundingClientRect(),
       );
 
+    const begin = () => {
+      dragging = true;
+      try {
+        row.setPointerCapture(pointerId);
+      } catch {
+        // The pointer is already gone; the release below still ends the drag.
+      }
+      setDrag({ id, over: from });
+    };
+    const holdTimer = touch ? window.setTimeout(begin, PIN_HOLD_MS) : 0;
+
     const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) {
+        return;
+      }
+      if (!dragging) {
+        const travelled = Math.hypot(move.clientX - x0, move.clientY - y0);
+        if (travelled <= PIN_DRAG_SLOP_PX) {
+          return;
+        }
+        if (touch) {
+          // Moved before the hold: the finger is scrolling, not dragging.
+          finish(false);
+          return;
+        }
+        begin();
+      }
       setDrag((prev) =>
         prev ? { ...prev, over: pinDropIndex(rowsOf(), move.clientY) } : prev,
       );
     };
-    const onUp = () => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
+    // Once the hold has taken the row, the finger must not also pan the list.
+    const holdScroll = (touchEv: TouchEvent) => {
+      if (dragging) {
+        touchEv.preventDefault();
+      }
+    };
+    // A held row is not a link to open in a new tab.
+    const holdMenu = (menuEv: Event) => {
+      if (dragging) {
+        menuEv.preventDefault();
+      }
+    };
+    const onUp = (up: PointerEvent) => {
+      if (up.pointerId === pointerId) {
+        finish(up.type === "pointerup");
+      }
+    };
+    function finish(commit: boolean) {
+      window.clearTimeout(holdTimer);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("touchmove", holdScroll);
+      document.removeEventListener("contextmenu", holdMenu);
+      if (!dragging) {
+        return;
+      }
+      draggedRef.current = true;
       setDrag((prev) => {
-        if (prev && prev.over !== from) {
-          onReorderPins(reorderPins(pinnedIds, from, prev.over));
+        if (commit && prev && prev.over !== from) {
+          onReorderPins?.(reorderPins(pinnedIds, from, prev.over));
         }
         return null;
       });
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    document.addEventListener("touchmove", holdScroll, { passive: false });
+    document.addEventListener("contextmenu", holdMenu);
+  };
+
+  /** Swallows the click a drag ends with, which would open the moved row. */
+  const swallowDragClick = (ev: MouseEvent) => {
+    if (!draggedRef.current) {
+      return false;
+    }
+    draggedRef.current = false;
+    ev.preventDefault();
+    ev.stopPropagation();
+    return true;
   };
 
   /** Opens, moves and closes the inline rename, ref and state together. */
@@ -417,6 +458,7 @@ export function SessionsSidebar(props: {
           s.id === props.sessionId ? "active" : "",
           s.archived ? "is-archived" : "",
           props.rowErrors?.[s.id] ? "has-row-error" : "",
+          pinnedIndex >= 0 && onReorderPins ? "is-reorderable" : "",
           drag?.id === s.id ? "is-dragging" : "",
           drag && pinnedIndex >= 0 && drag.over === pinnedIndex
             ? "is-drop-target"
@@ -425,29 +467,18 @@ export function SessionsSidebar(props: {
           .filter(Boolean)
           .join(" ")}
         data-testid={`session-row-${s.id}`}
-        onClick={(ev) =>
+        onPointerDown={
+          pinnedIndex >= 0 && onReorderPins ? startPinDrag(s.id) : undefined
+        }
+        onClick={(ev) => {
+          if (swallowDragClick(ev)) {
+            return;
+          }
           pickFromSessionRowClick(ev, () => {
             props.onPick(s.id);
-          })
-        }
+          });
+        }}
       >
-        {pinnedIndex >= 0 && onReorderPins ? (
-          <span
-            className="session-drag-grip"
-            role="button"
-            tabIndex={-1}
-            aria-label={t("sessions.dragPin")}
-            title={t("sessions.dragPin")}
-            data-testid={`session-drag-${s.id}`}
-            onPointerDown={startPinDrag(s.id)}
-            onClick={(ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-            }}
-          >
-            <IconGrip />
-          </span>
-        ) : null}
         {renaming?.id === s.id ? (
           <input
             className="session-title-input"
@@ -485,7 +516,11 @@ export function SessionsSidebar(props: {
                 : appNavHrefSession(s.id)
             }
             className="session-row-link"
+            draggable={false}
             onClick={(ev) => {
+              if (swallowDragClick(ev)) {
+                return;
+              }
               ev.stopPropagation();
               sameTabInAppNavClick(ev, () => {
                 props.onPick(s.id);
@@ -580,16 +615,6 @@ export function SessionsSidebar(props: {
               >
                 {s.title || t("sessions.newChatFallback")}
               </span>
-              {s.pinned ? (
-                <span
-                  className="session-pin-mark"
-                  data-testid={`session-pinned-${s.id}`}
-                  aria-label={t("sessions.pinnedBadge")}
-                  title={t("sessions.pinnedBadge")}
-                >
-                  <IconPin />
-                </span>
-              ) : null}
             </div>
             {/* The folder line predates grouping: in the flat list it was the
             only way to tell two projects apart. Grouped by folder the heading

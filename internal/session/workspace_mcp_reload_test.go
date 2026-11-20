@@ -44,8 +44,7 @@ func writeProjectMCPServer(t *testing.T, dir, name string) {
 // trust policy, so the mcp.json layers stay inside the test's own directories.
 func workspaceTestConfig(t *testing.T, projectTrust string, servers ...config.MCPServerConfig) *config.Config {
 	t.Helper()
-	cfg := reloadTestConfig(servers...)
-	cfg.Paths.Home = t.TempDir()
+	cfg := reloadTestConfig(t, servers...)
 	cfg.MCP.ProjectTrust = projectTrust
 	return cfg
 }

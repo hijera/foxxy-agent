@@ -212,8 +212,12 @@ test.each(["local", "remote"] as const)("reveals an artifact with POST in the %s
   expect(screen.queryByText("Could not reveal the file on the server")).toBeNull();
 });
 
-test("downloads a remote artifact through the environment request and releases its blob URL", async () => {
-  setEnv({ mode: "remote", baseUrl: "https://remote.example", token: "secret" });
+test("downloads a relay-mounted artifact through the environment request and releases its blob URL", async () => {
+  setEnv({
+    mode: "remote",
+    baseUrl: "https://relay.example/swarm/nodes/nas02",
+    token: "secret",
+  });
   const fetchSpy = vi.spyOn(window, "fetch").mockResolvedValue(
     new Response(new Blob(["artifact"]), { status: 200 }),
   );
@@ -234,7 +238,9 @@ test("downloads a remote artifact through the environment request and releases i
   fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
 
   await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-  expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://remote.example" + artifact.url);
+  expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+    "https://relay.example/swarm/nodes/nas02" + artifact.url,
+  );
   expect(new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer secret");
   expect(click).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:artifact-download"));

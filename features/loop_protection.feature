@@ -11,6 +11,14 @@ Feature: Runaway loop protection
   repeated text is dropped from the transcript, so it is never replayed to the
   model and cannot re-seed the loop.
 
+  Scenario: Identical tool calls in one response are intentional work
+    Given a foxxycode agent with the loop guard enabled
+    And a model that requests four identical tool calls in one response, then answers
+    When the user sends a prompt
+    Then all four calls of the response are executed without a loop correction
+    And every requested tool call has a result recorded
+    And the turn ends with the model's real answer
+
   Scenario: A degenerating answer stream is cut and the turn recovers
     Given a foxxycode agent with the loop guard enabled
     And a model that repeats the same sentence forever, then answers normally

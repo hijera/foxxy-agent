@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,6 +19,11 @@ const backupFileName = "config.yaml.bak"
 // backup (refreshed to the current content on every successful load), it keeps
 // the previous committed configuration so config_rollback can restore it.
 const prevFileName = "config.yaml.prev"
+
+// Concurrent replacements of the same file can fail with access denied on
+// Windows. Loads and Settings saves both refresh the backup, so serialize the
+// short atomic write even when their enclosing operations use different locks.
+var configFileWriteMu sync.Mutex
 
 // BackupPath returns the path to the config backup file for the given config file path.
 func BackupPath(configPath string) string {
@@ -77,6 +83,8 @@ func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 }
 
 func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
+	configFileWriteMu.Lock()
+	defer configFileWriteMu.Unlock()
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	tmp, err := os.CreateTemp(dir, "."+base+".tmp-*")

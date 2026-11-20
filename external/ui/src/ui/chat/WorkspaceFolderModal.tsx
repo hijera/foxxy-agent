@@ -3,6 +3,7 @@ import { useT } from "../i18n/I18nProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import { Switch } from "../settings/Switch";
 import { createPortal } from "react-dom";
+import { SchedulerIconPlus } from "../scheduler/schedulerToolbarIcons";
 import {
   cleanPathInput,
   type WorkspaceFolderListing,
@@ -276,7 +277,15 @@ export function WorkspaceFolderModal(props: Props) {
               title={f.path}
               onClick={() => void browse(f.path)}
             >
-              <span className="workspace-chip-icon" aria-hidden="true">
+              <span
+                className={
+                  "workspace-chip-icon" +
+                  (f.symlink && !listing?.drives
+                    ? " workspace-modal-symlink-icon"
+                    : "")
+                }
+                aria-hidden="true"
+              >
                 {listing?.drives ? (
                   <svg
                     viewBox="0 0 16 16"
@@ -285,6 +294,19 @@ export function WorkspaceFolderModal(props: Props) {
                     fill="currentColor"
                   >
                     <path d="M2 3.25c0-.41.34-.75.75-.75h10.5c.41 0 .75.34.75.75v5.25H1.5V3.25Zm-.5 6.25h13c.28 0 .5.22.5.5v2.75c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75V10c0-.28.22-.5.5-.5Zm10.25 1.25a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+                  </svg>
+                ) : f.symlink ? (
+                  // The folder glyph with a bent arrow cut out of its body
+                  // (evenodd, so no mask and no id repeated per row): a link
+                  // to a folder, not the folder itself.
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="12"
+                    height="12"
+                    fill="currentColor"
+                    fillRule="evenodd"
+                  >
+                    <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75ZM12.75 7.75 9.25 4.75v2h-5V12h2V8.75h3v2Z" />
                   </svg>
                 ) : (
                   <svg
@@ -314,7 +336,7 @@ export function WorkspaceFolderModal(props: Props) {
         <div className="workspace-modal-actions" data-testid="workspace-modal-actions">
           <button
             type="button"
-            className="workspace-modal-btn workspace-modal-btn--lead"
+            className="workspace-modal-btn workspace-modal-btn--add"
             data-testid="workspace-modal-new-folder"
             disabled={!listing || Boolean(listing.drives) || creating}
             title={t("composer.folderModal.newFolder")}
@@ -325,7 +347,7 @@ export function WorkspaceFolderModal(props: Props) {
               setError("");
             }}
           >
-            +
+            <SchedulerIconPlus />
           </button>
           <label className="workspace-modal-show-hidden">
             <Switch

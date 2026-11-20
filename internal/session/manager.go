@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +99,15 @@ type Manager struct {
 	// management surface may already have changed in place
 	// (mcp.SetProjectTrust mirrors the policy into the live configuration).
 	mcpTrust atomic.Value
+	// mcpDecls is what <home>/mcp.json declared when the live sessions were
+	// last reconciled with it (ReloadMCPDeclarations): server name -> the
+	// digest of its declaration and its switch.
+	mcpDeclMu sync.Mutex
+	mcpDecls  map[string]string
+	// mcpWatchStop ends the watcher of <home>/mcp.json that
+	// StartGlobalMCPServers starts; nil until then.
+	mcpWatchMu   sync.Mutex
+	mcpWatchStop context.CancelFunc
 
 	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
 	stubTurnMu sync.Map // sessionID -> *sync.Mutex
@@ -168,7 +177,7 @@ type Manager struct {
 // ACP client omits cwd; may be empty if every session supplies a non-empty cwd.
 // store may be nil to disable persistence.
 func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string, store *FileStore) *Manager {
-	skillsDirs := append([]string(nil), cfg.Skills.Dirs...)
+	skillsDirs := cfg.Skills.SearchDirs()
 	m := &Manager{
 		server:     server,
 		runner:     runner,
@@ -183,6 +192,7 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 	m.mcpPool.SetStopDelay(cfg.MCP.EffectiveIdleTimeout())
 	m.mcpPool.SetWanted(m.mcpServerWanted)
 	m.mcpTrust.Store(cfg.MCP.ResolvedProjectTrust())
+	m.mcpDecls = globalMCPDeclarations(cfg, m.log)
 	m.cfgAt.Store(cfg)
 	return m
 }
@@ -243,7 +253,7 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 		return
 	}
 	previous, previousTrust := m.storeConfig(next)
-	if previous != nil && !mcpSettingsChanged(previous, next, previousTrust) {
+	if previous != nil && !mcpTrustChanged(next, previousTrust) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
@@ -251,15 +261,101 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 	m.reloadConfiguredMCPServers(ctx)
 }
 
-// mcpSettingsChanged reports whether a new configuration changes which
-// configured MCP servers the live sessions should run: the servers
-// config.yaml declares, or the trust policy that decides which project
-// servers may run at all (previousTrust, the policy the sessions were
-// reconciled under). A policy moved to deny must take the project servers
-// away from the sessions holding them, not only from new ones.
-func mcpSettingsChanged(previous, next *config.Config, previousTrust string) bool {
-	return !reflect.DeepEqual(previous.MCPServers, next.MCPServers) ||
-		previousTrust != next.MCP.ResolvedProjectTrust()
+// mcpTrustChanged reports whether a new configuration changes which
+// configured MCP servers the live sessions may run. config.yaml declares no
+// server (they live in <home>/mcp.json and the project's .foxxycode/mcp.json,
+// see ReloadMCPDeclarations), so what it can change is the trust policy that
+// decides whether project servers run at all: previousTrust is the policy
+// the sessions were reconciled under. A policy moved to deny must take the
+// project servers away from the sessions holding them, not only from new
+// ones.
+func mcpTrustChanged(next *config.Config, previousTrust string) bool {
+	return previousTrust != next.MCP.ResolvedProjectTrust()
+}
+
+// ReloadMCPDeclarations brings the live sessions in line with
+// <home>/mcp.json after it changed on disk: an editor, another process, a
+// file dropped in by a deployment. Only the servers whose declaration or
+// switch moved are reconciled, each as RefreshMCPServer does it, so a
+// stateful neighbour keeps its process; a server that left the file is
+// closed in every session that ran it. A per-tool switch needs nothing here,
+// since every turn rebuilds its tool filter from the file. The management
+// surfaces reconcile the server they changed themselves, and a reload that
+// follows their write finds the session already in line.
+func (m *Manager) ReloadMCPDeclarations(ctx context.Context) {
+	next, err := readGlobalMCPDeclarations(m.activeCfg())
+	if err != nil {
+		// A file caught mid-write or saved with a typo says nothing about
+		// which servers should stop: the running ones stay, and the snapshot
+		// with them, until it reads again.
+		m.log.Warn("global MCP servers file changed but does not read; the running servers stay",
+			"path", config.GlobalMCPJSONPath(m.activeCfg().Paths.Home), "error", err)
+		return
+	}
+	m.mcpDeclMu.Lock()
+	previous := m.mcpDecls
+	m.mcpDecls = next
+	m.mcpDeclMu.Unlock()
+	changed := changedMCPDeclarations(previous, next)
+	if len(changed) == 0 {
+		return
+	}
+	m.log.Info("global MCP servers changed on disk, reconciling the sessions",
+		"path", config.GlobalMCPJSONPath(m.activeCfg().Paths.Home), "servers", changed)
+	for _, name := range changed {
+		m.RefreshMCPServer(ctx, name)
+	}
+}
+
+// globalMCPDeclarations is what <home>/mcp.json declares, by server name:
+// the digest of the declaration and its server switch. Per-tool switches
+// are left out; they apply on the next turn without reconnecting anything.
+// A file that does not read declares nothing here, as at session start.
+func globalMCPDeclarations(cfg *config.Config, log *slog.Logger) map[string]string {
+	out, err := readGlobalMCPDeclarations(cfg)
+	if err != nil {
+		if log != nil {
+			log.Warn("failed to load mcp.json", "path", config.GlobalMCPJSONPath(cfg.Paths.Home), "error", err)
+		}
+		return map[string]string{}
+	}
+	return out
+}
+
+// readGlobalMCPDeclarations is globalMCPDeclarations with a file that does
+// not read reported: a missing file declares no server, a broken one is an
+// error, never "no servers".
+func readGlobalMCPDeclarations(cfg *config.Config) (map[string]string, error) {
+	out := map[string]string{}
+	if cfg == nil {
+		return out, nil
+	}
+	servers, err := config.LoadMCPJSONServers(config.GlobalMCPJSONPath(cfg.Paths.Home))
+	if err != nil {
+		return nil, err
+	}
+	for _, srv := range servers {
+		out[srv.Name] = fmt.Sprintf("%s disabled=%t", mcp.Fingerprint(srv), srv.Disabled)
+	}
+	return out, nil
+}
+
+// changedMCPDeclarations lists, sorted, the names whose declaration differs
+// between two snapshots, a name present in only one of them included.
+func changedMCPDeclarations(previous, next map[string]string) []string {
+	var out []string
+	for name, decl := range next {
+		if previous[name] != decl {
+			out = append(out, name)
+		}
+	}
+	for name := range previous {
+		if _, ok := next[name]; !ok {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // mcpRefreshTimeout bounds RefreshMCPServer: the dials of the one server in
@@ -418,7 +514,7 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 	// The policy the live sessions were reconciled under is swapped in the
 	// same order as the configurations themselves.
 	previousTrust, _ := m.mcpTrust.Swap(next.MCP.ResolvedProjectTrust()).(string)
-	m.skillsLoad = skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
+	m.skillsLoad = skills.NewLoader(next.Skills.SearchDirs())
 	m.cfgAt.Store(next)
 	// The global servers the pool keeps follow the configuration: a server
 	// added or switched on starts, one removed, switched off or redeclared
@@ -460,7 +556,7 @@ func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]stri
 			return nil, err
 		}
 	}
-	loader := skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
+	loader := skills.NewLoader(next.Skills.SearchDirs())
 	var warnings []string
 	var loadedSkills []*skills.Skill
 	if st != nil {
@@ -505,7 +601,7 @@ func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]stri
 		}
 		m.sendAvailableSlashCommands(st.GetID(), st)
 	}
-	if previous == nil || mcpSettingsChanged(previous, next, previousTrust) {
+	if previous == nil || mcpTrustChanged(next, previousTrust) {
 		reloadCtx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 		defer cancel()
 		m.reloadConfiguredMCPServersExcept(reloadCtx, st)
@@ -828,6 +924,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// it carries, and nothing below (skills, hooks, MCP) is for it, since
 		// no turn ever runs on it.
 		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		st.SetSchedulerJobWorkspaceWithoutPersist(snap.Meta.SchedulerJobWorkspace)
 		jobSession = true
 	} else if kept, ok := m.keptProcessSettings(params.SessionID); ok {
 		// A surface let go of this session earlier in this process: its
@@ -1042,6 +1139,36 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	return m.HandleSessionPromptWithSender(ctx, params, m.currentSender(), nil)
 }
 
+// TurnRestriction is what a surface takes away from one turn.
+type TurnRestriction struct {
+	// AllowedTools, when not nil, are the only tools the turn may call; any
+	// other call - an MCP tool included - is refused with Note.
+	AllowedTools []string
+	// AskAlways makes every call that needs approval ask the surface, as in
+	// the ask mode, even when the session runs under bypass or accept_edits,
+	// and leaves the session's "always allow" grants aside.
+	AskAlways bool
+	// ConfineToWorkspace keeps the paths the turn reads - by a tool or by an
+	// "@" mention - inside the session's working directory and out of the
+	// agent's home, and resolves no "@" web page.
+	ConfineToWorkspace bool
+	// Note is what a refused tool call tells the model.
+	Note string
+}
+
+// Allows reports whether r lets the turn call the tool named name.
+func (r *TurnRestriction) Allows(name string) bool {
+	if r == nil || r.AllowedTools == nil {
+		return true
+	}
+	for _, a := range r.AllowedTools {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
 // PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
@@ -1062,6 +1189,12 @@ type PromptRunOpts struct {
 	// another surface on the same session carries a different prefix - which
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
+	// Restriction narrows what this turn may do: a surface that knows who
+	// wrote the message - a messenger bot and a user who is not its admin -
+	// says which tools are refused and that everything needing approval is
+	// asked about, whatever the session's permission mode. Turn-scoped, like
+	// SurfaceSystemPrompt, and never persisted.
+	Restriction *TurnRestriction
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
 	// background tasks that finished with notification enabled started this
@@ -1140,6 +1273,8 @@ type turnAdmission struct {
 	// queue stays shut, so a follow-up written meanwhile is refused as busy
 	// instead of being accepted by a turn that never reads it.
 	noQueue bool
+	// rewindUndo is set on the outer prompt so it can receive a targeted undo.
+	rewindUndo bool
 }
 
 // admissionFor derives the admission of a prompt from its options: a
@@ -1220,6 +1355,10 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	markedCtx, ran := withTurnRanMarker(ctx)
 	turnCtx, cancel := context.WithCancel(markedCtx)
 	state.SetCancel(cancel)
+	finishUndoWatch := func() {}
+	if adm.rewindUndo {
+		finishUndoWatch = watchRewindUndoCancel(turnCtx, state, cancel)
+	}
 	if !adm.noQueue {
 		// A follow-up is typed by the operator, like the prompt it follows:
 		// its references resolve with the operator's scope, bound to the turn.
@@ -1231,6 +1370,7 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	finish := func() {
 		finishOnce.Do(func() {
 			cancel()
+			finishUndoWatch()
 			// Closed before anything else: the turn is over, so a follow-up
 			// arriving now belongs to the next prompt, not to this one. A
 			// cancelled or failed turn drops what it never got to read, which
@@ -1403,6 +1543,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	lockStart := time.Now()
 	adm := admissionFor(opts)
 	adm.sender = sender
+	adm.rewindUndo = true
 	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, adm)
 	lockWait = time.Since(lockStart)
 	if err != nil {
@@ -1430,6 +1571,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
+	}
+	if opts != nil && opts.Restriction != nil {
+		state.SetTurnRestriction(opts.Restriction)
+		defer state.SetTurnRestriction(nil)
 	}
 	// A turn no person started says so, the same way: held for this turn
 	// only, taken by the agent for the first message, and announced to the
@@ -1481,7 +1626,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// plan mention below stays material to read (HydrateSessionPlanMentions
 	// inlines the document) instead of turning into a run request.
 	askMode := state.GetMode() == string(ModeAsk)
-	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn {
+
+	// A restricted turn (a messenger user who is not the bot's admin) does not
+	// run a plan: running one switches the session's mode, which is the
+	// admins' to change. Its text goes to the model as an ordinary prompt.
+	restricted := opts != nil && opts.Restriction != nil
+	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn && !restricted {
 		if askMode {
 			return nil, fmt.Errorf("plan %q cannot be run in ask mode: switch to agent mode first", slug)
 		}
@@ -1507,7 +1657,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted {
 		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
@@ -2310,6 +2460,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 		return nil, err
 	}
 	return func() {
+		// A turn that followed an edited one ends the undo of that edit; its
+		// kept tail leaves the bundle while the lock is still ours.
+		retireStaleRewindUndo(st)
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil

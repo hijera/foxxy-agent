@@ -1,3 +1,6 @@
+// First: it reads Telegram's launch parameters out of the address before
+// anything else can see or rewrite the fragment (ui/telegram/launch.ts).
+import "./ui/telegram/capture";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
@@ -19,11 +22,15 @@ import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
+import { initTelegramMiniApp } from "./ui/telegram/miniApp";
 
 // Install the remote fetch shim before anything renders so every /v1/* and /foxxycode/* request
 // is routed to the selected environment (local origin by default).
 installRemoteFetchShim();
 bootstrapUiThemeFromCookie();
+// After the theme: inside Telegram the theme follows Telegram's until the user
+// picks one. Outside Telegram this does nothing.
+initTelegramMiniApp();
 const bootLocale = bootstrapUiLocaleFromUrlOrCookie();
 initLocale(bootLocale);
 installFoxxyCodeUiApi();

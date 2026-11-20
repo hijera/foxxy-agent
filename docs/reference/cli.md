@@ -40,11 +40,12 @@ Usage:
   foxxycode skills list
   foxxycode skills enable <name>
   foxxycode skills disable <name>
-  foxxycode skills add <owner/repo | git-url | marketplace-url>
+  foxxycode skills add <owner/repo | git-url | marketplace-url> [--project]
   foxxycode skills sync
   foxxycode skills remove <name>
   foxxycode plugin list
   foxxycode plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
+  foxxycode plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
   foxxycode plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
   foxxycode plugin remove <name>
   foxxycode plugin enable <name> | disable <name>
@@ -84,7 +85,7 @@ Usage of cli (interactive console, also the default for bare foxxycode on a term
   -cwd string
         session working directory (FOXXYCODE_CWD, default process cwd)
   -dry-run
-        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
         agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
   -i file
@@ -143,7 +144,7 @@ Usage of acp:
   -debug
         enable diagnostics: forces debug log level (sets debug.enable=true)
   -dry-run
-        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
         agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
   -log-file string
@@ -192,7 +193,7 @@ Usage of http:
   -debug
         enable diagnostics: forces debug log level (sets debug.enable=true)
   -dry-run
-        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
         agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
   -host string
@@ -240,9 +241,9 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -daemon foxxycode serve status|stop|restart
         run in the background under a dispatcher that restarts the process if it dies (see foxxycode serve status|stop|restart)
   -dry-run
-        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+        check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -gateway
-        run the messenger gateway; overrides gateways.*.enable
+        run the Telegram bot; overrides gateways.telegram.enable (the Pachca bot follows gateways.pachca.enable)
   -home string
         agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)
   -host string
@@ -361,6 +362,8 @@ plugin commands:
   plugin marketplace list [<marketplace>]     list marketplaces and sources, or the plugins of one marketplace
   plugin marketplace update [<marketplace>]   refresh marketplaces and what is installed from them (alias: sync)
   plugin marketplace remove <marketplace>     remove a marketplace or a source
+  plugin marketplace trust <marketplace>      approve a project marketplace or source for this workspace (terminal only)
+  plugin marketplace untrust <marketplace>    withdraw that approval
   plugin install <plugin>@<marketplace>       install one plugin of an added marketplace
   plugin install <owner/repo|url>             install every skill a source publishes and keep them in sync
   plugin remove <name>                        remove an installed skill

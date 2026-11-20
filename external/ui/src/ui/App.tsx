@@ -1,4 +1,9 @@
 import {
+  chatWorkspacePath,
+  withWorkspaceQuery,
+  workspaceScope,
+} from "./chat/workspaceScope";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -293,6 +298,7 @@ import {
   schedulerClearJobRuns,
   schedulerListJobs,
   schedulerRunJob,
+  setSchedulerSessionHeaders,
 } from "./scheduler/api";
 import {
   parseAppHash,
@@ -330,12 +336,14 @@ import {
 import { awaitingPermissionCount, tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
+import { parseSchedulerJobRef, schedulerJobRef } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { downloadBlob } from "./settings/transferIO";
 import { t, tp } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
+import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-FoxxyCode-Session-ID";
@@ -534,6 +542,29 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
+  const rewindSendingRef = useRef(new Set<string>());
+  const [rewindSending, setRewindSending] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  // What the edit banner names: the text of the prompt being edited.
+  const [editingSnippet, setEditingSnippet] = useState("");
+  // The draft and attachments the pencil replaced, put back when the edit is
+  // cancelled; null while no edit is open.
+  const editingPrevDraftRef = useRef<{ draft: string; files: File[] } | null>(
+    null,
+  );
+  // The prompt the last rewind edited while the server can still take it
+  // back (rewindUndo of GET .../messages), for the session it was read for.
+  const [rewindUndo, setRewindUndo] = useState<{
+    sid: string;
+    userMsgIdx: number;
+    snapshotId: string;
+  } | null>(null);
+  // Snapshot whose composer banner was put away. The prompt keeps its Undo.
+  const [rewindUndoDismissed, setRewindUndoDismissed] = useState("");
+  const [rewindUndoBusy, setRewindUndoBusy] = useState(false);
+  // Held synchronously, so two clicks inside one render post one undo.
+  const rewindUndoBusyRef = useRef(false);
   const [draft, setDraft] = useState(() => {
     if (initialRoute.branch !== "draft") return "";
     const id = initialRoute.draftId.trim();
@@ -560,6 +591,31 @@ export function App() {
     worktree?: boolean;
     vcs?: "git" | "svn";
   } | null>(null);
+  // The folder of pendingWorkspaceRef as state, set the moment it is picked:
+  // what a new chat lists and highlights (skills, mentions, subagents) follows
+  // the pick at once, never a preview answer that may still be in flight.
+  const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
+  const setPendingWorkspace = useCallback(
+    (next: {
+      path?: string;
+      branch?: string;
+      worktree?: boolean;
+      vcs?: "git" | "svn";
+    } | null) => {
+      pendingWorkspaceRef.current = next;
+      setPendingWorkspacePath(next?.path ?? "");
+    },
+    [],
+  );
+  // Every answer that sets workspaceCtx takes a ticket; only the latest one
+  // applies, so a slow preview of a folder picked earlier never paints over
+  // the folder picked after it.
+  const workspaceCtxGenRef = useRef(0);
+  const chatWorkspace = chatWorkspacePath(
+    sessionId,
+    pendingWorkspacePath,
+    workspaceCtx?.path,
+  );
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -2147,12 +2203,16 @@ export function App() {
 
   const refreshWorkspaceContext = useCallback(
     async (sid: string) => {
+      const gen = ++workspaceCtxGenRef.current;
       try {
         const res = await fetch("/foxxycode/workspace/context", {
           headers: sid ? { [HDR]: sid } : {},
         });
         if (res.ok) {
           const ctx = (await res.json()) as WorkspaceContext;
+          if (gen !== workspaceCtxGenRef.current) {
+            return;
+          }
           setWorkspaceCtx(ctx);
           // Host fact, not a workspace one: the tool cards name the interpreter.
           // An answer from the environment the app was switched away from is
@@ -2187,9 +2247,14 @@ export function App() {
     if (!sessionId && pendingWorkspaceRef.current?.path) {
       return;
     }
-    pendingWorkspaceRef.current = null;
+    setPendingWorkspace(null);
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
+  }, [
+    sessionId,
+    refreshWorkspaceContext,
+    newChatWorkspaceEpoch,
+    setPendingWorkspace,
+  ]);
 
   // Host project root, once. Without a session header the endpoint reports the
   // server's own cwd, which is the project an editor plugin launched it for.
@@ -2237,17 +2302,21 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
+      setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
-      };
+      });
       if (payload.path) {
+        const gen = ++workspaceCtxGenRef.current;
         try {
           const res = await fetch(
             "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
           );
           if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
+            const ctx = (await res.json()) as WorkspaceContext;
+            if (gen === workspaceCtxGenRef.current) {
+              setWorkspaceCtx(ctx);
+            }
           }
         } catch {
           // ignore
@@ -2283,7 +2352,11 @@ export function App() {
         },
       );
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
       } else {
         await refreshWorkspaceContext(sid);
       }
@@ -2296,21 +2369,38 @@ export function App() {
   // right before the first send.
   async function applyPendingWorkspace(sid: string) {
     const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
     if (!pending || (!pending.path && !pending.branch)) {
+      setPendingWorkspace(null);
       return;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
+      // The answer is the new session's workspace context: taking it here
+      // keeps the chips and everything scoped by chatWorkspace on the picked
+      // folder from the moment the pending pick is cleared, instead of on a
+      // preview that may not have answered yet.
+      const applied = async (res: Response) => {
+        if (!res.ok) {
+          return;
+        }
+        const gen = ++workspaceCtxGenRef.current;
+        const ctx = (await res.json()) as WorkspaceContext;
+        if (gen === workspaceCtxGenRef.current) {
+          setWorkspaceCtx(ctx);
+        }
+      };
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          }),
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await applied(
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({
@@ -2318,10 +2408,15 @@ export function App() {
               worktree: Boolean(pending.worktree),
               vcs: pending.vcs ?? "git",
             }),
-        });
+          }),
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
+    } finally {
+      // Cleared once the session holds the pick, so the folder the chat is
+      // scoped to never falls back to a stale preview in between.
+      setPendingWorkspace(null);
     }
   }
 
@@ -2391,6 +2486,12 @@ export function App() {
     void refreshBackgroundTasks({ silent: true });
   }, [sessionId, refreshBackgroundTasks]);
 
+  // Requests about one project job carry the chat's session, so a job of the
+  // chat's workspace opens and is approved before the scheduler scans it.
+  useEffect(() => {
+    setSchedulerSessionHeaders(workspaceScope(sessionId, chatWorkspace).headers);
+  }, [sessionId, chatWorkspace]);
+
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
@@ -2398,7 +2499,10 @@ export function App() {
         setSchedulerListLoading(true);
         setSchedulerListError(null);
       }
-      const res = await schedulerListJobs(false);
+      const res = await schedulerListJobs(
+        false,
+        workspaceScope(sessionId, chatWorkspace),
+      );
       if (!silent) {
         setSchedulerListLoading(false);
       }
@@ -2448,7 +2552,7 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId, t, isAppEnvironment],
+    [sessionId, chatWorkspace, t, isAppEnvironment],
   );
 
   const applyLocationHash = useCallback(() => {
@@ -2638,7 +2742,11 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    setTasksOpen(false);
+    // On desktop Tasks is the side panel of the chat on screen, not a screen of
+    // the rail: the backdrop that takes History down after a pick there leaves
+    // it open on the chat picked. The stacked shell shows it full screen, so
+    // there the backdrop closes it with the rest.
+    if (isStackedShell()) setTasksOpen(false);
     setDocsRoute(null);
     // The chat's address that follows does not take the swarm screen down by
     // itself (applyLocationHash leaves it on a session), so it goes here.
@@ -2771,17 +2879,42 @@ export function App() {
     recordLastProjectSession(sid);
   }, [sessionId]);
 
+  // The known skill names describe the workspace of the chat: the session's
+  // own, or before the first message the folder picked on the start screen.
+  // They are asked again for every other folder and every other session, and
+  // an answer for a scope left since is thrown away. The names held are
+  // dropped at once unless the chat stays in the same folder on its way from
+  // no session to its first one (the first send of a new chat), so a skill of
+  // another workspace is never highlighted while the next answer is on its way
+  // and a new chat does not blank its own chips.
+  const knownSkillsGenRef = useRef(0);
+  const knownSkillsScopeRef = useRef({ sid: "", path: "" });
   useEffect(() => {
+    const gen = ++knownSkillsGenRef.current;
+    const sid = sessionId.trim();
+    const held = knownSkillsScopeRef.current;
+    knownSkillsScopeRef.current = { sid, path: chatWorkspace };
+    const keep =
+      held.path === chatWorkspace && (held.sid === sid || held.sid === "");
+    if (!keep) {
+      setKnownSkillNames((prev) => (prev.size === 0 ? prev : new Set()));
+    }
+    const scope = workspaceScope(sid, chatWorkspace);
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
-        "/foxxycode/slash-commands?page=1&page_size=200",
+        withWorkspaceQuery("/foxxycode/slash-commands?page=1&page_size=200", scope),
+        { headers: scope.headers },
       );
+      if (gen !== knownSkillsGenRef.current) {
+        return;
+      }
       if (res.ok && res.data?.items) {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-    // Slash commands are derived from skills.dirs, so a config swap moves them too.
-  }, [configEpoch]);
+    // Slash commands are derived from skills.dirs, so a config swap moves them
+    // too.
+  }, [configEpoch, chatWorkspace, sessionId]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -2860,7 +2993,9 @@ export function App() {
     if (!schedulerRunsJobId) {
       return "";
     }
-    const job = schedulerJobs.find((j) => j.job_id === schedulerRunsJobId);
+    const job = schedulerJobs.find(
+      (j) => schedulerJobRef(j) === schedulerRunsJobId,
+    );
     return (job?.session_id || "").trim();
   }, [schedulerJobs, schedulerRunsJobId]);
 
@@ -3554,6 +3689,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
+      rewindUndo?: { userMessageIndex?: number; snapshotId?: string } | null;
       messagesRev?: number;
       uiLog?: Array<{
         id?: string;
@@ -3644,6 +3780,14 @@ export function App() {
           ? archiveWrite.archived
           : !!res.data.archived,
       );
+      // Every read says whether the last rewind can still be taken back.
+      const undoIdx = res.data.rewindUndo?.userMessageIndex;
+      const snapshotId = res.data.rewindUndo?.snapshotId;
+      const offered = typeof undoIdx === "number" && undoIdx >= 0 && !!snapshotId;
+      setRewindUndo(offered ? { sid, userMsgIdx: undoIdx, snapshotId } : null);
+      // A banner put away belongs to that undo only: once it is gone, the
+      // next edit of the same prompt announces itself again.
+      if (!offered) setRewindUndoDismissed("");
     }
     const pageMessages = res.data.messages || [];
     const pageWindow = parseTranscriptWindow(
@@ -4057,7 +4201,7 @@ export function App() {
   function goHome() {
     persistComposerDraftBeforeLeave();
     if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
-      pendingWorkspaceRef.current = { path: workspaceCtx.path };
+      setPendingWorkspace({ path: workspaceCtx.path });
     }
     setSessionsOpen(false);
     setSchedulerOpen(false);
@@ -4398,7 +4542,13 @@ export function App() {
 
   async function handleRewindSend(text: string, userMsgIdx: number) {
     const sid = sessionId.trim();
-    if (!sid) return;
+    if (!sid || rewindSendingRef.current.has(sid)) return;
+    rewindSendingRef.current.add(sid);
+    setRewindSending(new Set(rewindSendingRef.current));
+    const savedDraft = editingPrevDraftRef.current;
+    const stillEditing = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      editingPrevDraftRef.current === savedDraft;
 
     const showRewindError = (msg: string) => {
       applyStreamItemsForSession(sid, (prev) => [
@@ -4414,64 +4564,158 @@ export function App() {
     };
 
     try {
-      const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind`,
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind`,
+          {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ userMessageIndex: userMsgIdx }),
+          },
+        );
+        if (!res.ok) {
+          let errMsg = t("app.rewindFailed", { status: res.status });
+          try {
+            const body = (await res.json()) as { error?: { message?: string } };
+            if (body?.error?.message) errMsg = body.error.message;
+          } catch {
+            /* ignore */
+          }
+          // The draft and the editing state stay untouched, so the message is not
+          // lost and the edit can be retried.
+          showRewindError(errMsg);
+          return;
+        }
+      } catch (err) {
+        showRewindError(
+          t("app.rewindError", {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
+      // The history is cut on the server: drop everything this client kept of the
+      // tail - the shadow transcript and persisted permission prompts - then
+      // reload the kept prefix and send the edited message. The draft and the
+      // editing state stay until the reload and the send have both gone through,
+      // so a failure after the rewind does not lose the edited text.
+      streamShadowBySidRef.current.delete(sid);
+      clearPermissionPromptRecords(sid);
+      try {
+        await loadMessages(sid, { freshLoad: true });
+      } catch (err) {
+        // The cut landed, so a retry is an ordinary send. Keep both drafts.
+        if (stillEditing()) {
+          setDraft((current) =>
+            [current, savedDraft?.draft].filter(Boolean).join("\n\n"),
+          );
+          setComposerFiles(savedDraft?.files ?? []);
+          setEditingUserMsgIdx(null);
+          setEditingAssetNote("");
+          setEditingFiles([]);
+          setEditingSnippet("");
+          editingPrevDraftRef.current = null;
+        }
+        showRewindError(
+          `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      // The edit is on its way: the draft the pencil set aside comes back, so a
+      // follow-up written before the edit is not lost with it.
+      if (stillEditing()) {
+        editingPrevDraftRef.current = null;
+        setDraft(savedDraft?.draft ?? "");
+        setComposerFiles(savedDraft?.files ?? []);
+        setEditingUserMsgIdx(null);
+        setEditingAssetNote("");
+        setEditingFiles([]);
+        setEditingSnippet("");
+      }
+      void streamResponses(text, { restoreOnRefusal: true });
+    } finally {
+      rewindSendingRef.current.delete(sid);
+      setRewindSending(new Set(rewindSendingRef.current));
+    }
+  }
+
+  /**
+   * Takes the last edit back: a turn the edit started is stopped first, then
+   * the server restores the conversation as it was before the rewind and the
+   * transcript is read again.
+   */
+  async function handleUndoEdit(sid: string, snapshotId: string) {
+    if (rewindUndoBusyRef.current || rewindSendingRef.current.has(sid)) return;
+    rewindUndoBusyRef.current = true;
+    setRewindUndoBusy(true);
+    const showUndoError = (error: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
         {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ userMessageIndex: userMsgIdx }),
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: t("app.undoEditFailed", { error }),
+          createdAtUtc: new Date().toISOString(),
         },
-      );
+      ]);
+    };
+    try {
+      let res: Response;
+      try {
+        res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/rewind/undo`,
+          {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ snapshotId }),
+          },
+        );
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+        return;
+      }
       if (!res.ok) {
-        let errMsg = t("app.rewindFailed", { status: res.status });
+        let errMsg = `HTTP ${res.status}`;
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
         } catch {
           /* ignore */
         }
-        // The draft and the editing state stay untouched, so the message is not
-        // lost and the edit can be retried.
-        showRewindError(errMsg);
+        if (res.status === 409) {
+          await loadMessages(sid, { preserveOnError: true }).catch(() => {});
+        }
+        showUndoError(errMsg);
         return;
       }
-    } catch (err) {
-      showRewindError(
-        t("app.rewindError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
+      // The history changed under this client the way a rewind changes it.
+      setRewindUndo((current) =>
+        current?.sid === sid && current.snapshotId === snapshotId ? null : current,
       );
-      return;
+      streamShadowBySidRef.current.delete(sid);
+      clearPermissionPromptRecords(sid);
+      try {
+        await loadMessages(sid, { freshLoad: true });
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      rewindUndoBusyRef.current = false;
+      setRewindUndoBusy(false);
     }
-    // The history is cut on the server: drop everything this client kept of the
-    // tail - the shadow transcript and persisted permission prompts - then
-    // reload the kept prefix and send the edited message. The draft and the
-    // editing state stay until the reload and the send have both gone through,
-    // so a failure after the rewind does not lose the edited text.
-    streamShadowBySidRef.current.delete(sid);
-    clearPermissionPromptRecords(sid);
-    try {
-      await loadMessages(sid, { freshLoad: true });
-    } catch (err) {
-      setEditingUserMsgIdx(null);
-      setEditingAssetNote("");
-      setEditingFiles([]);
-      showRewindError(
-        `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-    setDraft("");
-    setEditingUserMsgIdx(null);
-    setEditingAssetNote("");
-    setEditingFiles([]);
-    void streamResponses(text);
   }
 
   useEffect(() => {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setEditingSnippet("");
+    // Attachments outlive a switch of conversation; the ones an open edit set
+    // aside go back to the composer instead of being dropped with the edit.
+    const setAside = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    if (setAside && setAside.files.length > 0) setComposerFiles(setAside.files);
     // Another conversation: the older pages read for the last one go, and the
     // reader starts at the newest message of this one.
     setOlderTranscript(null);
@@ -5728,14 +5972,15 @@ export function App() {
       // not chosen: sent, it would pin the session to it (#362).
       const sendReasoning =
         reasoningSel !== "" && !(sid.trim() && reasoningImpliedRef.current);
-      if (yamlSel || sendReasoning || runSlug || heldVersion > 0) {
-        const meta: Record<string, string> = {};
-        if (yamlSel) meta.model = yamlSel;
-        if (sendReasoning) meta.reasoning = reasoningSel;
-        if (runSlug) meta.runPlanSlug = runSlug;
-        if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
-        reqBody.metadata = meta;
-      }
+      // The web UI names itself, so the turn's system prompt says what it
+      // draws: Mermaid and SVG fences as pictures, LaTeX as formulas
+      // (external/httpserver/webui_prompt.go).
+      const meta: Record<string, string> = { surface: "webui" };
+      if (yamlSel) meta.model = yamlSel;
+      if (sendReasoning) meta.reasoning = reasoningSel;
+      if (runSlug) meta.runPlanSlug = runSlug;
+      if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
+      reqBody.metadata = meta;
       // A permission mode picked before the chat had a session goes first,
       // as the command that asks for it; the server takes it off the text.
       if (!sid.trim() && pendingPermissionModeRef.current) {
@@ -7274,13 +7519,35 @@ export function App() {
   // re-render (every streamed token) must not invalidate their props.
   const handleEditUserMessage = useStableHandler(
     (content: string, userMsgIdx: number) => {
+      if (rewindSendingRef.current.has(sessionId.trim())) return;
       const assetNote = extractSessionAssetsXml(content);
-      setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
+      const text = stripFoxxyCodeAttachmentsForUserDisplay(content);
+      // The draft to come back to is the one written before the first pencil:
+      // a second pencil only switches the message being edited.
+      if (editingPrevDraftRef.current === null) {
+        editingPrevDraftRef.current = { draft, files: composerFiles };
+      }
+      // An edit resends its own attachments; files attached to the draft it
+      // replaced wait for it in editingPrevDraftRef.
+      setComposerFiles([]);
+      setDraft(text);
       setEditingUserMsgIdx(userMsgIdx);
+      setEditingSnippet(text);
       setEditingAssetNote(assetNote);
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
+  const handleCancelEdit = useStableHandler(() => {
+    if (rewindSendingRef.current.has(sessionId.trim())) return;
+    const prev = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    setEditingUserMsgIdx(null);
+    setEditingSnippet("");
+    setEditingAssetNote("");
+    setEditingFiles([]);
+    setDraft(prev?.draft ?? "");
+    setComposerFiles(prev?.files ?? []);
+  });
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -7637,7 +7904,7 @@ export function App() {
                 open
                 className="scheduler-runs-dock"
                 title={t("scheduler.runsTitle", {
-                  jobId: schedulerEditor.jobId,
+                  jobId: parseSchedulerJobRef(schedulerEditor.jobId).id,
                 })}
                 emptyText={t("scheduler.runsEmpty")}
                 focus={schedulerRunsFocus}
@@ -7673,6 +7940,9 @@ export function App() {
               availableModels={llmModelIds}
               defaultModel={llmModel}
               currentCwd={currentSessionCwd}
+              sessionHeaders={workspaceScope(sessionId, chatWorkspace).headers}
+              workspacePath={sessionId.trim() ? chatWorkspace : ""}
+              projectTrust={schedulerInfo?.project_trust || "ask"}
               onClose={closeSchedulerEditor}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });
@@ -7738,11 +8008,14 @@ export function App() {
               // is the one the tab must ask about. Falls back to the host
               // project root, which is the cwd an editor plugin launched the
               // server for.
-              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
               initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               sessionsScope={sessionsScopeForSettings}
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace (or the folder a new chat
+              // picked) is the one the Subagents and Skills tabs list.
+              workspacePath={chatWorkspace || undefined}
               onSessionTagsChanged={(id: string, tags: string[]) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, tags } : s)),
@@ -7799,6 +8072,7 @@ export function App() {
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
+            chatWorkspacePath={chatWorkspace}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
             workspaceLocked={items.length > 0}
@@ -7956,6 +8230,23 @@ export function App() {
                 })}
             {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            {...(!subagentTranscript && editingUserMsgIdx !== null
+              ? {
+                  editingUserMsgIdx,
+                  editingSnippet,
+                  editingBusy: rewindSending.has(sessionId.trim()),
+                  onCancelEdit: handleCancelEdit,
+                }
+              : {})}
+            {...(!subagentTranscript && rewindUndo?.sid === sessionId.trim()
+              ? {
+                  rewindUndoUserMsgIdx: rewindUndo.userMsgIdx,
+                  rewindUndoBanner: rewindUndoDismissed !== rewindUndo.snapshotId,
+                  rewindUndoBusy: rewindUndoBusy || rewindSending.has(rewindUndo.sid),
+                  onUndoEdit: () => void handleUndoEdit(rewindUndo.sid, rewindUndo.snapshotId),
+                  onDismissRewindUndo: () => setRewindUndoDismissed(rewindUndo.snapshotId),
+                }
+              : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onPasteChipCaptured={(key, literal) => {
               const m = pasteLiteralsRef.current;
@@ -7976,7 +8267,7 @@ export function App() {
               setSchedulerEditor(null);
               setTasksOpen(false);
               setSessionsOpen(false);
-              setSettingsSectionHash("mcp_servers");
+              setSettingsSectionHash(MCP_SECTION_ID);
             }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}
@@ -8004,6 +8295,9 @@ export function App() {
                 void handleRewindSend(textWithAssets, idx);
               } else {
                 setDraft("");
+                // A prompt after the edited turn ends the undo on the server.
+                setRewindUndo(null);
+                setRewindUndoDismissed("");
                 void streamResponses(text, {
                   restoreOnRefusal: true,
                   ...(files ? { files } : {}),

@@ -140,6 +140,7 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/auth/login", s.foxxycodeAuthLoginPost)
 	s.mux.HandleFunc("POST /foxxycode/auth/logout", s.foxxycodeAuthLogoutPost)
 	s.mux.HandleFunc("GET /foxxycode/auth/me", s.foxxycodeAuthMeGet)
+	s.mux.HandleFunc("POST /foxxycode/auth/telegram", s.foxxycodeAuthTelegramPost)
 }
 
 // isAuthRoutePattern reports the three routes the gate lets through unauthenticated.
@@ -149,7 +150,7 @@ func (s *Server) registerAuthRoutes() {
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /foxxycode/auth/login", "POST /foxxycode/auth/logout", "GET /foxxycode/auth/me":
+	case "POST /foxxycode/auth/login", "POST /foxxycode/auth/logout", "GET /foxxycode/auth/me", "POST /foxxycode/auth/telegram":
 		return true
 	}
 	return false
@@ -233,7 +234,15 @@ func (s *Server) foxxycodeAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	if pol.enabled && !pol.broken {
 		out["mode"] = config.LoginModePassword
 	}
+	// telegram_login tells a page opened as the Telegram bot's Mini App that
+	// its launch data can sign it in (an admin's only).
+	_, _, tgOK := s.telegramBot()
+	out["telegram_login"] = tgOK && auth.enabled
 	if sess, ok := s.sessionFromRequest(r, pol); ok {
+		out["authenticated"] = true
+		out["user"] = sess.User
+		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
+	} else if sess, ok := s.telegramSessionFromRequest(r); ok {
 		out["authenticated"] = true
 		out["user"] = sess.User
 		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
@@ -350,6 +359,7 @@ func (s *Server) foxxycodeAuthLogoutPost(w http.ResponseWriter, r *http.Request)
 	if c, err := r.Cookie(sessionCookieName(r)); err == nil && c != nil && c.Value != "" {
 		s.sessions.Revoke(c.Value)
 	}
+	s.clearTelegramSession(w, r)
 	// Clear the cookie whatever happened, so a browser holding a session this
 	// server no longer knows about stops sending it.
 	clear := sessionCookie(r, "", 0)

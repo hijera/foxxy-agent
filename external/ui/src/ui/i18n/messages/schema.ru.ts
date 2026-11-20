@@ -12,6 +12,15 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
+  "Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check.": "Одинаковые вызовы инструментов в последовательных ответах модели, после которых вмешивается защита от зацикливания. Повторы внутри одного ответа считаются один раз; 0 отключает проверку.",
+  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap.": "Максимум итераций ReAct (вызовы модели и инструментов) на один запрос пользователя. По умолчанию 165; явный 0 отключает ограничение.",
+  "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.": "Файлы, добавляемые к системному промпту после обязательных AGENTS.md и DESIGN.md из дома агента, папки сессии и папок, к которым обращаются инструменты.",
+  "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.": "Дополнительные инструкции после AGENTS.md и DESIGN.md, в указанном порядке. По умолчанию список пуст. ${FOXXYCODE_HOME}, ${CWD} и начальная ~ раскрываются. Абсолютный путь используется как есть, относительный считается от папки сессии. Уже включённый файл повторно не читается.",
+  "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).": "Дополнительные каталоги скилов читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/skills (общий для агентов, npx skills и npx skillsbd), .agents/skills проекта, ${FOXXYCODE_HOME}/skills (собственные и установленные скилы FoxxyCode), .foxxycode/skills проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последний скил; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии или папки, выбранной для нового чата.",
+  "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.": "Проектный .foxxycode/marketplaces.json приходит вместе с репозиторием. ask: источники и маркетплейсы не синхронизируются до одобрения каждой записи для этого проекта (щит в списке или foxxycode plugin marketplace trust). allow: доверять им как собственному ~/.foxxycode/marketplaces.json. deny: не использовать, показывать отключёнными. Установка всегда идёт в ${FOXXYCODE_HOME}/skills; папки скилов самого проекта не затрагиваются.",
+  "Project marketplaces": "Маркетплейсы проекта",
+  "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.": "Дополнительные каталоги определений читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/agents, .agents/agents проекта, ${FOXXYCODE_HOME}/agents, .foxxycode/agents проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последнее определение; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии. Каталоги внутри проекта подчиняются его политике доверия.",
+  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.": "Определения внутри проекта приходят вместе с репозиторием. ask: читать их, но запускать только после одобрения для этого проекта (щит в списке, foxxycode agents trust на сервере или POST /foxxycode/subagents/{name}/trust). allow: доверять как собственным файлам. deny: не читать.",
   "Automatic compaction": "Автоматическое сжатие",
   "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.": "Автоматически сжимать контекст по порогу. При отключении ручное сжатие остаётся доступным. По умолчанию включено.",
   "Master switch for manual and automatic compaction. Defaults to true.": "Общий переключатель ручного и автоматического сжатия. По умолчанию включено.",
@@ -29,6 +38,9 @@ export const schemaTextRu: Record<string, string> = {
   "Queue mode": "Режим очереди",
   "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.": "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
 
+
+  "User-Agent": "User-Agent",
+  "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.": "Идентификатор клиента для OpenAI-совместимых и Anthropic-совместимых запросов. По умолчанию используется SDK провайдера (OpenAI/Go или Anthropic/Go); Foxxycode передаёт версию запущенного приложения.",
   "ReAct loop": "Цикл ReAct",
   "Memory copilot": "Помощник памяти",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":
@@ -362,6 +374,7 @@ export const schemaTextRu: Record<string, string> = {
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
 
   // Memory
+  "Memory": "Память",
   "Long-term memory": "Долговременная память",
   "Optional memory subagent (requires the memory build tag and a provider).":
     "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
@@ -400,6 +413,9 @@ export const schemaTextRu: Record<string, string> = {
   "Max search hits": "Макс. результатов поиска",
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
+  "Note size cap (characters)": "Предел размера заметки (символы)",
+  "Longest body one saved note may have, in characters; 0 means no cap (default 900).":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
 
   // Compaction
   "Automatic context compaction": "Автоматическое сжатие контекста",
@@ -422,6 +438,8 @@ export const schemaTextRu: Record<string, string> = {
   "Threshold percent": "Порог, %",
   "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (coddy) / 85 (opencode).":
     "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели: её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000. По умолчанию 80 (foxxycode) / 85 (opencode).",
   "Keep recent turns": "Сохранять последних шагов",
   "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.":
     "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2). Если шагов не больше этого числа, автоматическое сжатие оставляет только текущий запрос, а ручная команда — ничего.",
@@ -462,6 +480,9 @@ export const schemaTextRu: Record<string, string> = {
     "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler). Каждый запуск — фоновая агентная задача в постоянной сессии задания, где хранится история запусков.",
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
+  "Project jobs": "Проектные задания",
+  "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.":
+    "Задания в .foxxycode/scheduler рабочей папки приходят вместе с репозиторием. ask: показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). allow: запускать как свои. deny: никогда не запускать.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
     "Каталог с markdown-описаниями задач.",
@@ -795,6 +816,26 @@ export const schemaTextRu: Record<string, string> = {
   "${FOXXYCODE_HOME}/logs/foxxycode.log": "${FOXXYCODE_HOME}/logs/foxxycode.log",
   "${FOXXYCODE_HOME}/sessions": "${FOXXYCODE_HOME}/sessions",
   "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+
+  "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).": "Боты Telegram и Пачки (нужен тег gateway или gateway.telegram / gateway.pachca для одного из них).",
+  "Pachca": "Пачка",
+  "Pachca integration bot settings.": "Настройки бота интеграции Пачки.",
+  "Pachca user IDs with elevated rights; admins always pass access checks.": "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
+  "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.": "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
+  "Run the Pachca bot (requires the gateway or gateway.pachca build tag).": "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
+  "Poll interval, seconds": "Интервал опроса, секунды",
+  "How often the bot reads its events history, 1 to 60 seconds (default 2).": "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
+  "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.": "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none отключает его.",
+  "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.": "Токен доступа бота интеграции Пачки. Необязателен: если оставить пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
+  "Pachca user IDs that belong to this group.": "Идентификаторы пользователей Пачки, входящие в эту группу.",
+  "Mini App": "Mini App",
+  "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.": "Открыть этот веб-интерфейс как Mini App бота в Telegram: кнопка меню и /app открывают его на текущем разговоре. Telegram открывает Mini App только по https: опубликуйте веб-интерфейс через TLS-прокси и оставьте вход включённым.",
+  "Menu button": "Кнопка меню",
+  "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.": "Открывать веб-интерфейс кнопкой меню бота. Если выключить её, очистить адрес или оставить веб-интерфейс без входа, бот вернёт прежнюю кнопку, если она всё ещё открывает назначенный им адрес.",
+  "Web UI address": "Адрес веб-интерфейса",
+  "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.": "Публичный https-адрес веб-интерфейса, например https://foxxycode.example.com/. Без фрагмента. Пусто: бот не предлагает Mini App и не меняет кнопку, заданную в @BotFather.",
+  "Allow disabling reasoning": "Разрешить отключение рассуждения",
+  "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.": "Показывает Off в селекторе рассуждения этой модели. Включайте только если это развёртывание провайдера и модели выполняет запрос FoxxyCode на отключение рассуждения; FoxxyCode не может проверить это автоматически.",
 };
 
 /**

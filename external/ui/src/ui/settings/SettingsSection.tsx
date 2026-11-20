@@ -10,6 +10,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { ModelField } from "./ModelField";
+import { Combobox } from "./Combobox";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
 import type { ProviderRow } from "./useProviderModels";
@@ -193,10 +194,12 @@ function providerProxyOverride(ctx: FieldOverrideContext) {
   );
 }
 
-// The Telegram bot's proxy reads like a provider's, so it gets the same
-// switch and URL field (Gateways tab, Telegram block).
+// A bot's proxy reads like a provider's, so it gets the same switch and URL
+// field (Gateways tab, the Telegram and Pachca blocks).
 function gatewaysFieldOverride(ctx: FieldOverrideContext) {
-  if (ctx.path !== "telegram.proxy") return null;
+  if (ctx.path !== "telegram.proxy" && ctx.path !== "pachca.proxy") {
+    return null;
+  }
   return (
     <ProxySettingField
       value={ctx.value}
@@ -219,6 +222,37 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     !USAGE_PANEL_PROVIDER_TYPES.has(providerType)
   ) {
     return false;
+  }
+  if (ctx.path === "user_agent") {
+    if (providerType !== "openai" && providerType !== "anthropic") return false;
+    return (
+      <div className="settings-row">
+        <FieldLabel
+          label={tSchemaText(ctx.schema.title)}
+          description={tSchemaText(ctx.schema.description)}
+        />
+        <Combobox
+          value={ctx.value === "foxxycode" ? "foxxycode" : providerType}
+          ariaLabel={tSchemaText(ctx.schema.title)}
+          showOptionLabel
+          options={[
+            {
+              value: providerType,
+              label: translate(
+                providerType === "anthropic"
+                  ? "settings.userAgent.anthropic"
+                  : "settings.userAgent.openai",
+              ),
+            },
+            {
+              value: "foxxycode",
+              label: translate("settings.userAgent.foxxycode"),
+            },
+          ]}
+          onChange={ctx.onChange}
+        />
+      </div>
+    );
   }
   if (providerType === "codex") {
     if (ctx.path === "api_key" || ctx.path === "api_key_command") {
@@ -382,20 +416,24 @@ export function SettingsSection(props: {
         schema={sub}
         value={asObject(doc.skills)}
         onChange={(v) => setKey("skills", v)}
+        workspacePath={props.workspacePath}
+        {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})}
       />
     );
   }
 
-  // The MCP tab is API-driven (/foxxycode/mcp*): toggles and project entries
-  // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
-  // edit the settings document at all.
+  // The MCP tab is API-driven (/foxxycode/mcp*): servers and their switches live
+  // in the two mcp.json files (project switches in mcp-overrides.json) and
+  // apply at once, so it does not edit the settings document at all.
   if (section.kind === "mcp") {
     return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
   }
 
-  // Subagents edits the config section like any object tab, and additionally
-  // lists the definitions of the viewed session's workspace so a project-scope
-  // one can be approved here instead of from a terminal.
+  // Subagents edits its config section like any object tab, and additionally
+  // lists the definitions of the viewed session's workspace: under ask a
+  // project-scope one carries the shield that approves it for that
+  // workspace (POST /foxxycode/subagents/{name}/trust), as foxxycode agents trust
+  // does in a terminal.
   if (section.kind === "subagents") {
     const sub = props_.subagents;
     if (!sub) {
@@ -556,7 +594,7 @@ export function SettingsSection(props: {
                 {
                   id: "advanced",
                   legend: t("settings.providers.group.advanced"),
-                  paths: ["api_key_command", "proxy", "timeout_ms"],
+                  paths: ["user_agent", "api_key_command", "proxy", "timeout_ms"],
                   collapsible: true,
                 },
               ]
@@ -577,7 +615,11 @@ export function SettingsSection(props: {
                   {
                     id: "reasoning",
                     legend: t("settings.models.group.reasoning"),
-                    paths: ["reasoning_levels", "reasoning_default"],
+                    paths: [
+                      "reasoning_levels",
+                      "reasoning_default",
+                      "allow_reasoning_off",
+                    ],
                   },
                 ]
               : undefined
@@ -753,6 +795,11 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         paths: ["model", "dir"],
       },
       {
+        id: "instructions",
+        legend: translate("settings.group.memory.instructions"),
+        paths: ["additional_prompt", "additional_prompt_max_chars"],
+      },
+      {
         id: "runs",
         legend: translate("settings.group.memory.runs"),
         paths: ["wait_seconds", "timeout_seconds", "keep_runs"],
@@ -765,12 +812,8 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
           "persist_max_turns",
           "copilot_max_tokens",
           "max_search_hits",
+          "max_note_chars",
         ],
-      },
-      {
-        id: "instructions",
-        legend: translate("settings.group.memory.instructions"),
-        paths: ["additional_prompt", "additional_prompt_max_chars"],
       },
     ];
   }

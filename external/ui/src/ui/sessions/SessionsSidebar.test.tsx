@@ -1,6 +1,12 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { setEnv } from "../env/remoteEnv";
 import { SessionsSidebar } from "./SessionsSidebar";
 import type { SessionRow } from "./types";
@@ -819,10 +825,13 @@ test("a row pins and unpins from its menu", () => {
   expect(onPin).toHaveBeenCalledWith("a", true);
 });
 
-test("a pinned row says so and offers to let it go", () => {
+test("a pinned row stands under the heading, unmarked, and offers to let it go", () => {
   const onPin = vi.fn();
   renderDrawer({ sessions: [{ id: "a", title: "A", pinned: true }], onPin });
-  expect(screen.getByTestId("session-pinned-a")).toBeInTheDocument();
+  expect(
+    screen.getByTestId("session-group-pinned"),
+  ).toContainElement(screen.getByTestId("session-row-a"));
+  expect(document.querySelector(".session-pin-mark")).toBeNull();
 
   fireEvent.click(screen.getByTestId("session-menu-a"));
   expect(screen.getByTestId("session-menu-pin-a")).toHaveTextContent("Unpin");
@@ -841,6 +850,104 @@ test("an archived row reads as put aside", () => {
   expect(screen.getByTestId("session-row-a").className).not.toContain(
     "is-archived",
   );
+});
+
+// --- Reordering the pins ----------------------------------------------------
+
+/** Fires a pointer event; jsdom has no PointerEvent, and React reads only the type. */
+function pointer(
+  target: EventTarget,
+  type: string,
+  init: { x?: number; y: number; kind?: string },
+) {
+  const ev = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX: init.x ?? 10,
+    clientY: init.y,
+  });
+  Object.defineProperty(ev, "pointerId", { value: 1 });
+  Object.defineProperty(ev, "pointerType", { value: init.kind ?? "mouse" });
+  act(() => {
+    target.dispatchEvent(ev);
+  });
+}
+
+/** Three pins, 40px tall each, stacked from the top of the list. */
+function renderPins(props: Partial<Parameters<typeof SessionsSidebar>[0]>) {
+  const pins = ["a", "b", "c"].map((id) => ({ id, title: id, pinned: true }));
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: Element) {
+      const at = pins.findIndex(
+        (p) => this.getAttribute("data-testid") === `session-row-${p.id}`,
+      );
+      return { top: at * 40, height: 40 } as DOMRect;
+    },
+  );
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  return renderDrawer({ sessions: pins, ...props });
+}
+
+test("a pinned row has no grip and is dragged by the row itself", () => {
+  const onReorderPins = vi.fn();
+  const onPick = vi.fn();
+  renderPins({ onReorderPins, onPick });
+  expect(document.querySelector(".session-drag-grip")).toBeNull();
+
+  const rowA = screen.getByTestId("session-row-a");
+  expect(rowA.className).toContain("is-reorderable");
+  pointer(rowA, "pointerdown", { y: 20 });
+  pointer(window, "pointermove", { y: 110 });
+  expect(rowA.className).toContain("is-dragging");
+  pointer(window, "pointerup", { y: 110 });
+  // The click the release produces must not open the row that was moved.
+  fireEvent.click(rowA);
+
+  expect(onReorderPins).toHaveBeenCalledWith(["b", "c", "a"]);
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+test("a mouse press that stays within the slop is a click, not a drag", () => {
+  const onReorderPins = vi.fn();
+  const onPick = vi.fn();
+  renderPins({ onReorderPins, onPick });
+  const rowB = screen.getByTestId("session-row-b");
+  pointer(rowB, "pointerdown", { y: 60 });
+  pointer(window, "pointermove", { y: 62 });
+  pointer(window, "pointerup", { y: 62 });
+  fireEvent.click(rowB);
+
+  expect(onReorderPins).not.toHaveBeenCalled();
+  expect(onPick).toHaveBeenCalledWith("b");
+});
+
+test("a finger drags a pin only after holding it, and a swipe scrolls", () => {
+  vi.useFakeTimers();
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+  const onReorderPins = vi.fn();
+  renderPins({ onReorderPins });
+  const rowA = screen.getByTestId("session-row-a");
+
+  // Moving straight away is a scroll: the hold never takes the row.
+  pointer(rowA, "pointerdown", { y: 20, kind: "touch" });
+  pointer(window, "pointermove", { y: 110, kind: "touch" });
+  act(() => vi.advanceTimersByTime(1000));
+  expect(rowA.className).not.toContain("is-dragging");
+  pointer(window, "pointerup", { y: 110, kind: "touch" });
+  expect(onReorderPins).not.toHaveBeenCalled();
+
+  // Holding first takes the row, and then the finger moves it.
+  pointer(rowA, "pointerdown", { y: 20, kind: "touch" });
+  act(() => vi.advanceTimersByTime(500));
+  expect(rowA.className).toContain("is-dragging");
+  pointer(window, "pointermove", { y: 110, kind: "touch" });
+  pointer(window, "pointerup", { y: 110, kind: "touch" });
+  expect(onReorderPins).toHaveBeenCalledWith(["b", "c", "a"]);
 });
 
 // --- Renaming and filing from the row menu ---------------------------------

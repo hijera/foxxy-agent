@@ -32,6 +32,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	fstools "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
@@ -168,6 +169,10 @@ type Agent struct {
 	// memoryRun is the memory subagent this turn started, or nil
 	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
 	memoryRun *memoryTurnRun
+	// docKeys are the keys of the documents the system prompt this turn froze
+	// carries (documentKeys, rules_prompt.go).
+	docKeysMu sync.Mutex
+	docKeys   map[string]bool
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -1361,6 +1366,19 @@ func (a *Agent) runReActLoop(
 				noteProgress(now)
 			}
 		})
+		// fork(cut-keeps-complete-calls): a stream cut mid-answer may still have
+		// delivered whole tool calls - arguments that parse. Those are the step
+		// the model finished asking for: below, they run like a delivered tool
+		// step instead of the whole step dying with the cut. A user Stop and the
+		// loop guard's cut of a degenerating answer keep the old contract:
+		// nothing runs.
+		var keptCutCalls []llm.ToolCall
+		cutRunsWholeCalls := false
+		if streamErr != nil && response != nil && loopAbort == loopAbortNone &&
+			!errors.Is(streamErr, context.Canceled) && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			keptCutCalls = llm.WholeToolCalls(response.ToolCalls)
+			cutRunsWholeCalls = len(keptCutCalls) > 0
+		}
 		if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
@@ -1369,8 +1387,17 @@ func (a *Agent) runReActLoop(
 			// Every call that streamed arguments announced a pending row; the
 			// stream died before any of them could execute, so none may stay
 			// pending. Calls that only announced a name keep their row - the
-			// same gap as before argument deltas existed.
+			// same gap as before argument deltas existed. A whole call the cut
+			// left behind is excepted: executeToolCall drives its row to its
+			// result. fork(cut-keeps-complete-calls)
+			keptIds := make(map[string]bool, len(keptCutCalls))
+			for _, tc := range keptCutCalls {
+				keptIds[tc.ID] = true
+			}
 			for id := range inputProgress {
+				if keptIds[id] {
+					continue
+				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
 				})
@@ -1399,6 +1426,20 @@ func (a *Agent) runReActLoop(
 		// The provider's stall guard cut this stream (agent.llm_stream_idle_timeout_ms).
 		stalled := llm.IsStreamStalled(streamErr)
 		stallIdle := llm.StreamStalledIdle(streamErr)
+
+		// The cut left whole tool calls behind: the step the model finished
+		// asking for was delivered after all, so it runs below like any other
+		// tool step and the turn continues from its results. Without this the
+		// step died with the cut - or worse, the calls were asked for a second
+		// time while their first, perfectly whole, copies were dropped.
+		// fork(cut-keeps-complete-calls)
+		if cutRunsWholeCalls {
+			a.log.Warn("stream cut mid-answer; running the whole tool calls it delivered",
+				"error", streamErr, "calls", len(keptCutCalls))
+			response.ToolCalls = keptCutCalls
+			streamErr = nil
+			stalled = false
+		}
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -1645,7 +1686,18 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				// Only complete calls can enter history; cut JSON must never be replayed.
+				// Whole calls of a cut answer already ran above and never reach
+				// this branch - fork(cut-keeps-complete-calls). What reaches it
+				// is a call whose JSON was cut mid-write, or the builders of a
+				// turn the user stopped (or the loop guard cut), where nothing
+				// runs. Only a call the model finished writing enters history -
+				// cut JSON must never be replayed - and each is closed with the
+				// interrupted result, so every tool_call_id an assistant message
+				// announces gets one and the next request in this conversation
+				// is not rejected. This filter is deliberately looser than
+				// llm.WholeToolCalls above: a builder with no arguments yet is
+				// recorded and closed here, never executed, and its id still
+				// owes a result.
 				var completeCalls []llm.ToolCall
 				for _, call := range response.ToolCalls {
 					if strings.TrimSpace(call.ID) != "" && strings.TrimSpace(call.Name) != "" && (strings.TrimSpace(call.InputJSON) == "" || json.Valid([]byte(call.InputJSON))) {
@@ -1956,6 +2008,8 @@ func (a *Agent) runReActLoop(
 		var observations []string
 		// Execute all tool calls.
 		executedThisRound, quarantinedThisRound := 0, 0
+		seenInResponse := make(map[string]bool, len(response.ToolCalls))
+		blockedInResponse := make(map[string]bool, len(response.ToolCalls))
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCallInterruptedResult)
@@ -1981,8 +2035,20 @@ func (a *Agent) runReActLoop(
 			// Both detectors observe every requested call before either branch runs, so
 			// a call the repeat detector skips still lands in the cycle history. The
 			// repeat detector goes first: period one is its shape, and it trips sooner.
-			_, repeatTripped := toolRepeats.Observe(tc.Name, tc.InputJSON)
-			cyclePeriod, cycleUnit, cycleTripped := toolCycles.Observe(tc.Name, tc.InputJSON)
+			key := canonicalToolCallKey(tc.Name, tc.InputJSON)
+			if blockedInResponse[key] {
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
+				continue
+			}
+			var repeatTripped, cycleTripped bool
+			var cyclePeriod int
+			var cycleUnit []string
+			if !seenInResponse[key] {
+				seenInResponse[key] = true
+				_, repeatTripped = toolRepeats.Observe(tc.Name, tc.InputJSON)
+				cyclePeriod, cycleUnit, cycleTripped = toolCycles.Observe(tc.Name, tc.InputJSON)
+			}
+
 			switch {
 			case repeatTripped && loopNudges >= loopNudgeBudget:
 				if stuckAction == config.AgentLoopStuckActionStop {
@@ -1999,6 +2065,7 @@ func (a *Agent) runReActLoop(
 				// read/grep fall through: one last execution, pinned, so the model
 				// finally holds stable content instead of being told no.
 			case repeatTripped:
+				blockedInResponse[key] = true
 				loopNudges++
 				// The counter deliberately keeps running: clearing it here (as Roo does,
 				// where the trip is a blocking question to the user) would let the model
@@ -2023,6 +2090,7 @@ func (a *Agent) runReActLoop(
 					continue
 				}
 			case cycleTripped:
+				blockedInResponse[key] = true
 				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
 					"tool": tc.Name, "period": cyclePeriod, "nudge": loopNudges,
 				})
@@ -2333,6 +2401,21 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
+	// The permission mode is read on every call, not once per turn: the
+	// operator may have switched the session to bypass from the previous
+	// call's dialog, and the rest of the batch runs under that.
+	env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	env.Confined = false
+	env.ReadPathAllowed = nil
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			env.Confined = r.ConfineToWorkspace
+			if env.Confined {
+				cwd, home := env.CWD, a.cfg.Paths.Home
+				env.ReadPathAllowed = func(p string) bool { return session.PathInWorkspace(p, cwd, home) }
+			}
+		}
+	}
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
 	a.callImages = nil
@@ -2365,6 +2448,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A restricted turn refuses a tool it does not name, or a path outside its
+	// working directory, before hooks and permission run: a replayed or
+	// hallucinated call must not reach either. The refusal goes through the
+	// same bookkeeping as every other outcome, so the client's card completes.
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
+				a.finishToolCall(sessionDir, sessionID, tc, err.Error(), nil, "cancelled")
+				return err.Error(), nil
+			}
+		}
+	}
 
 	// A child may only call what its effective tool set admits: the
 	// advertised definitions are filtered the same way, so this catches a
@@ -2439,7 +2535,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
 	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
-	if st := sessionStatePtr(a.state); st != nil {
+	// A restricted turn is not the turn of whoever granted "always allow":
+	// the grants of the session stay with the people who gave them.
+	if st := sessionStatePtr(a.state); st != nil && (st.GetTurnRestriction() == nil || !st.GetTurnRestriction().AskAlways) {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 		sessHTTPGrants = st.GetPermissionHTTPGrants()
@@ -2868,9 +2966,8 @@ func invokedSkillBlocks(text string, allSkills []*skills.Skill, managedDir strin
 // searching the disk for them. A skill read out of the binary has no folder.
 //
 // A skill served out of the binary has no folder of its own, but the standard
-// delivery writes the same skill into managedDir (skills.dirs may not list that
-// directory, and then the copy in the binary is the one loaded): when that copy
-// is on disk, its folder is the one named.
+// delivery writes the same skill into managedDir: when that copy is on disk,
+// its folder is the one named.
 func skillBodyForModel(sk *skills.Skill, managedDir string) string {
 	body := strings.TrimSpace(sk.Content)
 	if body == "" || !strings.EqualFold(filepath.Base(sk.FilePath), "SKILL.md") {
@@ -3079,6 +3176,7 @@ func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.Resolve
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
+		UserAgent:     rm.UserAgent,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
 		NoCLILogin:    rm.NoCLILogin,
@@ -3412,10 +3510,52 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
+	// A restricted turn asks the surface before anything that needs approval:
+	// the surface knows who wrote the message, the session's mode does not.
+	if st := sessionStatePtr(state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil && r.AskAlways {
+			return config.PermModeAsk
+		}
+	}
 	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()
+}
+
+// checkRestrictedCall refuses a call the turn's restriction does not allow:
+// a tool outside its list, or a read outside the session's working directory
+// or inside the agent's home.
+func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, cfg *config.Config) error {
+	note := strings.TrimSpace(r.Note)
+	if note == "" {
+		note = "this tool is not available in this turn"
+	}
+	if !r.Allows(tc.Name) {
+		return fmt.Errorf("%s: %s", tc.Name, note)
+	}
+	if !r.ConfineToWorkspace {
+		return nil
+	}
+	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
+	if tc.Name == "glob" {
+		var a struct {
+			Pattern string `json:"pattern"`
+		}
+		if json.Unmarshal([]byte(tc.InputJSON), &a) == nil && (filepath.IsAbs(a.Pattern) || strings.HasPrefix(a.Pattern, "~") || strings.Contains(a.Pattern, "..")) {
+			paths = append(paths, a.Pattern)
+		}
+	}
+	home := ""
+	if cfg != nil {
+		home = cfg.Paths.Home
+	}
+	for _, p := range paths {
+		if !session.PathInWorkspace(p, cwd, home) {
+			return fmt.Errorf("%s: %s (%s is outside the session's working directory)", tc.Name, note, p)
+		}
+	}
+	return nil
 }
 
 // extractCommand parses the "command" field from run_command JSON args.

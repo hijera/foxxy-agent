@@ -87,7 +87,11 @@ failure on the environment.
   accepted CVE; prefer a `skip-dirs`/`skip-files` rule or a fix when possible.
 - **`.semgrepignore`** — kept minimal (`.venv`); semgrep honors `.gitignore`
   on its own. Inline suppression is `// nosemgrep` (Go/TS) or
-  `# nosemgrep` (YAML/shell), always with a justification comment.
+  `# nosemgrep` (YAML/shell), always with a justification comment, best
+  with the rule id (`// nosemgrep: <rule-id>`). semgrep keeps a suppressed
+  finding in its SARIF with a `suppressions` entry, and code scanning would
+  raise it as an alert anyway, so `scripts/security-scan.sh` leaves those
+  out of `semgrep.sarif`, as `semgrep.json` and the gate already do.
 - Test fixtures carry deliberately fake credentials (`sk-test`, PEM blocks
   in `pictures_test.go`, stub keys in `examples/`). They are expected
   findings; accept them via the ignore files above rather than "fixing" the

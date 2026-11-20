@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -84,22 +85,18 @@ func TestMentionOnlyNoAuto(t *testing.T) {
 	}
 }
 
-func TestRenderPromptDedupe(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("# Agents\n\nAlways read tests."), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestRenderSectionDedupe(t *testing.T) {
 	auto := &rules.Rule{ID: "a:1", Name: "a", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "auto body"}
 	other := &rules.Rule{ID: "b:2", Name: "b", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "other body"}
-	out, _ := rules.RenderPrompt("", tmp, []*rules.Rule{auto, nil, other, auto})
-	if !strings.Contains(out, "AGENTS.md") {
-		t.Fatal("missing agents")
-	}
+	out := rules.RenderSection("## Active project rules", []*rules.Rule{auto, nil, other, auto})
 	if strings.Count(out, "auto body") != 1 {
 		t.Fatal("dedupe failed for auto")
 	}
 	if !strings.Contains(out, "other body") {
 		t.Fatal("missing the second rule")
+	}
+	if rules.RenderSection("## Active project rules", nil) != "" {
+		t.Fatal("an empty section must render nothing")
 	}
 }
 
@@ -313,10 +310,11 @@ func TestInspectReportsAnUnreadableFolder(t *testing.T) {
 	}
 }
 
+// agentsChainProject builds a root AGENTS.md and nested ones under a, a/b,
+// a/other, node_modules/pkg and .git/sub, plus the file a/b/c/f.go.
 func agentsChainProject(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
-	// Root AGENTS.md is the unconditional project docs preamble, not a rule.
 	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("root preamble"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +328,7 @@ func agentsChainProject(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "a", "b", "c", "f.go"), []byte("package c"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "a", "b", "c", "f.go"), []byte("package c\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return tmp
@@ -345,9 +343,6 @@ func agentsNames(rs []*rules.Rule) []string {
 	return names
 }
 
-// TestNestedAgentsMDAreNeverWalked is the reported bug: a bare console in a home
-// directory drew no first frame because discovery walked the whole tree looking
-// for these. Session start must not open a single one of them.
 func TestNestedAgentsMDAreNeverWalked(t *testing.T) {
 	tmp := agentsChainProject(t)
 	got, err := rules.DefaultFactory("").Discover(tmp, nil)
@@ -422,27 +417,31 @@ func TestAgentsForPathsDoesNotReadActiveRulesAgain(t *testing.T) {
 	}
 }
 
-// TestAgentsForPathsReadsAFileWrittenAfterTheSessionStarted is what on-demand
-// reading buys beyond the walk it replaces: discovery ran once at start, but a
-// folder entered later is opened then, so a file created mid-session counts.
-func TestAgentsForPathsReadsAFileWrittenAfterTheSessionStarted(t *testing.T) {
-	tmp := agentsChainProject(t)
-	late := filepath.Join(tmp, "a", "b", "c")
-	if err := os.WriteFile(filepath.Join(late, "AGENTS.md"), []byte("notes written later"), 0o644); err != nil {
+// A file is read once whatever name reaches it: a folder linked into another
+// and a DESIGN.md that links to the AGENTS.md beside it bring nothing twice.
+func TestAgentsForPathsReadsAFileOnceUnderEveryName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "real"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := rules.AgentsForPaths(tmp, []string{filepath.Join(late, "f.go")}, nil)
-	if names := agentsNames(got); len(names) != 3 || names[2] != "a/b/c/AGENTS.md" {
-		t.Fatalf("chain = %v, want the late file among them", names)
+	if err := os.WriteFile(filepath.Join(tmp, "real", "AGENTS.md"), []byte("REAL_AGENTS"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestAgentsOnDemandFollowsRulesSystems(t *testing.T) {
-	if !rules.AgentsOnDemand(nil) || !rules.AgentsOnDemand([]rules.Source{rules.SourceFoxxyCode, rules.SourceAgents}) {
-		t.Fatal("an empty list and a list naming agents both admit nested AGENTS.md")
+	if err := os.Symlink("AGENTS.md", filepath.Join(tmp, "real", "DESIGN.md")); err != nil {
+		t.Fatal(err)
 	}
-	if rules.AgentsOnDemand([]rules.Source{rules.SourceFoxxyCode}) {
-		t.Fatal("a list without agents must switch the on-demand reading off")
+	if err := os.Symlink("real", filepath.Join(tmp, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	got := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "real", "a.go"), filepath.Join(tmp, "alias", "b.go")}, nil)
+	if names := agentsNames(got); len(names) != 1 || names[0] != "real/AGENTS.md" {
+		t.Fatalf("the one file under three names = %v, want it once", names)
+	}
+	if again := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "alias", "c.go")}, got); len(again) != 0 {
+		t.Fatalf("a file already active comes back under another name: %v", agentsNames(again))
 	}
 }
 
@@ -476,131 +475,16 @@ func TestDiscoverAgentsMDSystemsFilter(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(tmp, "sub", "AGENTS.md"), []byte("sub notes"), 0o644)
 
-	// No system makes session start read a nested AGENTS.md: "agents" only
-	// admits the on-demand reading, "foxxycode" switches it off.
+	// No system makes session start read a nested AGENTS.md, and none
+	// decides on the on-demand reading any more: it always happens.
 	for _, system := range []string{"agents", "foxxycode"} {
 		got, err := rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{system}))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(got) != 0 {
-			t.Fatalf("%s filter: discovery returned %d rules, want none", system, len(got))
+			t.Fatalf("%s filter: discovery must not read nested AGENTS.md, got %d", system, len(got))
 		}
-	}
-	if !rules.AgentsOnDemand(rules.ParseSystems([]string{"agents"})) {
-		t.Fatal("the agents system must admit on-demand reading")
-	}
-	if rules.AgentsOnDemand(rules.ParseSystems([]string{"foxxycode"})) {
-		t.Fatal("a systems list without agents must switch it off")
-	}
-}
-
-func TestDiscoverFoxxyRulesSingleFile(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("FOXXYRULES_FILE_BODY"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := rules.DefaultFactory("").Discover(tmp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 rule, got %d: %+v", len(got), got)
-	}
-	r := got[0]
-	if r.Source != rules.SourceFoxxyCode {
-		t.Fatalf("source = %q, want foxxycode", r.Source)
-	}
-	if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto {
-		t.Fatalf("single .foxxyrules must be always-loaded auto: %+v", r)
-	}
-	if r.CanonicalName() != "foxxyrules" {
-		t.Fatalf("canonical name = %q, want foxxyrules", r.CanonicalName())
-	}
-	if !strings.Contains(r.Content, "FOXXYRULES_FILE_BODY") {
-		t.Fatalf("content = %q", r.Content)
-	}
-}
-
-func TestDiscoverFoxxyRulesDirectory(t *testing.T) {
-	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".foxxyrules")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.WriteFile(filepath.Join(dir, "a.md"), []byte("rule a"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "b.md"), []byte("rule b"), 0o644)
-	got, err := rules.DefaultFactory("").Discover(tmp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 rules from .foxxyrules dir, got %d: %+v", len(got), got)
-	}
-	for _, r := range got {
-		if r.Source != rules.SourceFoxxyCode {
-			t.Fatalf("source = %q, want foxxycode", r.Source)
-		}
-	}
-}
-
-func TestDiscoverFoxyRulesAlias(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".foxyrules"), []byte("ALIAS_BODY"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := rules.DefaultFactory("").Discover(tmp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 rule, got %d", len(got))
-	}
-	if got[0].CanonicalName() != "foxyrules" {
-		t.Fatalf("canonical name = %q, want foxyrules", got[0].CanonicalName())
-	}
-	if !strings.Contains(got[0].Content, "ALIAS_BODY") {
-		t.Fatalf("content = %q", got[0].Content)
-	}
-}
-
-func TestFoxxyRulesInRenderPrompt(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("PROMPT_MARKER"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := rules.DefaultFactory("").Discover(tmp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	auto := rules.MatchAuto(catalog, nil)
-	out, _ := rules.RenderPrompt("", tmp, auto)
-	if !strings.Contains(out, "## Active project rules") {
-		t.Fatalf("missing active rules block: %q", out)
-	}
-	if !strings.Contains(out, "PROMPT_MARKER") {
-		t.Fatalf("prompt missing .foxxyrules body: %q", out)
-	}
-}
-
-func TestFoxxyRulesSystemsFilter(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("body"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"foxxycode"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("foxxycode filter must include .foxxyrules, got %d", len(got))
-	}
-	got, err = rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"cursor"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("cursor filter must exclude .foxxyrules, got %d", len(got))
 	}
 }
 
@@ -1100,20 +984,18 @@ func TestParseSystemsAgentsDir(t *testing.T) {
 		t.Fatalf("agents-dir filter: %+v", only)
 	}
 	// The AGENTS.md convention keeps its own id: "agents" does not pull in the
-	// folder, and it discovers nothing at all - nested AGENTS.md files are read
-	// on demand, so what the id gates is that reading, not a catalog entry.
+	// folder, and it has no provider to discover from. It still parses, and
+	// has to: an empty list means every system, so a configuration whose only
+	// entry is "agents" would otherwise start loading every rule folder.
 	agentsOnly, err := rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"agents"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(agentsOnly) != 0 {
-		t.Fatalf("agents filter must discover nothing: %+v", agentsOnly)
+		t.Fatalf("agents filter must discover nothing eagerly: %+v", agentsOnly)
 	}
-	if !rules.AgentsOnDemand(rules.ParseSystems([]string{"agents"})) {
-		t.Fatal("the agents id must admit on-demand reading")
-	}
-	if rules.AgentsOnDemand(rules.ParseSystems([]string{"agents-dir"})) {
-		t.Fatal("agents-dir is the shared folder, not the AGENTS.md convention")
+	if got := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "sub", "x.go")}, nil); len(got) != 1 || got[0].Source != rules.SourceAgents {
+		t.Fatalf("on-demand read of sub/AGENTS.md: %+v", got)
 	}
 }
 
@@ -1168,11 +1050,10 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 	if r := rows["style"]; len(r) < 5 || r[0] != "agents-dir" || r[1] != "claude" || r[3] != "auto" || r[4] != "true" {
 		t.Fatalf("style row = %v", r)
 	}
-	// A nested AGENTS.md has no row: the listing would have to walk the whole
-	// workspace to find one, and a session never does. The note under the table
-	// says so, which is the only mention it gets.
-	if r := rows["pkg/AGENTS.md"]; len(r) != 0 {
-		t.Fatalf("a nested AGENTS.md must not be listed, got row %v", r)
+	// The nested AGENTS.md is not walked for the listing either; the note
+	// says where it comes from instead.
+	if _, listed := rows["pkg/AGENTS.md"]; listed {
+		t.Fatalf("a nested document must not be listed:\n%s", out)
 	}
 	if !strings.Contains(out, "3 rule(s) under") {
 		t.Fatalf("summary line missing:\n%s", out)
@@ -1294,25 +1175,23 @@ func TestUserRulesDir(t *testing.T) {
 	}
 }
 
-// TestRenderPromptReportsProjectDocs lets the caller skip a file the rules
-// block already embedded, instead of sending the same AGENTS.md twice.
-func TestRenderPromptReportsProjectDocs(t *testing.T) {
+// TestLoadStandingKeysTheDocumentsItRead lets the agent skip a file the
+// prompt already carries, instead of sending the same AGENTS.md twice.
+func TestLoadStandingKeysTheDocumentsItRead(t *testing.T) {
 	tmp := t.TempDir()
 	agents := filepath.Join(tmp, "AGENTS.md")
 	if err := os.WriteFile(agents, []byte("PROJECT_DOC"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, docs := rules.RenderPrompt("", tmp, nil)
-	if !strings.Contains(out, "PROJECT_DOC") {
-		t.Fatalf("prompt = %q, want the project doc", out)
+	st := rules.LoadStanding("", tmp, nil)
+	if out := rules.RenderDocs(st.Docs); !strings.Contains(out, "### AGENTS.md\n\nPROJECT_DOC") {
+		t.Fatalf("docs = %q, want the project doc under its label", out)
 	}
-	if len(docs) != 1 || docs[0] != agents {
-		t.Fatalf("embedded docs = %v, want [%s]", docs, agents)
+	if len(st.Keys) != 1 || !st.Keys[rules.DocKey(agents)] {
+		t.Fatalf("keys = %v, want the project doc", st.Keys)
 	}
-
-	empty := t.TempDir()
-	if _, docs := rules.RenderPrompt("", empty, nil); len(docs) != 0 {
-		t.Fatalf("a project without docs reported %v", docs)
+	if empty := rules.LoadStanding("", t.TempDir(), nil); len(empty.Keys) != 0 || len(empty.Docs) != 0 {
+		t.Fatalf("a project without docs reported %+v", empty)
 	}
 }
 
@@ -1442,10 +1321,10 @@ func TestAgentsForPathsReadsDesignBesideAgents(t *testing.T) {
 	}
 }
 
-// TestLoadProjectDocsPairsBothDirectories pins the preamble order: the agent
+// TestLoadStandingPairsBothDirectories pins the preamble order: the agent
 // home's pair first, then the workspace's, and whichever file is absent is
 // simply not there.
-func TestLoadProjectDocsPairsBothDirectories(t *testing.T) {
+func TestLoadStandingPairsBothDirectories(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	_ = os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("HOME_AGENTS"), 0o644)
@@ -1453,7 +1332,7 @@ func TestLoadProjectDocsPairsBothDirectories(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("PROJECT_AGENTS"), 0o644)
 	_ = os.WriteFile(filepath.Join(cwd, "DESIGN.md"), []byte("PROJECT_DESIGN"), 0o644)
 
-	docs := rules.LoadProjectDocs(home, cwd)
+	docs := rules.LoadStanding(home, cwd, nil).Docs
 	var bodies []string
 	for _, d := range docs {
 		bodies = append(bodies, d.Content)
@@ -1471,13 +1350,221 @@ func TestLoadProjectDocsPairsBothDirectories(t *testing.T) {
 	// A home with only a DESIGN.md contributes that one and nothing else.
 	onlyDesign := t.TempDir()
 	_ = os.WriteFile(filepath.Join(onlyDesign, "DESIGN.md"), []byte("SOLO_DESIGN"), 0o644)
-	docs = rules.LoadProjectDocs(onlyDesign, t.TempDir())
+	docs = rules.LoadStanding(onlyDesign, t.TempDir(), nil).Docs
 	if len(docs) != 1 || docs[0].Content != "SOLO_DESIGN" {
 		t.Fatalf("a home with only a DESIGN.md gave %+v", docs)
 	}
 
 	// Without a home only the workspace speaks.
-	if docs := rules.LoadProjectDocs("", cwd); len(docs) != 2 || docs[0].Content != "PROJECT_AGENTS" {
+	if docs := rules.LoadStanding("", cwd, nil).Docs; len(docs) != 2 || docs[0].Content != "PROJECT_AGENTS" {
 		t.Fatalf("no agent home gave %+v", docs)
+	}
+}
+
+// Issue #425: every file enters the standing prompt once per generation, the
+// first occurrence in layer order winning - the home pair, the session
+// folder's pair, then the files of instructions.files in their order.
+func TestLoadStandingReadsEachFileOnceInLayerOrder(t *testing.T) {
+	contents := func(docs []rules.ProjectDoc) []string {
+		var out []string
+		for _, d := range docs {
+			out = append(out, d.Content)
+		}
+		return out
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	_ = os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("HOME_AGENTS"), 0o644)
+	_ = os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("PROJECT_AGENTS"), 0o644)
+	_ = os.MkdirAll(filepath.Join(cwd, "docs"), 0o755)
+	_ = os.WriteFile(filepath.Join(cwd, "docs", "AGENTS.md"), []byte("DOCS_AGENTS"), 0o644)
+	_ = os.WriteFile(filepath.Join(cwd, "TEAM.md"), []byte("TEAM"), 0o644)
+	user := []string{
+		filepath.Join(cwd, "TEAM.md"),
+		filepath.Join(cwd, "AGENTS.md"), // the session folder's own, already in
+		filepath.Join(cwd, "docs", "AGENTS.md"),
+		filepath.Join(cwd, "TEAM.md"), // named twice
+		"",
+		filepath.Join(cwd, "missing.md"),
+	}
+	st := rules.LoadStanding(home, cwd, user)
+	if got := contents(st.Docs); !slices.Equal(got, []string{"HOME_AGENTS", "PROJECT_AGENTS"}) {
+		t.Fatalf("layers = %v", got)
+	}
+	if got := contents(st.User); !slices.Equal(got, []string{"TEAM", "DOCS_AGENTS"}) {
+		t.Fatalf("user files = %v, want the list's order without what the layers carry", got)
+	}
+	for _, p := range []string{filepath.Join(home, "AGENTS.md"), filepath.Join(cwd, "docs", "AGENTS.md")} {
+		if !st.Keys[rules.DocKey(p)] {
+			t.Fatalf("keys miss %s: %v", p, st.Keys)
+		}
+	}
+	// A file that was not there entered nothing and holds no key, so it is
+	// read when it appears during the session.
+	if st.Keys[rules.DocKey(filepath.Join(cwd, "missing.md"))] {
+		t.Fatal("a missing file took a key")
+	}
+
+	// A session opened in the agent home itself reads the pair once, as the
+	// operator's.
+	inHome := rules.LoadStanding(home, home, nil)
+	if got := contents(inHome.Docs); !slices.Equal(got, []string{"HOME_AGENTS"}) {
+		t.Fatalf("a session in the agent home = %v, want the pair once", got)
+	}
+	if inHome.Docs[0].Label == "AGENTS.md" {
+		t.Fatalf("the home copy should keep its home label, got %q", inHome.Docs[0].Label)
+	}
+}
+
+func TestLoadStandingResolvesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	_ = os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("HOME_AGENTS"), 0o644)
+	if err := os.Symlink(filepath.Join(home, "AGENTS.md"), filepath.Join(cwd, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	st := rules.LoadStanding(home, cwd, []string{filepath.Join(cwd, "AGENTS.md")})
+	if len(st.Docs) != 1 || st.Docs[0].Content != "HOME_AGENTS" || len(st.User) != 0 {
+		t.Fatalf("a project AGENTS.md linking to the home one = %+v / %+v, want one copy", st.Docs, st.User)
+	}
+}
+
+func TestDocKeyFoldsCaseWhereTheFilesystemIgnoresIt(t *testing.T) {
+	dir := t.TempDir()
+	a, b := rules.DocKey(filepath.Join(dir, "AGENTS.md")), rules.DocKey(filepath.Join(dir, "agents.md"))
+	switch runtime.GOOS {
+	case "windows", "darwin":
+		if a != b {
+			t.Fatalf("keys %q and %q differ where the filesystem ignores case", a, b)
+		}
+	default:
+		if a == b {
+			t.Fatalf("keys %q and %q merge two files a case-sensitive filesystem tells apart", a, b)
+		}
+	}
+	if rules.DocKey("  ") != "" {
+		t.Fatal("a blank path has no key")
+	}
+}
+
+func TestAgentsForPathsReadsAFileWrittenAfterTheSessionStarted(t *testing.T) {
+	tmp := agentsChainProject(t)
+	late := filepath.Join(tmp, "a", "b", "c")
+	if err := os.WriteFile(filepath.Join(late, "AGENTS.md"), []byte("notes written later"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := rules.AgentsForPaths(tmp, []string{filepath.Join(late, "f.go")}, nil)
+	if names := agentsNames(got); len(names) != 3 || names[2] != "a/b/c/AGENTS.md" {
+		t.Fatalf("chain = %v, want the late file among them", names)
+	}
+}
+
+func TestDiscoverFoxxyRulesSingleFile(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("FOXXYRULES_FILE_BODY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 rule, got %d: %+v", len(got), got)
+	}
+	r := got[0]
+	if r.Source != rules.SourceFoxxyCode {
+		t.Fatalf("source = %q, want foxxycode", r.Source)
+	}
+	if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto {
+		t.Fatalf("single .foxxyrules must be always-loaded auto: %+v", r)
+	}
+	if r.CanonicalName() != "foxxyrules" {
+		t.Fatalf("canonical name = %q, want foxxyrules", r.CanonicalName())
+	}
+	if !strings.Contains(r.Content, "FOXXYRULES_FILE_BODY") {
+		t.Fatalf("content = %q", r.Content)
+	}
+}
+
+func TestDiscoverFoxxyRulesDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".foxxyrules")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "a.md"), []byte("rule a"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "b.md"), []byte("rule b"), 0o644)
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 rules from .foxxyrules dir, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.Source != rules.SourceFoxxyCode {
+			t.Fatalf("source = %q, want foxxycode", r.Source)
+		}
+	}
+}
+
+func TestDiscoverFoxyRulesAlias(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxyrules"), []byte("ALIAS_BODY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(got))
+	}
+	if got[0].CanonicalName() != "foxyrules" {
+		t.Fatalf("canonical name = %q, want foxyrules", got[0].CanonicalName())
+	}
+	if !strings.Contains(got[0].Content, "ALIAS_BODY") {
+		t.Fatalf("content = %q", got[0].Content)
+	}
+}
+
+func TestFoxxyRulesInRenderPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("PROMPT_MARKER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auto := rules.MatchAuto(catalog, nil)
+	out := rules.RenderSection("## Active project rules", auto)
+	if !strings.Contains(out, "## Active project rules") {
+		t.Fatalf("missing active rules block: %q", out)
+	}
+	if !strings.Contains(out, "PROMPT_MARKER") {
+		t.Fatalf("prompt missing .foxxyrules body: %q", out)
+	}
+}
+
+func TestFoxxyRulesSystemsFilter(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"foxxycode"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("foxxycode filter must include .foxxyrules, got %d", len(got))
+	}
+	got, err = rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"cursor"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("cursor filter must exclude .foxxyrules, got %d", len(got))
 	}
 }

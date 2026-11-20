@@ -1,4 +1,5 @@
 ---
+description: Every provider request follows providers[].proxy
 paths:
   - internal/llm/**/*.go
   - external/httpserver/*auth*_http.go

@@ -96,3 +96,37 @@ export function untrustSubagent(
 ): Promise<SubagentApiResult<SubagentCatalogEntry | null>> {
   return postTrust(name, "untrust", cwd);
 }
+
+/**
+ * setSubagentTrust approves (trusted) or withdraws the approval of a
+ * project-scope definition for the workspace. digest names the file content
+ * the operator was shown: one rewritten since is refused (409).
+ */
+export async function setSubagentTrust(
+  name: string,
+  cwd: string | undefined,
+  trusted: boolean,
+  digest?: string | undefined,
+): Promise<SubagentApiResult<null>> {
+  const body: Record<string, string> = {};
+  const dir = (cwd ?? "").trim();
+  if (dir) body.cwd = dir;
+  if (trusted && digest) body.digest = digest;
+  let res: Response;
+  try {
+    res = await fetch(
+      `/foxxycode/subagents/${encodeURIComponent(name)}/${trusted ? "trust" : "untrust"}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch {
+    return { ok: false, error: translate("subagents.error.network") };
+  }
+  if (!res.ok) {
+    return { ok: false, error: await errorMessage(res) };
+  }
+  return { ok: true, data: null };
+}

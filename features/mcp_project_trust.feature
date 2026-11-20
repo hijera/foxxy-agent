@@ -31,6 +31,40 @@ Feature: Project-local MCP servers need approval before they run
     And foxxycode reports the project MCP server "marker" as awaiting approval
 
   @acp
+  Scenario: Changing the global MCP servers does not start an unapproved project server
+    Given a workspace whose project mcp.json runs a marker command
+    And an ACP client has a live session for that workspace
+    When the operator changes the servers of the home mcp.json
+    Then the marker command has not run
+    And foxxycode reports the project MCP server "marker" as awaiting approval
+
+  @acp
+  Scenario: A global server still starts without approval
+    Given a workspace whose global mcp.json runs a marker command
+    When an ACP client creates a session for that workspace
+    Then the marker command has run
+
+  @acp
+  Scenario: Disabling an approved project server leaves the checkout untouched
+    Given a workspace whose project mcp.json runs a marker command
+    And the operator approved the project MCP server "marker" for that workspace
+    When the operator disables the MCP server "marker"
+    And an ACP client creates a session for that workspace
+    Then the marker command has not run
+    And the project mcp.json is unchanged
+
+  @http
+  Scenario: The MCP list reports an unapproved project server instead of probing it
+    Given a running foxxycode HTTP server
+    And a project mcp.json defining the stdio server "demo"
+    When I list the MCP servers
+    Then the MCP list shows server "demo" as awaiting approval
+    And server "demo" exposes no tools
+    When I approve the MCP server "demo"
+    And I list the MCP servers
+    Then the MCP list shows server "demo" from source "local" as enabled
+    And server "demo" exposes the tool "echo" as enabled
+
   Scenario: A global server still starts without approval
     Given a workspace whose global mcp.json runs a marker command
     When an ACP client creates a session for that workspace

@@ -81,7 +81,7 @@ function ThinkingMessageBase(props: {
         </summary>
         {open && text ? (
           <div className="thinking-body" aria-label={t("messages.thinkingContentAriaLabel")}>
-            <Markdown text={text} />
+            <Markdown text={text} {...(inProgress ? { streaming: true } : {})} />
           </div>
         ) : null}
       </details>

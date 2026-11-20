@@ -410,6 +410,8 @@ func initializeMCPTrustScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the project mcp\.json is unchanged$`, s.projectUnchanged)
 	sc.Step(`^an ACP client creates a session for that workspace$`, s.createSession)
 	sc.Step(`^an ACP client creates a session for the first workspace$`, s.createSession)
+	sc.Step(`^an ACP client has a live session for that workspace$`, s.createSession)
+	sc.Step(`^the operator changes the servers of the home mcp\.json$`, s.homeMCPJSONChanged)
 	sc.Step(`^the marker command has run$`, s.markerHasRun)
 	sc.Step(`^a stored session for a workspace$`, s.storedSession)
 	sc.Step(`^a web page reads that stored session$`, s.webPageReadsStoredSession)
@@ -457,4 +459,22 @@ func TestMCPProjectTrustACP(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("mcp_project_trust @acp feature failed")
 	}
+}
+
+// homeMCPJSONChanged edits <home>/mcp.json - a new server, and one named like
+// the project's, which the project declaration shadows in that workspace -
+// and runs the reconcile the watcher of the file runs. The reconcile must
+// re-evaluate trust rather than replay the merged list, so a project
+// declaration nobody approved still does not spawn.
+
+func (s *mcpTrustState) homeMCPJSONChanged() error {
+	path := config.GlobalMCPJSONPath(s.home)
+	if err := config.UpsertMCPJSONServer(path, "unrelated", config.MCPJSONServer{Command: os.Args[0], Disabled: true}); err != nil {
+		return err
+	}
+	if err := config.UpsertMCPJSONServer(path, "marker", config.MCPJSONServer{Command: os.Args[0], Args: []string{"-test.run=^$"}}); err != nil {
+		return err
+	}
+	s.mgr.ReloadMCPDeclarations(context.Background())
+	return nil
 }

@@ -94,3 +94,17 @@ func sameFileAsAny(fi os.FileInfo, seen []os.FileInfo) bool {
 	}
 	return false
 }
+
+// ResolveInstructionFiles resolves the entries of instructions.files, in their
+// order, for rules.LoadStanding: the files the operator added below the
+// AGENTS.md and DESIGN.md layers. An entry that cannot be resolved is left
+// out.
+func ResolveInstructionFiles(entries []string, cwd, home string) []string {
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if path := ResolveInstructionFile(entry, cwd, home); path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
+}

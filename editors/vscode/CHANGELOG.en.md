@@ -8,9 +8,77 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-10
+## Unreleased — 2026-11-20
 
 **Panel restart.** Restart keeps control of the replacement process even when the previous backend exits later. The editor tab and sidebar reconnect to the new server together; closing a tab during restart does not leave the remaining panel disconnected.
+
+**Guidance for DeepSeek models.**
+DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
+
+## 0.3.51 — 2026-11-19
+
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
+## 0.3.50 — 2026-11-19
+
+**Saving diagrams in VS Code.** The MMD and SVG buttons use the editor's Save As picker and save through the extension, avoiding downloads cancelled inside the webview.
+
+**Diagrams and formulas in answers.**
+Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
+Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
+Inline formulas copy their LaTeX source in the editor panel even when its embedded browser denies the Clipboard API.
+
+**Project jobs and memory.**
+The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask policy, jobs from the repository require approval and file changes require fresh approval. During an upgrade, jobs from the legacy `scheduler.dir` are copied to Global with their state. Job files with mixed-case Markdown extensions remain discoverable and editable. The `max_note_chars` memory setting limits note length in characters. A notice appears when text is truncated, including text in Cyrillic.
+
+**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
+
+## 0.3.49 — 2026-11-15
+
+**Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
+
+**Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
+
+**Keep the agent home private.**
+Messenger users without admin rights can search and read workspace files, while `grep`, `glob` and `print_tree` hide the agent home even when it is nested inside the project. Private contents and file names stay out of results and do not consume the search limit.
+
+## 0.3.48 — 2026-11-14
+
+- An answer the provider delivered in full no longer disappears in the chat: the `[DONE]` terminal marker arriving in the last SSE buffer now completes the answer instead of leaving it cut off.
+- A provider stream cut - for example by a proxy losing the tail of the response - no longer kills the step outright: tool calls whose arguments arrived whole run, and the turn continues from their results. A call cut mid-JSON still does not run.
+- Whole tool calls survive a cut without an automatic replay replacing them, even when the model has not written any answer text yet. This also covers a subsequent JSON event cut short on Anthropic-compatible providers.
+- A cut answer keeps its completed last line. Closing Markdown alone no longer preserves an unfinished line, preventing duplicated prefixes when the model restarts it.
+
+## 0.3.47 — 2026-11-12
+
+**Guidance for Kimi models.**
+Kimi and Moonshot models (kimi-k2.6 … kimi-k3.1-pro, moonshot-v1, and namespaced ids such as `moonshotai/Kimi-K2-Instruct`) get their own system prompt: own the task through to a verified result, make targeted edits without planning ceremony, use tools in a disciplined way, and report briefly. Works through both NeuralDeep and OpenAI-compatible providers. Non-thinking Kimi K2 Instruct checkpoints keep this prompt without showing unsupported reasoning levels.
+
+## 0.3.46 — 2026-11-12
+
+**Choose the compatible provider client identity.**
+OpenAI-compatible and Anthropic-compatible provider settings offer the native SDK identity (OpenAI/Go or Anthropic/Go, the default) or Foxxycode with the running application version. The choice applies to completions and model listing, including unsaved provider previews.
+
+## 0.3.45 — 2026-11-12
+
+**MCP startup diagnostics.** Connection errors mask configured credentials in backend logs and session notices, including tokens echoed in another letter case. HTTP status codes remain readable, and timeout/retry handling is preserved.
+
+**Configuration compatibility.** Migrating skill sources preserves environment values and escaped dollars; declaration files are readable only by their owner. A zero step limit remains unlimited when inherited through YAML merges and anchors. Aliases of the `skills` section preserve its sources; quoted `<<` keys do not activate nested servers or sources.
+
+**Settings follow the chosen project.** Skills, suggestions and subagents immediately follow a new chat's selected folder. Four standard directories are always read; custom paths add to them. Skill sources and MCP servers live in separate JSON files, with automatic migration and a backup of old settings. Project marketplaces require approval. On Windows, Settings saves work alongside automatic configuration reloads.
+
+**History and Tasks.** Selecting another chat in History keeps the desktop Tasks panel open. The folder browser fits a phone better, with New folder and Show hidden in its footer.
+
+**Agent loop protection.** Turns default to 165 steps; explicit `max_turns: 0` disables the cap. Repeated calls are detected sooner while identical calls within one response still execute. AGENTS.md and DESIGN.md from the agent home, project and nested folders are read independently of template settings.
+
+**Review fixes.** MCP servers and skill sources inherited through YAML merges and anchors now migrate to JSON instead of being dropped. The project MCP TLS control preserves secrets and checks the declaration shown. Installed skills stay scoped to the chat while its folder loads, and project sources cannot be approved or removed against the wrong workspace before a session exists.
+
+## 0.3.44 — 2026-11-10
+
+**Notices fit narrow panels.**
+Long errors and model or mode change notices no longer overflow the chat: collapsed previews end in an ellipsis, and expanded messages wrap within the card.
 
 ## 0.3.41 — 2026-11-01
 

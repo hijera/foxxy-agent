@@ -2144,30 +2144,21 @@ a.rail-brand {
     color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
-/* The handle. touch-action none is what lets a finger drag the row instead of
-   scrolling the list under it. */
-.session-drag-grip {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  margin-left: -4px;
-  color: color-mix(in srgb, var(--text) 30%, var(--foxxycode-blend-base));
-  cursor: grab;
-  touch-action: none;
-  transition: color 140ms ease;
+/* A pin is dragged by its row, so the row must not also start a text
+   selection, a native link drag or the long-press callout of a touch browser. */
+.session-item.is-reorderable {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.session-item:hover .session-drag-grip {
-  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
-}
-
-.session-drag-grip:active {
-  cursor: grabbing;
+.session-item.is-reorderable .session-row-link {
+  -webkit-user-drag: none;
 }
 
 .session-item.is-dragging {
   opacity: 0.45;
+  cursor: grabbing;
 }
 
 /* Where the drop would land, drawn on the list rather than under the pointer:
@@ -2232,16 +2223,6 @@ a.rail-brand {
 .archived-session-action:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-/* A pin is a mark on the title, not a badge: it says where the row is, and the
-   row is already at the top saying it. */
-.session-pin-mark {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-  color: var(--accent);
 }
 
 .session-menu {
@@ -3450,6 +3431,22 @@ a.rail-brand {
   line-height: 20px;
 }
 
+/* Message editing: the prompt loaded into the composer is outlined in the
+   accent colour, and every row after it is faded, because sending the edit
+   removes exactly those rows. The rows are siblings under .messages-inner
+   (each row root is a direct child), so a general sibling selector reaches
+   them without the rows knowing about the edit. See DESIGN.md, Message
+   editing. */
+.msg-user-stack--editing .msg-user {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.msg-user-stack--editing ~ * {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
 /* User turns are plain text (no Markdown); preserve composer line breaks. */
 .msg-user-body {
   margin: 0;
@@ -3472,10 +3469,16 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .msg-system {
   align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: rgba(40, 18, 18, 0.55);
   border: 1px solid rgba(255, 120, 120, 0.25);
   margin-bottom: 2px;
@@ -3512,6 +3515,8 @@ a.rail-brand {
 .msg-system-details {
   margin: 0;
   padding-inline: 0;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Closed <details> must not reserve space for the body in any engine. */
@@ -3538,6 +3543,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding-left: 18px;
 }
@@ -3581,8 +3587,11 @@ a.rail-brand {
 
 .msg-system-body {
   margin: 8px 0 0;
+  max-width: 100%;
+  box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -4919,6 +4928,178 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   flex-shrink: 0;
 }
 
+/* Pictures and formulas in Markdown (DESIGN.md, "Diagrams and formulas"): a
+   Mermaid or SVG fence and a display formula are drawn, with a head row that
+   switches to the source and copies or downloads it. The frame is the code
+   block's, so a picture sits in the transcript like the code it came from. */
+.md-figure {
+  margin: 12px 0;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
+  overflow: hidden;
+}
+
+.md-figure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 5px 5px 5px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.md-figure-label {
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.md-figure-status {
+  color: color-mix(in srgb, var(--text) 48%, var(--foxxycode-blend-base));
+}
+
+.md-figure-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* The head's buttons line up in the row instead of floating over the code. */
+.md-figure-actions .md-copy {
+  position: static;
+}
+
+/* The formats a figure saves as, named by extension (MMD, SVG): text
+   buttons in the copy button's chrome. */
+.md-figure-format {
+  line-height: 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 6px;
+}
+
+/* The source switch: an icon button, lit while the source is shown. */
+.md-figure-source-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+/* The picture is a button that opens the image viewer. It is never wider than
+   the transcript and never taller than most of a screen; the <img> keeps its
+   proportions under both caps. */
+.md-figure-picture {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  border: 0;
+  margin: 0;
+  padding: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.md-figure-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 640px);
+  width: auto;
+  height: auto;
+}
+
+.md-figure-picture:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A figure's source: the copy button in the top right corner of the text, as
+   on a code block, and a box that scrolls once the text is longer than about
+   twenty lines. */
+.md-figure-source {
+  position: relative;
+}
+
+/* Clear of the scrollbar a long source grows. */
+.md-figure-source > .md-copy {
+  right: 14px;
+}
+
+.md-figure-code {
+  margin: 0;
+  white-space: pre;
+  overflow: auto;
+  max-height: calc(20 * 18px + 12px);
+  padding: 6px 40px 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.md-figure-code code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-figure-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--foxxycode-danger);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  overflow-wrap: anywhere;
+}
+
+/* A display formula scrolls sideways when it is wider than the transcript. */
+.md-math-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 12px;
+}
+
+.md-math-display .katex-display {
+  margin: 8px 0;
+}
+
+/* An inline formula copies its source on a click, like inline code. */
+.md-math-inline {
+  cursor: copy;
+  border-radius: 4px;
+}
+
+.md-math-inline:hover,
+.md-math-inline.is-copied {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.md-math-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.md-math-inline .katex {
+  font-size: 1.1em;
+}
+
+code.md-math-pending {
+  font-family: var(--foxxycode-md-inline-code-font);
+  font-size: 0.92em;
+  color: var(--foxxycode-md-inline-code-fg);
+}
+
 .token-bar {
   color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   font-size: 12px;
@@ -5042,6 +5223,82 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 0;
   border-radius: 8px;
   font-size: 15px;
+}
+
+/* The edit banner: the composer says which message it holds while a sent
+   message is being edited, and offers Undo once the edit was sent. The same
+   frosted panel as the queue rows above the card; the cross sits where the
+   queue's remove control sits. */
+.composer-edit-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--foxxycode-glass-panel-border));
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The undo banner is one line: the title and the note side by side, Undo and
+   the cross centred on it. The cross is the queue's control, which sits at the
+   top of its row; here it follows the line like Undo does. */
+.composer-edit-banner--done {
+  align-items: center;
+  border-color: var(--foxxycode-glass-panel-border);
+}
+
+.composer-edit-banner--done > * {
+  align-self: center;
+}
+
+.composer-edit-banner--done .composer-edit-banner-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 0;
+}
+
+.composer-edit-banner-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 4px;
+  color: var(--accent);
+}
+
+.composer-edit-banner-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.composer-edit-banner-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer-edit-banner-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-edit-banner-hint {
+  color: var(--muted);
+}
+
+.composer-edit-banner .composer-undo-edit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* The primary control keeps its circle and swaps only its meaning: a draft
@@ -6087,7 +6344,7 @@ textarea#composer {
 .workspace-modal {
   display: flex;
   flex-direction: column;
-  width: min(720px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   /* Roomy body for a folder with few children: 262px is the 140px of head,
      path row and actions plus the 120px of list the body used to claim through
      the list's own min-height. Stated on the dialog, the floor leaves the list
@@ -6107,15 +6364,7 @@ textarea#composer {
 }
 
 .workspace-modal-head {
-  display: flex;
   flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  font-size: inherit;
-  font-weight: inherit;
-  color: inherit;
-  border-bottom: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
 }
 
 /* Editable path row: type or paste a path (a Windows user needs it to jump to
@@ -6131,17 +6380,18 @@ textarea#composer {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 12px;
   outline: none;
+  font: inherit;
 }
 .workspace-modal-show-hidden {
   display: flex;
   flex: none;
   align-items: center;
   gap: 6px;
-  margin-right: 6px;
+  margin-right: auto;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -6202,7 +6452,7 @@ textarea#composer {
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   text-align: left;
   padding: 7px 8px;
   border-radius: 8px;
@@ -6210,6 +6460,7 @@ textarea#composer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: inherit;
 }
 
 .workspace-modal-row:hover {
@@ -6225,14 +6476,15 @@ textarea#composer {
 }
 
 .workspace-modal-row-name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 70%;
 }
 
 .workspace-modal-row-target {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   color: var(--muted);
   font-size: 11px;
@@ -6272,8 +6524,9 @@ textarea#composer {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   outline: none;
+  font: inherit;
 }
 
 .workspace-modal-new-name::placeholder {
@@ -6294,9 +6547,6 @@ textarea#composer {
 }
 
 /* New folder leads the footer, opposite the Cancel / Open pair. */
-.workspace-modal-btn--lead {
-  margin-right: auto;
-}
 
 .workspace-modal-btn--inline {
   flex: 0 0 auto;
@@ -6312,6 +6562,7 @@ textarea#composer {
   padding: 6px 14px;
   border-radius: 9px;
   cursor: pointer;
+  font: inherit;
 }
 
 .workspace-modal-btn--primary {
@@ -7212,9 +7463,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
     z-index: 70;
   }
   .shell {
-    --foxxycode-mobile-top-inset: calc(
-      var(--foxxycode-mobile-bar-h) + var(--foxxycode-env-banner-h, 0px)
-    );
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
     --foxxycode-mobile-chat-stack-gap: 12px;
     --foxxycode-mobile-title-sticky-top: calc(
@@ -7230,7 +7478,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
     overflow: visible;
     grid-template-columns: unset;
     grid-template-rows: unset;
-    --foxxycode-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
   }
   /* Fixed: sticky was ineffective here while the shell/document chain still offset the rail on scroll (overflow/extra ancestors). */
   .rail-column {
@@ -7493,11 +7740,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex-shrink: 0;
 }
 
-.scheduler-btn-primary {
-  border-color: rgba(147, 51, 234, 0.45);
-  background: rgba(147, 51, 234, 0.2);
-}
-
 .scheduler-btn-stop {
   border-color: rgba(248, 113, 113, 0.35);
   background: rgba(248, 113, 113, 0.12);
@@ -7513,11 +7755,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
    read as muddy grey boxes with washed-out icons, so re-tint them here. */
 [data-theme="light"] .scheduler-btn {
   background: var(--foxxycode-surface-raised);
-}
-
-[data-theme="light"] .scheduler-btn-primary {
-  border-color: rgba(124, 58, 237, 0.4);
-  background: rgba(124, 58, 237, 0.12);
 }
 
 [data-theme="light"] .scheduler-btn-stop {
@@ -7630,6 +7867,150 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 1px 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+}
+
+/* Project jobs: the drawer's sections, the trust badge of a row that does
+   not run, and the approval block of the editor (DESIGN.md, Scheduler). */
+.scheduler-job-group + .scheduler-job-group {
+  margin-top: 6px;
+}
+
+.scheduler-job-group-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 48%, var(--foxxycode-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-job-group-empty {
+  padding: 2px 10px 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
+}
+
+.scheduler-job-trust {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+}
+
+.scheduler-job-trust--needs_approval {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-job-trust--conflict,
+.scheduler-job-trust--invalid,
+.scheduler-job-trust--denied {
+  color: #ff453a;
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-job-row-untrusted .scheduler-job-row-id {
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+}
+
+.scheduler-job-approve-icon {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+}
+
+.scheduler-trust-block--needs_approval {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-trust-block--conflict,
+.scheduler-trust-block--invalid,
+.scheduler-trust-block--denied {
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-trust-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scheduler-trust-state {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheduler-trust-state::first-letter {
+  text-transform: uppercase;
+}
+
+.scheduler-trust-block--needs_approval .scheduler-trust-state {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-note,
+.scheduler-trust-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+  overflow-wrap: anywhere;
+}
+
+.scheduler-trust-raw {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.scheduler-scope-field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.scheduler-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 2px;
+}
+
+.scheduler-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.scheduler-scope-option input:disabled + span {
+  opacity: 0.5;
 }
 
 .scheduler-job-row-actions {
@@ -8499,7 +8880,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 12px;
 }
 
+/* A <fieldset> defaults to a min-content inline size, so nested frames - a
+   per-chat override inside a bot's block - added up past a phone's panel and
+   scrolled it sideways. Every settings frame may shrink to its column. */
 .settings-fieldset {
+  min-inline-size: 0;
   border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: var(--foxxycode-glass-panel-radius);
   padding: 12px 14px 14px;
@@ -12642,6 +13027,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   justify-content: space-between;
   gap: 8px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .skills-sync-all-btn {
@@ -16181,18 +16567,6 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 @media (max-width: 1199px) {
-  .workspace-modal {
-    width: calc(100vw - 28px);
-    min-height: 0;
-    max-height: none;
-    /* A body-mounted dialog may not inherit the shell's top inset. */
-    height: calc(100vh - var(--foxxycode-mobile-top-inset, 0px) - 28px);
-    height: calc(100dvh - var(--foxxycode-mobile-top-inset, 0px) - 28px);
-  }
-
-  .workspace-modal-head {
-    padding-inline: 14px;
-  }
 }
 
 @media (max-width: 599px) {
@@ -16205,5 +16579,173 @@ html:not([data-theme="light"]) .context-breakdown-error {
     width: 32px;
     height: 32px;
     opacity: 1;
+  }
+}
+
+.workspace-modal-btn--add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Stated, not derived: aspect-ratio on a stretched flex item left it 18px
+     wide in Chromium. The row stretches Cancel / Open to the same 32px. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+}
+
+.workspace-modal-btn--add svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 599px) {
+  .workspace-modal {
+    position: fixed;
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: 14px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border-radius: var(--foxxycode-glass-panel-radius);
+    border: 1px solid var(--foxxycode-glass-panel-border);
+    background: var(--foxxycode-glass-panel-bg);
+    backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+    -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+    box-shadow: var(--foxxycode-glass-panel-shadow);
+  }
+}
+
+@media (max-width: 1199px) {
+  :root {
+    --foxxycode-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
+    --foxxycode-mobile-top-inset: calc(
+      var(--foxxycode-mobile-bar-h) + var(--foxxycode-env-banner-h, 0px)
+    );
+  }
+}
+
+.scheduler-btn-primary,
+.workspace-modal-btn--add {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.2);
+}
+
+[data-theme="light"] .scheduler-btn-primary,
+[data-theme="light"] .workspace-modal-btn--add {
+  border-color: rgba(124, 58, 237, 0.4);
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.skills-marketplace-add {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skills-marketplace-add > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-marketplace-add > .skills-marketplace-scope {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.skills-marketplace-add > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplaces-box {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+.skills-marketplaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.skills-marketplace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.skills-marketplace-head > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplace-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-marketplace-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace-source {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace.is-held .skills-marketplace-text {
+  opacity: 0.65;
+}
+
+.skills-marketplace-note {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.subagents-item-head > .subagents-trust {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+@media (max-width: 599px) {
+  .skills-marketplace-head {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-text {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-add {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 599px) {
+
+  .skills-marketplace-add > .settings-input:first-child {
+    flex-basis: 100%;
   }
 }

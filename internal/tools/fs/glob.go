@@ -65,6 +65,14 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 	if args.Path != "" {
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
+	// A confined turn keeps every listed path inside its working directory:
+	// the root is rejected outright and the built-in walker prunes forbidden
+	// subtrees before they are enumerated. Filtering ripgrep's listing instead
+	// would still walk the agent home and let its names crowd out real
+	// workspace files, and would hand unchecked paths to an external binary.
+	if env.ReadPathAllowed != nil && !env.ReadPathAllowed(searchPath) {
+		return "", fmt.Errorf("glob: path is outside the permitted workspace")
+	}
 	st, err := os.Stat(searchPath)
 	if err != nil {
 		return "", fmt.Errorf("glob: %w", err)
@@ -73,50 +81,59 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 		return "", fmt.Errorf("glob: path must be a directory: %s", searchPath)
 	}
 
-	rgArgs := []string{
-		"--files",
-		"--glob", pattern,
-		"--follow",
-		searchPath,
-	}
-
+	storeRoot := sessionStoreRoot(env.SessionDir)
 	var paths []string
-	if rgPath, lookupErr := exec.LookPath("rg"); lookupErr == nil {
-		cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
-		platform.HideConsoleWindow(cmd)
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		platform.AdaptCommand(cmd)
-		if err := cmd.Run(); err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				if exitErr.ExitCode() == 1 {
-					return "(no files matched)", nil
+	if env.ReadPathAllowed == nil {
+		rgArgs := []string{"--files", "--glob", pattern}
+		// A turn confined without an allow list (never produced by the agent,
+		// but a hand-built Env may say so) does not follow a link out of its
+		// working directory.
+		if !env.Confined {
+			rgArgs = append(rgArgs, "--follow")
+		}
+		rgArgs = append(rgArgs, searchPath)
+		if rgPath, lookupErr := exec.LookPath("rg"); lookupErr == nil {
+			cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
+			platform.HideConsoleWindow(cmd)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			platform.AdaptCommand(cmd)
+			if err := cmd.Run(); err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					if exitErr.ExitCode() == 1 {
+						return "(no files matched)", nil
+					}
+					return "", fmt.Errorf("glob: %s", stderr.String())
 				}
-				return "", fmt.Errorf("glob: %s", stderr.String())
+				// Fall through to the built-in walker if rg disappeared after lookup.
+				paths, err = nativeGlob(ctx, searchPath, pattern, storeRoot, env.ReadPathAllowed)
+				if err != nil {
+					return "", fmt.Errorf("glob: %w", err)
+				}
+			} else {
+				for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+					line = strings.TrimSpace(line)
+					if line != "" {
+						paths = append(paths, line)
+					}
+				}
 			}
-			// Fall through to the built-in walker if rg disappeared after lookup.
-			paths, err = nativeGlob(ctx, searchPath, pattern, sessionStoreRoot(env.SessionDir))
+		} else {
+			paths, err = nativeGlob(ctx, searchPath, pattern, storeRoot, env.ReadPathAllowed)
 			if err != nil {
 				return "", fmt.Errorf("glob: %w", err)
 			}
-		} else {
-			for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					paths = append(paths, line)
-				}
-			}
 		}
 	} else {
-		paths, err = nativeGlob(ctx, searchPath, pattern, sessionStoreRoot(env.SessionDir))
+		paths, err = nativeGlob(ctx, searchPath, pattern, storeRoot, env.ReadPathAllowed)
 		if err != nil {
 			return "", fmt.Errorf("glob: %w", err)
 		}
 	}
 	// Hide FoxxyCode's own session store (before the cap) so other sessions' files
 	// neither leak into results nor crowd out real workspace files.
-	paths = dropStorePaths(paths, sessionStoreRoot(env.SessionDir))
+	paths = dropStorePaths(paths, storeRoot)
 	if len(paths) == 0 {
 		return "(no files matched)", nil
 	}

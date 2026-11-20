@@ -55,7 +55,7 @@ func (s *deliveryState) emptyHome() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	s.cfgFile = []byte("skills:\n  sources: []\n")
+	s.cfgFile = []byte("skills:\n  auto_discovery: true\n")
 	if err := os.WriteFile(cfgPath, s.cfgFile, 0o644); err != nil {
 		return err
 	}
@@ -152,12 +152,13 @@ func (s *deliveryState) catalogueDoesNotOffer(name string) error {
 }
 
 func (s *deliveryState) sourcesContain(source string) error {
-	for _, got := range skills.ListSources(s.cfg) {
+	sources := skills.ListSources(s.cfg, "")
+	for _, got := range sources {
 		if strings.EqualFold(got, source) {
 			return nil
 		}
 	}
-	return fmt.Errorf("sources %v do not name %q", s.cfg.Skills.Sources, source)
+	return fmt.Errorf("sources %v do not name %q", sources, source)
 }
 
 func (s *deliveryState) configUntouched() error {
@@ -205,7 +206,7 @@ func (s *deliveryState) deleteSkill(name string) error {
 }
 
 func (s *deliveryState) removeMarketplaceRefused(source string) error {
-	removed, err := skills.RemoveSource(s.cfg, source)
+	removed, err := skills.RemoveSource(s.cfg, "", source, "")
 	// A RemovalNotice is an accepted removal of a redundant entry, not a refusal.
 	var notice skills.RemovalNotice
 	if errors.As(err, &notice) {

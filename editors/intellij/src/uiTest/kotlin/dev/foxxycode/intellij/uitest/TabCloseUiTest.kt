@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 
-/** Exercises the real tool window and OS process, including reopening on a fresh port. */
+/** Exercises features/intellij_panel_reopen.feature in the real tool window and OS process. */
 class TabCloseUiTest {
     private val robot = RemoteRobot(System.getProperty("robot-server.url", "http://127.0.0.1:8580"))
 
@@ -15,17 +15,22 @@ class TabCloseUiTest {
     fun closingWithTheOptionEnabledUnloadsTheProcessAndReopeningStartsIt() {
         withSetting(true) {
             IdeControl.activateToolWindow(robot, "FoxxyCode")
-            val pid = awaitBackend()
-            val process = ProcessHandle.of(pid).get()
-            val closing = System.nanoTime()
-            IdeControl.hideToolWindow(robot, "FoxxyCode")
-            assertTrue("closing the panel blocked the IDE", System.nanoTime() - closing < Duration.ofSeconds(3).toNanos())
-            waitFor(Duration.ofSeconds(10), Duration.ofMillis(100), "the backend process to exit") {
-                !process.isAlive
+            awaitBackend()
+            awaitChat()
+            repeat(2) {
+                val pid = awaitBackend()
+                val process = ProcessHandle.of(pid).get()
+                val closing = System.nanoTime()
+                IdeControl.hideToolWindow(robot, "FoxxyCode")
+                assertTrue("closing the panel blocked the IDE", System.nanoTime() - closing < Duration.ofSeconds(3).toNanos())
+                waitFor(Duration.ofSeconds(10), Duration.ofMillis(100), "the backend process to exit") {
+                    !process.isAlive
+                }
+                assertFalse(robot.callJs<Boolean>("$services manager.isRunning();", true))
+                IdeControl.activateToolWindow(robot, "FoxxyCode")
+                assertTrue("reopening must create a live backend", ProcessHandle.of(awaitBackend()).get().isAlive)
+                awaitChat()
             }
-            assertFalse(robot.callJs<Boolean>("$services manager.isRunning();", true))
-            IdeControl.activateToolWindow(robot, "FoxxyCode")
-            assertTrue("reopening must create a live backend", ProcessHandle.of(awaitBackend()).get().isAlive)
         }
     }
 
@@ -127,6 +132,14 @@ class TabCloseUiTest {
             """.trimIndent(),
             true,
         ).toLong()
+    }
+
+    private fun awaitChat() {
+        CefChat.connectWithRetry().use { chat ->
+            waitFor(Duration.ofSeconds(30), Duration.ofMillis(200), "the embedded chat to render") {
+                chat.eval("!!document.getElementById('composer')") == "true"
+            }
+        }
     }
 
     private fun withSetting(enabled: Boolean, action: () -> Unit) {

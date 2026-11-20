@@ -29,19 +29,19 @@ func TestHelperSilentSessionMCPServer(t *testing.T) {
 }
 
 // managerWithSilentMCP builds a manager whose config declares one MCP server that never
-// completes its handshake. Declared through cfg.MCPServers so the trust gate allows it
+// completes its handshake. Declared through the home mcp.json so the trust gate allows it
 // without an approval (it is operator configuration, not a project declaration).
 func managerWithSilentMCP(t *testing.T) (*session.Manager, string) {
 	t.Helper()
 	cwd := t.TempDir()
 	cfg := testConfig()
 	cfg.Paths = config.Paths{Home: t.TempDir(), CWD: cwd}
-	cfg.MCPServers = []config.MCPServerConfig{{
+	declareReadyMCP(t, cfg, []config.MCPServerConfig{{
 		Name:    "cold",
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperSilentSessionMCPServer"},
 		Env:     []config.EnvVarConfig{{Name: "GO_WANT_SILENT_SESSION_MCP", Value: "1"}},
-	}}
+	}})
 	return session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), cwd, nil), cwd
 }
 
@@ -78,14 +78,14 @@ func TestWaitMCPReadyResolvesWhenTheServerConnects(t *testing.T) {
 	cwd := t.TempDir()
 	cfg := testConfig()
 	cfg.Paths = config.Paths{Home: t.TempDir(), CWD: cwd}
-	cfg.MCPServers = []config.MCPServerConfig{{
+	declareReadyMCP(t, cfg, []config.MCPServerConfig{{
 		Name:    "warm",
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperMCPMarkerServer"},
 		Env: []config.EnvVarConfig{
 			{Name: "GO_WANT_MCP_MARKER", Value: "1"},
 		},
-	}}
+	}})
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), cwd, nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
@@ -178,12 +178,12 @@ func TestFirstTurnWaitsForConfiguredMCPServers(t *testing.T) {
 	cwd := t.TempDir()
 	cfg := testConfig()
 	cfg.Paths = config.Paths{Home: t.TempDir(), CWD: cwd}
-	cfg.MCPServers = []config.MCPServerConfig{{
+	declareReadyMCP(t, cfg, []config.MCPServerConfig{{
 		Name:    "warm",
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperMCPMarkerServer"},
 		Env:     []config.EnvVarConfig{{Name: "GO_WANT_MCP_MARKER", Value: "1"}},
-	}}
+	}})
 	seen := make(chan int, 1)
 	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		seen <- len(st.GetMCPClients())
@@ -220,12 +220,12 @@ func TestTurnAnnouncesTheMCPWaitOnlyWhenItWaits(t *testing.T) {
 	cwd := t.TempDir()
 	cfg := testConfig()
 	cfg.Paths = config.Paths{Home: t.TempDir(), CWD: cwd}
-	cfg.MCPServers = []config.MCPServerConfig{{
+	declareReadyMCP(t, cfg, []config.MCPServerConfig{{
 		Name:    "warm",
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperMCPMarkerServer"},
 		Env:     []config.EnvVarConfig{{Name: "GO_WANT_MCP_MARKER", Value: "1"}},
-	}}
+	}})
 	sender := &captureSender{}
 	m := session.NewManager(cfg, sender, noopRunner, slog.Default(), cwd, nil)
 
@@ -266,5 +266,14 @@ func TestTurnAnnouncesTheMCPWaitOnlyWhenItWaits(t *testing.T) {
 	prompt()
 	if got := len(phases()); got != before {
 		t.Fatalf("a warm turn announced an MCP wait: phases = %v", phases())
+	}
+}
+
+func declareReadyMCP(t *testing.T, cfg *config.Config, servers []config.MCPServerConfig) {
+	t.Helper()
+	for _, server := range servers {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(cfg.Paths.Home), server.Name, config.MCPJSONFromServer(server)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

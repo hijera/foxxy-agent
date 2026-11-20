@@ -254,9 +254,9 @@ Clear the field to use the session model for summarization.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory copilot**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
+- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
-- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory copilot, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
+- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
 - A map of values, such as the **Default headers** of **HTTP requests** (`tools.http_request.default_headers`), is a row per entry: the name and the value side by side, a trash button, and **Add** under the rows. A row without a name stays on screen and out of the saved configuration; an empty value is saved, and for a header it means "leave this header out".
 - Empty path fields show where the default leads (`${FOXXYCODE_HOME}/sessions`, `${FOXXYCODE_HOME}/memory`) or an example of what to write.
@@ -289,7 +289,7 @@ atomic: editing a provider or model list saves that entire list.
 
 *Hovering the (i) beside a field's name shows what the field means, above it and over the page.*
 
-- A settings form shows the names of its fields and the controls, nothing else. What a field means is behind the **(i)** right after its name: hover it (or reach it with Tab) and the description appears above it; on a touch screen tap it. Moving away, Escape, a tap elsewhere or scrolling the form closes it. Fieldsets (the provider **Models** list, **Remote skill sources**, **MCP discovery**, the Subagents **Definitions**, the object and list blocks of the generated forms) carry their description the same way, beside the legend.
+- A settings form shows the names of its fields and the controls, nothing else. What a field means is behind the **(i)** right after its name: hover it (or reach it with Tab) and the description appears above it; on a touch screen tap it. Moving away, Escape, a tap elsewhere or scrolling the form closes it. Fieldsets (the provider **Models** list, the Skills **Marketplaces**, **MCP discovery**, the Subagents **Definitions**, the object and list blocks of the generated forms) carry their description the same way, beside the legend.
 - The tip is drawn over the whole page, not inside the settings panel, so it is never clipped by the panel and never adds a scrollbar to it. Text that reports a state (a fetch result, a sign-in code, a warning about a stored value) stays in the form under its control.
 - Automated checks: **`FieldHint.test.tsx`**. Live check: hover an (i) at **1280px** and tap one at **390px**; the tip is a child of `<body>`, sits 8px above the (i) and centred on it, and `.settings-scroll` keeps `scrollWidth` equal to `clientWidth`.
 
@@ -384,8 +384,50 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 
 Footer links
 
+- **Top bar.** The brand drops its second word and shows **FoxxyCode** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
+- **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
+- **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
+- **Settings.** The section tiles keep two columns, and a section's name wraps to two lines instead of ending in an ellipsis: a phone has no hover, so a name cut short was out of reach behind its tooltip.
+- **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**): iOS Safari zooms the page into a smaller field on focus and does not zoom back. The composer and its highlight mirror change together, since the mirror has to keep the textarea's metrics.
+- The viewport meta carries **`interactive-widget=resizes-content`**, so Android browsers shrink the layout when the on-screen keyboard opens and the docked composer stays above it. A browser that ignores it (iOS Safari) shrinks only the visual viewport; the docked block is then lifted by what the keyboard covers (**`--foxxycode-keyboard-inset`**, measured from **`visualViewport`**).
+- **No keyboard by itself.** Opening the start screen or a chat, or closing History, does not focus the composer on a phone or a tablet (a touch-only device), since a focused field opens the on-screen keyboard; it comes when you tap the field. A desktop window, narrow or not, keeps the focus.
+
+Check it live at **360**, **375**, **393** and **430px** on the start screen and in a chat, with the menus closed and with History open: **`document.documentElement.scrollWidth`** equals **`clientWidth`**, the **Send** button's rect intersects no **`.composer-tab`**, and the brand's rect intersects no icon of the top bar. At **600**, **834** and **1280px** the layout is the tablet's and the desktop's. The transcript is measured at every width of the grid by **`npm run check:overflow`** (see **Checking the transcript at every width of the grid** below). The CSS contract is pinned by **`phoneLayoutCss.test.ts`**, **`transcriptWrapCss.test.ts`** and **`layoutGridCss.test.ts`**, which fails on a width the stylesheet asks about that the grid does not list; the scenarios are **`features/web_ui_phone.feature`**.
+
+Telegram Mini App (issue [#320](https://github.com/hijera/foxxy-agent/issues/320))
+
+![A conversation in the Telegram Mini App, half open, with the mode sheet over the docked composer](../assets/web-ui/telegram-mini-app-mode-dark-390.png)
+
+*A conversation in a half-open Mini App: the mode sheet and the composer stay in the part Telegram shows.*
+
+![The start screen in a Mini App opened from Telegram's light theme: Telegram's header and the web UI both light](../assets/web-ui/telegram-mini-app-start-light-390.png)
+
+*Opened from Telegram's light theme with no theme picked in FoxxyCode: the web UI follows it, and so does Telegram's header.*
+
+A Telegram bot can open the web UI as its Mini App, from its menu button, from a `web_app` button or from a link. The Telegram gateway sets this up when `gateways.telegram.mini_app.url` names the web UI's public https address ([Mini App](gateway.md#mini-app) on the gateway page); you can also point a menu button at the web UI by hand in @BotFather. Inside Telegram the web UI changes in the ways below, and an ordinary browser sees none of them.
+
+- **No script from telegram.org.** The web UI speaks Telegram's [web events](https://core.telegram.org/api/web-events) itself (`ui/telegram/bridge.ts`): through the `TelegramWebviewProxy` the mobile and desktop apps inject, or with the parent frame of Telegram Web, whose messages it sends to the parent's origin and takes from the parent at that origin only. `index.html` loads nothing from another origin, so a network that blocks telegram.org slows nobody's page.
+- **Launch parameters.** Telegram puts them into the address (`#tgWebAppData=...&tgWebAppVersion=...`). The web UI reads them before anything else runs (`ui/telegram/launch.ts`), keeps them in the tab's `sessionStorage`, so a reload inside Telegram stays a Mini App, and takes them out of the address, so the router sees its own route and a link copied from the page does not carry the signed launch data. `?session=<id>`, the link the bot's `/app` gives, opens that conversation in a Mini App and in a plain browser alike. The launch data signs in only a user in the bot's `admins` list through `POST /foxxycode/auth/telegram`; other browser sign-in rules are unchanged.
+- **The window.** The web UI expands the Mini App to full height, turns off the vertical swipe that would fold it while you scroll the transcript (Telegram's header still folds it), and gives Telegram's header, background and bottom bar the colours of the theme, again whenever the theme changes. Until you pick a theme in **Settings → Appearance**, it follows Telegram's light or dark one.
+- **Back.** Telegram's back button works as **Escape**: it closes the menu, sheet, dialog or screen on top, and in a conversation with nothing open it goes to the start screen. It never skips a question the agent asked you. On the start screen with nothing open Telegram shows **Close**, and Android's back key closes the Mini App.
+- **A half-open window.** Telegram can show only the top part of a Mini App. The docked composer, the menus and pickers (bottom sheets, as everywhere on a phone), the confirmation dialog and the image viewer rise into the part Telegram shows, by the part it hides or by an on-screen keyboard, whichever is more, and the transcript's newest message stays above the composer. History, Settings and the other drawers keep their place, with their head and close button in sight. In fullscreen the top bar keeps clear of the status bar and of Telegram's own buttons.
+- **Telegram Web.** web.telegram.org runs a Mini App in a frame of another site, where the browser does not keep the sign-in cookie. After a sign-in the server accepted and the browser dropped, the sign-in screen says so and links to FoxxyCode in a tab of its own. The mobile and desktop apps give a Mini App a window of its own, where sign-in works as in a browser.
+
+The module is `external/ui/src/ui/telegram/` with its own stylesheet, `telegram.css`; the scenarios are `features/web_ui_telegram_mini_app.feature`. To see it with no Telegram and no phone, open it from the offline stand: [Debugging against a fake Bot API](gateway.md#debugging-against-a-fake-bot-api) shows the stand by hand, and `npm run check:telegram` drives it end to end (*Checking the Telegram Mini App* below).
+
+Footer links
+
 - The Settings footer carries **API docs** (`/docs/`) and **Website** (`https://hijera.github.io/foxxy-agent/`), both in a **new tab** (`rel=noopener`).
 - In the editor plugins a new tab is not an option: the IntelliJ panel hands the link to the system browser, and in VS Code the SPA posts it to the extension, which opens it with `vscode.env.openExternal` (`external/ui/src/ui/embedExternalLinks.ts`).
+
+Header links
+
+- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
+- API docs link to `/docs/` (**new tab**, `rel=noopener`).
+- The version of the server the page is talking to, on the right (**`GET /foxxycode/info`**): a release reads **`v1.2.36`** and links to its notes on GitHub, a build between releases is shown as it is. In a remote environment or inside a node reached through a relay it is that server's version, not the page's.
+- The three sit in the footer of the start screen (**GitHub** | **API docs** | **v1.2.36**, **`chat/HeroFooter.tsx`**) and are gone once a chat is open; the nav rail carries none of them.
 
 Narrow-rail tooltips (desktop)
 
@@ -445,7 +487,7 @@ Session title
 *The reasoning level dropdown in the composer, levels fetched from the provider*
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
-- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** (the snapshot's **`reasoningChoices`** name **`off`** where the provider has the switch), and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
+- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** when its logical model enabled **`allow_reasoning_off: true`**, and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
 ### Session settings: permission chip, turn overrides, live mirror
@@ -479,7 +521,6 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
 - **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
 - **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
-
 ### Per-session reasoning level
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / gpt-oss / qwen3 / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
@@ -489,21 +530,44 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ### Per-session workspace (folder / branch / worktree / svn chips)
 
+![The Open folder dialog with New folder and Show hidden on the left of the footer](../assets/ui-folder-picker/folder-picker-after-dark-1280.png)
+
+*The folder browser fits the available screen height and keeps its footer visible.*
+
+![Creating a folder without scrolling the name row away](../assets/ui-folder-picker/folder-picker-new-row-dark-1280.png)
+
+*The new-folder name row stays above the scrolling directory list.*
+
+![The Open folder dialog on a phone, opened where History opens](../assets/ui-folder-picker/folder-picker-phone-dark-390.png)
+
+*The Open folder dialog on a phone, opened where History opens*
+
 - A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN chip** plus its **branch-folder checkbox**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
+- **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/foxxycode/slash-commands`**, **`/foxxycode/mentions`**, **`POST /foxxycode/mentions/check`**, **`/foxxycode/workspace/file`**) carries **`cwd=<folder>`** next to **`X-FoxxyCode-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.foxxycode/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder; Skills also sends it with marketplace sync, install and update, so those actions never fall back to the server default after a folder was picked.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
-- **New folder** (footer, left of **Cancel** / **Open**) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
+- **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
+- **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
+- **New folder** (the square **+** at the left of the footer, on the colours of the Scheduler's add button, with the **Show hidden** switch right after it; **Cancel** / **Open** sit on the right) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, slash commands, configured MCP servers (re-dialed for the new workspace through its trust gate, the old workspace's closed) and the SessionStart hook context re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.foxxycode/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **SVN chip** (**`composer-svn-chip`**) renders next to the git chip whenever **`is_svn_repo`** is true. Git and Subversion are detected independently, so a branch folder checked out from SVN that also holds a git repository shows both chips and each switches only its own VCS. The chip label is the svn branch (**`trunk`**, **`branches/<name>`**), with URL and revision in the tooltip; the menu lists the current branch first, then **`trunk`**, then the rest. Picking one posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
 - **SVN branch-folder checkbox** (**`composer-svn-folder-checkbox`**) replaces the worktree idea for Subversion, which has none: off switches the working copy in place (**`svn switch`**), on checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** (reusing an existing checkout) and moves the session there — the branch-folder workflow.
 - With **`vcs.svn.enable: false`** or no svn client installed, **`is_svn_repo`** is false and neither svn chip renders.
-- **Pre-session (draft/home)**: Returning home retains the selected chat's folder for the next conversation.  picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
+- **Pre-session (draft/home)**: Returning home retains the selected chat's folder for the next conversation. Folder and branch picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** and **`features/svn_workspace.feature`** (godog).
 ## Session list
+
+On desktop, selecting a conversation or closing History through its backdrop keeps
+an open Tasks panel visible. On narrow screens, closing the full-screen overlay
+also closes Tasks so the conversation can use the available space.
+
+![History alongside an open Tasks panel](../assets/session-history/history-tasks-dark-1280.png)
+
+*History and Tasks can stay open together on desktop.*
 
 The selected archive status survives reloads and IDE restarts. A status other
 than **Active** is shown above the list with **Show active chats** to reset it.
@@ -528,9 +592,9 @@ a fresh panel must first obtain a successful listing.
 
 *Grouped by folder: the heading is the folder name, and the plus on it opens a new chat already pointed at that workspace. Pinned conversations lead the list as their own group, each row carrying its folder and its tags*
 
-![The pinned group, mid-drag](../assets/sessions-history-pinned-dark-1280.png)
+![The pinned group, mid-drag by the row itself](../assets/sessions-history-pinned-dark-1280.png)
 
-*Pinned conversations lead every mode as one group, dragged into order by the grip on the left; the row being moved fades and the one it would land on is picked out*
+*Pinned conversations lead every mode as one group, dragged into order by the row itself; the row being moved fades and the one it would land on is picked out*
 
 ![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
 
@@ -565,8 +629,8 @@ a fresh panel must first obtain a successful listing.
   - **Folder** keys on the full path and shows the folder name, so two checkouts called `one` stay apart - and when a name really is carried by more than one heading, each of them spells out its full path underneath, because the name alone cannot tell them apart. Sessions with no workspace go last. A folder heading also carries a **+** that starts a new chat already pointed at that workspace - the pick goes through the same pre-session path as the composer's folder chip, so the server resolves the folder's current git branch for the new conversation.
   - **Tag** puts untagged sessions last.
 - **What can be done to one conversation is behind its ⋮**: **Pin to the top**, **Rename** and **Tags** - the three that change where the row sits or what it says about itself - then below a rule **Archive** and **Delete**, the two that take the conversation out of the list, with delete in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
-- **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves. A pinned row carries a small accent mark beside its title and a **grip** on the left.
-- **The pins are reordered by dragging** that grip, with a mouse or a finger: the drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /foxxycode/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
+- **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves.
+- **The pins are reordered by dragging the row itself**: with a mouse, press and move it (a plain click still opens the conversation); with a finger, hold the row for a moment, then drag (a quick swipe still scrolls the list). The drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /foxxycode/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
 - **An archived conversation is dimmed in the list and cannot be written to**: its row is muted, and opening it replaces the composer with a notice saying it is archived and one button that takes it back out. Nothing is refused on the server - the archive is a shelf, not a lock - but leaving the composer there would invite a prompt that silently undoes the operator's own *not now*. The composer learns this from **`GET /foxxycode/sessions/{id}/messages`**, which carries **`archived`**: the session listing skips the archive, so the conversation on screen may be in no page the client holds.
 - **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row leaves the list at once, the request goes behind it, and the list is not read again, so the rows scrolling has loaded and the place in the list stay where they were - the next conversation to archive is right there. A refused request puts the row back where it stood and says so on the row itself (*The conversation was not archived*), because the top of the list, where a list error shows, is usually out of view by then; the note goes when you try again or close History. A listing already on its way when the request settled cannot put the row back, and the next page starts one row earlier for each conversation archived out of the loaded part, so none falls between two pages. An archived row carries the archive **mark** beside its title - the state a conversation is in, not a label among its tags - and the same menu item puts it back. Archiving the conversation that is on screen swaps the composer for the same archived notice at once, and putting it back brings the composer back - the flag follows the **`PATCH`** answer, so it does not wait for the next transcript load. The **Status** filter remembers what it was set to, so a session put aside stays out of the way until the operator asks for it.
 - **Tags** of a row render under its title as small chips (the title keeps the first line to itself). They are proposed by the title generation, edited by hand in the **Tags** editor of the row menu, and written by the model's own `session_describe` tool ([Sessions](../features/sessions.md#tags-and-the-archive)).
@@ -1082,9 +1146,19 @@ Editing a sent message rewrites the conversation in place: the history is rewoun
 *A connection failure keeps the draft available and displays the browser's error.*
 
 - Every user bubble carries a pencil button (**`.msg-user-edit`**, **`data-testid="user-message-edit"`**, accessible name **`Edit message`**) in **`.msg-user-foot`**, directly left of the copy control with the same **`.msg-copy-icon-btn`** chrome - always visible, in flow. It loads that message back into the composer draft (attachment chips are recovered from the persisted session-assets annotation) and records the 0-based **user** message index being edited.
-- Sending that draft calls **`POST /foxxycode/sessions/{id}/rewind`** with **`{"userMessageIndex"}`**. The draft and the editing state stay until the rewind lands - a failed request surfaces as a UI-log error row and nothing is lost.
+- While a message is loaded for an edit, the composer says so: a banner above the card (**`.composer-edit-banner`**, **`data-testid="composer-edit-banner"`**) names it (**Editing message**, the start of its text, *Sending rewinds the conversation to this message*), the send button's accessible name becomes **Send edit**, the bubble is outlined (**`.msg-user-stack--editing`**) and every row after it is faded, since sending removes exactly those rows. **Escape** in the field (once no picker or popover claimed it) or the banner's cross (**`data-testid="composer-edit-cancel"`**) leaves the edit and puts back the draft and attachments the pencil replaced; a second pencil switches the message and keeps the same draft to return to. Sending the edit gives that draft back too, so a follow-up written before the pencil is not lost.
+- Sending that draft calls **`POST /foxxycode/sessions/{id}/rewind`** with **`{"userMessageIndex"}`**. While the request is pending, the editor keeps its draft and disables **Send edit** and **Cancel edit**. If the server refuses the rewind, the error appears in the transcript and the edit stays open.
 - On **200** the client drops the shadow transcript and the persisted permission prompts of the removed tail, reloads the kept prefix from **`GET .../messages`**, and sends the edited text as the next turn of the same session.
-- The server truncates **`messages.json`** at the edit point, prunes the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns, and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /foxxycode/events`** tells every other tab or surface holding the session to reload the same way.
+- The server truncates **`messages.json`** at the edit point, moves the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns into the undo snapshot (**`rewind_undo/`**, removed once a later prompt or another rewind retires it), and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /foxxycode/events`** tells every other tab or surface holding the session to reload the same way.
+- A sent edit can be taken back while **`GET .../messages`** carries **`rewindUndo`**: the edited prompt carries **Undo edit** in its foot (**`.msg-user-undo-edit`**, **`data-testid="user-message-undo-edit"`**) and the banner slot says **Message edited** with **Undo** (**`data-testid="composer-undo-banner"`**, hidden by its cross for that edit; the prompt's control stays). Undo sends the snapshot ID to **`POST /foxxycode/sessions/{id}/rewind/undo`**. The server stops the edited turn if it still runs, and the UI reloads the transcript after the restore. An expired snapshot appears as an error row. Sending another prompt ends the undo, as it does on the server. File changes the removed turns made are not reverted, and both controls say so.
+
+![The edit banner above the composer while a sent message is being edited](../assets/web-ui/message-edit-banner-dark-1280.png)
+
+*Editing a sent message: the banner names it, the bubble is outlined and the turns sending will remove are faded.*
+
+![The undo banner after an edit was sent](../assets/web-ui/message-edit-undo-dark-1280.png)
+
+*After the edit is sent, Undo on the prompt and in the banner restores the conversation as it was.*
 
 Automated checks:
 
@@ -1092,7 +1166,10 @@ Automated checks:
 - **features/session_rewind.feature** + **external/httpserver/bdd_rewind_test.go** (the endpoint's happy path)
 - **external/ui/src/ui/messages/userMsgIndices.test.ts** (the index an edit names, a wake counting as a turn)
 - **external/ui/src/ui/messages/MessageList.test.tsx** (the index an edit names when the transcript holds only the end of a long history, see **Long sessions**)
-- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility)
+- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility, the editing mark, Undo edit)
+- **external/ui/src/ui/chat/Composer.editBanner.test.tsx** (the edit and undo banners, Escape, the send button's name)
+- **external/ui/src/ui/App.messageEdit.test.tsx** (cancelling restores the draft, Undo restores the conversation)
+- **internal/session/rewind_undo_test.go**, **features/session_rewind_undo.feature** and **external/httpserver/foxxycode_rewind_undo_test.go** (the kept tail, when the undo ends, stopping the edited turn)
 
 ## Background tasks panel
 
@@ -1121,11 +1198,13 @@ Automated checks:
 
 ### Subagent definitions
 
-**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /foxxycode/subagents` for the workspace of the session on screen (`workspaceCtx.path` from `App.tsx`; without one the server answers for its default workspace), with that workspace printed above the list.
+**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /foxxycode/subagents` for the workspace of the chat on screen (`chatWorkspacePath` from `App.tsx`: the session's folder, or the folder picked before the first message; without one the server answers for its default workspace). The tab does not print that path.
 
 - Each row reuses the MCP list chrome: the name, a scope badge (`built in` / `yours` / `from the project`), `hidden`, the description as plain text and the file.
-- A project definition awaiting a receipt under `project_trust: ask` carries an amber `needs approval` badge and an approval control. Its description stays hidden until approval. The control calls `POST /foxxycode/subagents/{name}/trust` for the workspace on screen; an approved project definition can also be untrusted here.
-- **Declared bounds** (`subagentDeclaredFacts` in `settings/subagentCatalog.ts`) show model, mode, permissions, tools, denies, timeout, max turns, detached execution and instructions size. The approval note also shows the definition's digest, so the operator can see what the receipt binds to. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
+- Under `project_trust: ask` a project definition carries the shield of the MCP tab (`subagent-trust-<name>`): amber while it is not approved, plain once it is. Clicking it approves the file for that workspace with `POST /foxxycode/subagents/{name}/trust`, naming the `digest` the row showed, so a file the checkout rewrote since is refused (409) and the error is shown above the list; clicking an approved one withdraws the receipt. The list is read again after either. A definition still awaiting a receipt also carries an amber `needs approval` badge whose tooltip names the shield and `foxxycode agents trust <name>`. Built-in and user definitions, and every definition under `allow` or `deny`, have no shield.
+- **Declared bounds**, collapsed on every row (`subagentApprovalFacts` in `settings/subagentCatalog.ts`): model, mode, permissions, tools, denies, timeout, max turns, runs detached and instructions size, with every undeclared bound shown as inherited. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
+
+An unapproved project definition keeps its authored description hidden until approval.
 
 ![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
@@ -1141,7 +1220,7 @@ Automated checks:
 
 - **external/ui/src/ui/settings/subagentCatalog.test.ts** (inherited and declared facts, formatting, scope badge keys)
 - **external/ui/src/ui/settings/subagentsApi.test.ts** (workspace in the query, normalised catalog, server error messages, offline)
-- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, no control on any row, the passive needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
+- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, the shield of a project definition under ask approving the file with the digest shown and withdrawing the receipt, a refused approval, no shield under allow or deny nor on a built-in or user definition, the needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
 - **external/ui/src/ui/settings/subagentsCatalogCss.test.ts** (the catalog cannot outgrow the panel, facts label column, amber badge)
 - **external/ui/src/ui/settings/SettingsSection.test.tsx** (the subagents kind keeps its form and asks about the session workspace)
 - **external/ui/src/ui/chat/SubagentPermissionCard.test.tsx** (answered against the child session, only waiting tasks and oldest first, nothing while none waits, title prefix, Russian copy)
@@ -1275,6 +1354,50 @@ Automated checks:
 - Label fences with the language (for example `js`, `css`, `html`, `json`, `ts`, `python`, or `go`) to enable highlighting. Unlabelled or unsupported languages stay plain text. Highlighting also works while an answer is streaming.
 - Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
+- Mermaid and SVG fences are drawn as pictures and LaTeX as formulas: see [Diagrams and formulas](#diagrams-and-formulas).
+
+## Diagrams and formulas
+
+An answer that holds a diagram or a formula shows it drawn, not as source. This covers what an agent writes when asked to "draw the flow" or "show the formula": a Mermaid fence, an SVG fence, and LaTeX between dollars or LaTeX's own delimiters. The web UI and the Telegram Mini App draw them; the console, ACP clients and the messenger bots keep the text.
+
+![A Mermaid flowchart drawn in an answer, with the MMD and SVG buttons and the source switch in its head](../assets/web-ui/diagrams-flowchart-dark-864.png)
+*A Mermaid fence in an answer: drawn by default, its source one click away.*
+
+![The source of a long Mermaid diagram, scrolling in its box, the source switch lit and the copy button in the corner of the text](../assets/web-ui/diagrams-source-dark-864.png)
+*The source switch pressed: the diagram's text with its copy button.*
+
+- **What is drawn.** A fence labelled **`mermaid`** (flowcharts, sequence, class, state, ER, Gantt, pie, mindmap and the rest of what Mermaid draws) and a fence labelled **`svg`**. Any other label stays a code block: an **`xml`** fence that happens to hold an `<svg>` is not drawn.
+- **Editor compatibility.** The same diagrams and formulas render in IntelliJ's Chromium 104 panel. Local compatibility functions cover the renderer dependencies' newer JavaScript APIs; linked Mermaid nodes keep a valid standalone SVG namespace when displayed or saved.
+- **The block.** A head row names the kind (**Mermaid diagram**, **SVG image**) and carries, on the right, the formats to save it as and the source switch. **MMD** saves the Mermaid source (**`diagram.mmd`**) and **SVG** the drawn picture (**`diagram.svg`**); an SVG fence has **SVG** only, which saves its source (**`image.svg`**). In the VS Code panel, these buttons open the editor's Save As picker and save through the extension, including in remote workspaces. The source switch is an icon of angle brackets, off by default, so the picture is what you see; pressed, it shows the source with a copy button in the top right corner of the text, and a source longer than about twenty lines scrolls in its box. A click on the picture opens it in the image viewer with zoom and pan.
+- **Errors.** A diagram Mermaid cannot parse shows its source with the reason under the head (**Could not draw the picture: Parse error on line 3: ... Expecting ..., got ...**), and the source switch stays pressed and disabled. If the renderer cannot be loaded at all (offline, a page older than the binary), the block shows the source with **Could not load the diagram renderer: reload the page**.
+- **Streaming.** A fence that is still arriving is drawn when it first appears and then again once its text has not changed for 300 ms, so Mermaid is not run on every token of a half-written diagram.
+- **Themes.** A diagram takes all its colours from the active appearance and is drawn again when the theme changes: nodes are tinted with the accent, edges are the text colour, and pie slices, chart series and git branches use the theme's accent and syntax colours, each kept far enough from the surface that the slice stands out and its label reads (4.5:1). This holds in all seven themes. An SVG is drawn as written.
+
+![A Gantt chart and a pie chart drawn in the dark theme, slices in the theme's accent and syntax colours](../assets/web-ui/diagrams-charts-dark-888.png)
+*Charts take the theme's colours: the dark theme...*
+
+![The same Gantt chart and pie chart in the light theme](../assets/web-ui/diagrams-charts-light-888.png)
+*...and the light one.*
+
+- **Safety.** The picture is an `<img>` with the SVG as a `data:` URL: an SVG drawn that way runs no script, loads nothing from the network and cannot style the page, so an SVG the model wrote is shown as it is. Mermaid runs with **`securityLevel: "strict"`**.
+
+![Inline and display formulas typeset by KaTeX, with the source switch on each display block](../assets/web-ui/diagrams-formulas-dark-892.png)
+*Inline and display formulas; a price in the same paragraph stays text.*
+
+- **Formulas.** **`$...$`** and **`\(...\)`** are inline formulas; **`$$...$$`**, **`\[...\]`** and a **`math`** fence are display formulas. KaTeX typesets them (no **`\href`**, **`\url`** or **`\includegraphics`**: untrusted commands are off), building the formula's nodes itself in the page (**`katex.render`**), so no HTML string made from an answer is ever parsed. A display formula has the same head as a diagram with the source switch only (the source view carries the copy button), and scrolls sideways when it is wider than the transcript. An inline formula shows its source as a tooltip and copies it, dollars included, on a click (or Enter / Space). A **`\[...\]`** inside a quote or a list item stays on its line (typeset inline) rather than breaking the quote or the list, and LaTeX delimiters inside fenced or indented code are left as they are; a pair never spans a blank line, a new list item or a change of quote depth. Escaped brackets in prose (`a\[0\]`, `\(see below\)`) stay text.
+
+Click an inline formula in the IntelliJ or VS Code panel to copy its LaTeX source, including the dollar delimiters. The panel uses its clipboard fallback if the webview refuses the Clipboard API.
+
+Fenced code stays literal even when its opening backticks or tildes follow a list marker on the same line, including nested lists and quotes. LaTeX delimiters in such examples are displayed and copied unchanged, including across blank lines.
+
+![A Python code fence in a list item keeps its literal backslashes while the formula outside it is typeset](../assets/web-ui/code-fences-list-dark-1280.png)
+*Code inside a list stays literal; formulas outside the code still render.*
+
+- **Dollars that are not math.** A single-dollar span is a formula only when no space follows the opening dollar or precedes the closing one and no letter or digit touches either dollar from outside (Pandoc's rule), and when it does not open as **`${NAME}`**. So "it costs $5 and $10", **`${FOXXYCODE_HOME}/hooks.json`**, **`$HOME$PATH`** and an argon2 hash stay text. Dollars inside code spans and fences are never math. Bad TeX shows KaTeX's own red source rather than an error.
+- **The agent knows.** Every turn the web UI sends names it (**`metadata.surface: "webui"`**), and the server adds a block to that turn's system prompt: the web UI draws **`mermaid`** and **`svg`** fences and typesets LaTeX, so a diagram, a chart or a formula is the answer when it says more than prose would, and colours are left to the theme. The block belongs to the turn and is never stored; the console, the remote console, the messenger bots and API clients do not get it and keep answering in text. A session used from the web UI and from another surface in turn pays for it with a cache miss on the switching turn.
+- **Where.** Everywhere the web UI renders Markdown: answers, thinking, tool cards, the plan card and the documentation reader.
+- **Loading.** Mermaid and KaTeX are not part of **`app.js`**. They are separate files under **`/chunks/`** (content-hashed names, embedded in the binary like the rest of the SPA), fetched the first time a page shows a diagram or a formula and then cached by the browser for good. A chat with neither downloads nothing extra.
+- **Code.** **`ui/markdown/DiagramBlock.tsx`** (the block), **`ui/markdown/pictureRender.ts`** (Mermaid's configuration, the theme palette, the SVG sizing and the cache), **`ui/markdown/MathFormula.tsx`** (KaTeX), **`ui/markdown/mathDelimiters.ts`** (LaTeX delimiters and the dollar rule), **`ui/markdown/renderers.ts`** (the on-demand imports). Tests: **`ui/markdown/DiagramsAndMath.test.tsx`**, **`ui/markdown/mathDelimiters.test.ts`**, **`features/web_ui_diagrams.feature`**; browser check: **`npm run check:diagrams`** (see [Checking diagrams and formulas](#checking-diagrams-and-formulas)).
 
 ## Markdown line editor (shared)
 
@@ -1355,10 +1478,10 @@ File API
 Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
 section kind `mcp`; visual contract in `DESIGN.md`):
 
-- `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
-  + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
-  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
+- `GET /foxxycode/mcp` backs the list: merged global `~/.foxxycode/mcp.json` + project
+  `./.foxxycode/mcp.json` servers (config.yaml declares none), each with `source`
+  (`global` / `local` scope badge), `origin` (`home` / `project`) and
+  `source_path` (the real file, which is what the badge tooltip names), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`),
@@ -1382,7 +1505,8 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   `source_path` it was declared in plus the declaration the approval covers
   (`.mcp-trust-facts`, from `declarationFacts` in `mcpServerJson.ts`):
   transport, `runs` (command + args) or `contacts` (url), the **names** of the
-  env vars and headers, and the workspace. Values are never rendered. The shield
+  env vars and headers, the variables of the FoxxyCode process its values read
+  (`reads`, from the row's `reads`), and the workspace. Values are never rendered. The shield
   renders **only under `ask`** (`showsTrustControl` in `mcpServerJson.ts`):
   `allow` starts every project server anyway and `deny` starts none, so there is
   no per-server decision left to offer. Such a row is not probed, so it lists no
@@ -1400,9 +1524,16 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 - Expanding a row lists tools with per-tool switches
   (`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
   locked while the server is disabled.
-- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
-  of both scopes stay editable. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
+- Every row is editable, both scopes. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
   opens the JSON editor card inline with the scope pinned to the owning file.
+- The list carries no env or header value, only `<redacted>` in its place, so the
+  editor of a row starts from the placeholders and says under the JSON what they do
+  (`mcp-editor-values-hint`): one left as it is keeps the stored value, a new value
+  replaces it, a removed key is deleted. Save sends the row's `fingerprint`
+  (`PUT /foxxycode/mcp/{name}?scope=…&fingerprint=…`); when the file holds another
+  declaration by then the server answers `409`, the card stays open with
+  `mcp.error.saveChanged` and the list is read again, and the entry has to be
+  reopened to be edited.
 - Add server opens the editor prefilled with a Cursor-style entry template and
   a Local/Global scope picker (default Local); Save issues
   `PUT /foxxycode/mcp/{name}?scope=local|global` after client-side validation
@@ -1424,6 +1555,55 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 - List refreshes never unmount the list (initial-load-only placeholder), so the
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.
+
+## Skill marketplaces (Settings tab)
+
+**Settings > Skills** keeps its form (auto-discovery, `skills.dirs`, and `skills.project_trust` in a
+**Marketplace discovery** fieldset of its own, saved with the rest of the settings) and the installed
+skills, and between them a **Marketplaces** fieldset (`MarketplacesEditor.tsx`, helpers in
+`settings/marketplaces.ts`). Like the MCP tab it is API-driven and never part of the settings
+document: what it lists is declared in `~/.foxxycode/marketplaces.json`, the project's
+`.foxxycode/marketplaces.json` and FoxxyCode itself, read through `GET /foxxycode/skills/sources` for the session
+on screen (`X-FoxxyCode-Session-ID`), and every action applies at once.
+
+- One row per entry, in the order the entries take effect: the key (a marketplace's name, a source's
+  address), a kind badge (**all plugins** for a source, **catalog** for a marketplace, whose address
+  sits under the name) and an origin badge (**built in**, **yours**, **from the project**) whose
+  tooltip names the declaring file.
+- The built-in `EvilFreelancer/rpa-skills` carries a shield that cannot be clicked (always trusted)
+  and a disabled delete button; it syncs like any row.
+- Under `skills.project_trust: ask` a project row carries the MCP shield: amber while the entry
+  waits for approval, plain once approved. Clicking it posts `POST /foxxycode/skills/sources/trust` with
+  the row's `fingerprint` (an entry the checkout rewrote since is refused with 409 and the message is
+  shown above the list), or `untrust` for an approved one; the list is read again after either. A
+  row still waiting is dimmed, says which file declares it and that it is not synced until approved,
+  and its **Sync** button is disabled. Under `deny` its note says the policy switched it off and
+  there is no shield; under `allow` project rows are in effect and have none either.
+- **Sync** on a row is `POST /foxxycode/skills/sync?source=<key>`, **Sync all** `POST /foxxycode/skills/sync`;
+  both refresh the installed list and flash a check mark, and a refresh that fails says so and leaves
+  the buttons usable. The Sync of a held row is disabled, its title asks for the approval first,
+  or under `deny` names the policy. Delete is `DELETE /foxxycode/skills/sources?source=<key>&origin=<row origin>`: it
+  edits the file of that row only, so removing your entry never touches the project's checked-in copy.
+- The add field declares a source (installed whole) with `POST /foxxycode/skills/sources`, in your file
+  or, with **This project**, in the project's, which approves it for that workspace as it is written.
+  **This project** is available once the chat has a session: before its first message the server
+  would take its own default folder, not the one on screen, so the picker stays on your file.
+- A chat kept as a draft in the browser has no session on the server: the list and its actions then
+  send no `X-FoxxyCode-Session-ID` and answer for the server's default workspace (the MCP tab does the
+  same). A save of the settings reads the list again, so the rows follow a changed
+  `skills.project_trust`; the Subagents catalog does the same for `subagents.project_trust`.
+- The install search (`GET /foxxycode/skills/available`), the update check (`GET /foxxycode/skills/updates`)
+  and **Update** go to the same session, so a project marketplace approved there is offered and one
+  held there is neither checked nor updated from.
+- On a phone the row's controls wrap under the key and the add field takes the full width.
+
+![Settings, Skills: the marketplaces list](../assets/skills/skills-marketplaces-dark-1280.png)
+
+Automated checks:
+
+- **external/ui/src/ui/settings/MarketplacesEditor.test.tsx** (rows with kind, origin and file, the built-in row's disabled shield and delete, a held project row with its note, disabled sync and shield, approval with the fingerprint and its withdrawal, a refused approval, a denied row, add with the scope, remove by key, sync of one and of all, Russian copy)
+- **external/httpserver/server_test.go** (`TestFoxxyCodeSkillsSourcesSyncDelete`, `TestFoxxyCodeSkillsNewRoutesEdgeCases`: the routes, the scopes, 409 on a rewritten entry, 400 on syncing a held one)
+- **features/skills_marketplace.feature**, **features/skills_marketplace_trust.feature** (a project marketplace waits for its approval, then syncs into the FoxxyCode home)
 
 ## Swarm screen
 
@@ -1656,6 +1836,30 @@ FOXXYCODE_BIN=build/foxxycode npm --prefix external/ui run check:queue
 
 **`FOXXYCODE_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`FOXXYCODE_BROWSER_PATH`** points at an installed Chromium, **`FOXXYCODE_PORT_BASE`** moves its four ports and **`FOXXYCODE_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
 
+### Checking the Telegram Mini App
+
+`npm run check:telegram` (`external/ui/scripts/telegram-mini-app-check.mjs`) opens the web UI as a Telegram Mini App with no Telegram. It starts `cmd/tgfake` with its scripted model and a real `foxxycode serve` whose bot talks to the stand, and drives the stand's chat page, which opens the bot's `/app` button in its phone frame. It checks the menu button and `/app`; what the Mini App asks of the client (expand, swipes off, the header colour, ready last); an address free of the launch data; the half-open window, entered while the transcript is parked at its newest message (the composer and that message in sight, nothing wider than the page, the chat title still sticky); the mode sheet and the start screen's context sheet inside the visible part; Back; Telegram's light theme; and the sign-in note in a cross-site frame (the stand's page on `localhost`, the web UI on `127.0.0.1`).
+
+```bash
+make build TAGS="http ui gateway"
+cd external/ui
+npm i --no-save playwright && npx playwright install chromium   # once
+FOXXYCODE_BIN=../../build/foxxycode npm run check:telegram
+```
+
+`FOXXYCODE_BROWSER_PATH` points at an installed Chromium instead of Playwright's download, `FOXXYCODE_SCENARIOS` runs some of `bot`, `open`, `half`, `sheets`, `theme` and `signin`, `FOXXYCODE_SCREENSHOTS` writes the captures this page and the gateway page show, and `FOXXYCODE_E2E_KEEP=1` leaves the stand running for a look.
+
+### Checking diagrams and formulas
+
+Whether Mermaid draws, whether the browser decodes the picture, whether KaTeX's fonts arrive and whether a picture fits the transcript are facts of a real engine. **`external/ui/scripts/diagram-check.mjs`** opens **`src/diagram-check.html`**, a stand that mounts an answer with six Mermaid diagrams (a flowchart, a sequence diagram, a mindmap, a Gantt chart, a pie and a class diagram), an SVG, a broken diagram, inline and display formulas and a price from the real components against the real stylesheet, in all seven themes at **360** and **1280px**, and fails when a picture is not drawn or sticks out of the column, the broken diagram does not name its error, a formula is not typeset, KaTeX's font did not load, the price became a formula, the page scrolls sideways, Mermaid and KaTeX were not fetched on demand, or anything was logged as an error.
+
+```bash
+cd external/ui && npx vite --port 5247 &
+FOXXYCODE_UI_URL=http://127.0.0.1:5247 npm --prefix external/ui run check:diagrams
+```
+
+The stand also takes **`?theme=<id>`**, **`?lang=ru`** and **`?case=<name>`** (one answer of the stand) for screenshots. **`FOXXYCODE_BROWSER_PATH`** and **`FOXXYCODE_ENGINE=webkit`** work as in the checks above. It is **not part of `make test`**: run it when a change touches the Markdown renderers, their styles or the build of the chunks.
+
 ### Checking the transcript at every width of the grid
 
 A row wider than the transcript scrolls the whole page sideways on the stacked shell, and whether a row fits is a layout fact jsdom cannot answer. **`external/ui/scripts/phone-overflow-check.mjs`** measures it in a real engine at the verification widths of the grid (**360**, **375**, **393**, **430**, **599**, **600**, **834**, **1199**, **1280px**) in both shipped languages, after the fonts have loaded and the rows' animations have ended: the page must not scroll sideways, nothing may stick out of **`.messages-inner`** except inside a box the reader can scroll sideways (a table, a code block; a box that only clips excuses nothing), every tool row keeps its duration inside the row and its target, marker and duration on one line, no target is narrower than its first 24px, the line range of a **`read`** of part of a file is shown whole however long its path, and the rows with a short label keep one line at every width. It exits non-zero on any of them.
@@ -1782,6 +1986,26 @@ The Context popover offers **Compact now** and the automatic threshold. `compact
 
 Feature worktrees show the main project name in the folder chip and their own branch in the branch chip. History groups them by `repoRoot`; the actual session cwd stays inside the worktree. See [Git worktrees](../features/worktrees.md).
 
+### Compatible provider client identity
+
+For OpenAI-compatible and Anthropic-compatible providers, omit
+`providers[].user_agent` or leave it empty to keep the provider SDK identity
+(`OpenAI/Go` or `Anthropic/Go`). The explicit `openai` and `anthropic` values also
+keep the current protocol's SDK identity, including after switching provider type.
+Select `foxxycode` to send
+`Foxxycode/<running version>`, using `dev` in an unstamped build. It applies to
+completion requests and model listing, including the unsaved provider preview.
+Other provider types ignore this setting. In Settings, open an OpenAI-compatible
+or Anthropic-compatible provider, expand **Advanced settings** and choose
+**User-Agent**; save the provider to apply it to new calls.
+
+![OpenAI-compatible provider User-Agent choices](../assets/web-ui/provider-user-agent-options-dark-1280.png)
+
+*Choose the default OpenAI/Go identity or Foxxycode with the running version (Dark, 1280 px).*
+
+![Anthropic-compatible provider User-Agent choices](../assets/web-ui/provider-user-agent-anthropic-options-dark-1280.png)
+
+*Anthropic-compatible providers offer Anthropic/Go by default and the same Foxxycode version option (Dark, 1280 px).*
 
 ## Workspace folder and MCP settings
 

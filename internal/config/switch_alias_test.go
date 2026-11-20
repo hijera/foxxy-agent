@@ -373,11 +373,7 @@ func TestConfigJSONReadsLegacyEnabled(t *testing.T) {
 // not a switch and must survive the JSON rewrite.
 func TestConfigJSONLeavesUnrelatedEnabledAlone(t *testing.T) {
 	body := `{"mcp_servers":[{"name":"ctx","command":"npx","env":[{"name":"enabled","value":"yes"}]}]}`
-	cfg, err := ParseAndValidateConfigJSON([]byte(body), Paths{Home: t.TempDir()})
-	if err != nil {
-		t.Fatalf("parse config JSON: %v", err)
-	}
-	if len(cfg.MCPServers) != 1 || len(cfg.MCPServers[0].Env) != 1 || cfg.MCPServers[0].Env[0].Name != "enabled" {
-		t.Fatalf("an environment variable named enabled was rewritten: %+v", cfg.MCPServers)
+	if got := string(normalizeJSONSwitchAliases([]byte(body))); !strings.Contains(got, `"name":"enabled"`) || !strings.Contains(got, `"value":"yes"`) {
+		t.Fatalf("an environment variable named enabled was rewritten: %s", got)
 	}
 }

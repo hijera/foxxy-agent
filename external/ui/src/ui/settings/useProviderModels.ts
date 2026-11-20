@@ -19,6 +19,7 @@ const REQUEST_FIELDS = [
   "name",
   "type",
   "api_base",
+  "user_agent",
   "api_key",
   "api_key_command",
   "proxy",

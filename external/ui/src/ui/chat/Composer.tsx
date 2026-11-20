@@ -101,6 +101,7 @@ import {
   onSendModeChange,
   DEFAULT_SEND_MODE,
 } from "../i18n/sendModeConfig";
+import { applyWorkspaceQuery, workspaceScope } from "./workspaceScope";
 
 function expandCodeFenceAtCaret(
   value: string,
@@ -400,6 +401,17 @@ export function Composer(props: {
   onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
+  /**
+   * A sent message is loaded into the field for an edit: a banner above the
+   * card names it, the send button says it sends the edit, and Escape or the
+   * banner's cross calls onCancel (which puts back the draft it replaced).
+   */
+  editingMessage?: { snippet: string; onCancel: () => void; busy?: boolean };
+  /**
+   * The last edit can still be taken back: the banner slot offers Undo. An
+   * edit in progress wins the slot.
+   */
+  rewindUndo?: { onUndo: () => void; onDismiss: () => void; busy?: boolean };
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
@@ -450,6 +462,13 @@ export function Composer(props: {
   onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
+  /**
+   * The folder the chat runs in: the session's workspace, or before the first
+   * message the folder picked on the start screen. Sent as cwd with every
+   * cwd-scoped request (slash commands, mentions, the file a mention names),
+   * next to the session header, so a new chat lists what its folder holds.
+   */
+  workspacePath?: string;
   worktreePref?: boolean;
   svnFolderPref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
@@ -1046,13 +1065,10 @@ export function Composer(props: {
       if (prefix) {
         sp.set("prefix", prefix);
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/foxxycode/slash-commands?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -1072,7 +1088,7 @@ export function Composer(props: {
       }
       return body;
     },
-    [props.sessionId, props.onDocsCommand, props.onMCPCommand, t],
+    [props.sessionId, props.workspacePath, props.onDocsCommand, props.onMCPCommand, t],
   );
 
   const fetchMentions = useCallback(
@@ -1084,20 +1100,17 @@ export function Composer(props: {
       if (refresh) {
         sp.set("refresh", "1");
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/foxxycode/mentions?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       return (await res.json()) as MentionSearchBody;
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   /** Clears the range panel; the composer text is left exactly as typed. */
@@ -1109,13 +1122,26 @@ export function Composer(props: {
     setAtRangeFile(null);
   }, []);
 
-  // A session switch changes the workspace behind every path: drop the loaded
-  // preview and any read still in flight, so the panel never shows another
-  // session's file. The next keystroke in the suffix fetches afresh.
+  // A session switch, or another folder picked before the session exists,
+  // changes the workspace behind every path and every skill: drop the loaded
+  // preview, the open pickers and any answer still in flight, so nothing of the
+  // previous workspace is shown. A prefix that matched nothing there may match
+  // here, so the remembered no-match is forgotten too. The next keystroke
+  // fetches afresh.
   useEffect(() => {
     closeAtRangePicker();
     setAtRangeSuppressed(null);
-  }, [props.sessionId, closeAtRangePicker]);
+    slashFetchGenRef.current++;
+    atFetchGenRef.current++;
+    setSlashOpen(false);
+    setSlashReplace(null);
+    setSlashNoMatch(null);
+    setSlashLoading(false);
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    setAtLoading(false);
+  }, [props.sessionId, props.workspacePath, closeAtRangePicker]);
 
   /**
    * Loads the mentioned file once per path. A path that does not resolve simply
@@ -1131,13 +1157,10 @@ export function Composer(props: {
       const gen = ++atRangeFetchGenRef.current;
       try {
         const sp = new URLSearchParams({ path_rel: pathRel });
-        const headers: Record<string, string> = {};
-        const sid = (props.sessionId || "").trim();
-        if (sid) {
-          headers["X-FoxxyCode-Session-ID"] = sid;
-        }
+        const scope = workspaceScope(props.sessionId, props.workspacePath);
+        applyWorkspaceQuery(sp, scope);
         const res = await fetch(`/foxxycode/workspace/file?${sp.toString()}`, {
-          headers,
+          headers: scope.headers,
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -1162,7 +1185,7 @@ export function Composer(props: {
         }
       }
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   const enhancePrompt = useCallback(async () => {
@@ -1609,7 +1632,7 @@ export function Composer(props: {
   useEffect(() => {
     mentionCheckGenRef.current++;
     setMentionMarks(new Map());
-  }, [props.sessionId]);
+  }, [props.sessionId, props.workspacePath]);
   useEffect(() => {
     const text = props.value;
     const gen = ++mentionCheckGenRef.current;
@@ -1617,16 +1640,11 @@ export function Composer(props: {
       return;
     }
     const timer = window.setTimeout(() => {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-FoxxyCode-Session-ID"] = sid;
-      }
-      fetch("/foxxycode/mentions/check", {
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      const query = applyWorkspaceQuery(new URLSearchParams(), scope).toString();
+      fetch(`/foxxycode/mentions/check${query ? `?${query}` : ""}`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json", ...scope.headers },
         body: JSON.stringify({ text }),
       })
         .then(async (res) => {
@@ -1655,7 +1673,7 @@ export function Composer(props: {
         });
     }, MENTION_CHECK_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [props.value, props.sessionId]);
+  }, [props.value, props.sessionId, props.workspacePath]);
 
   const maskComposerText = props.value.length > 0;
   const codeFenceEditing = inMarkdownFenceBeforeCaret(props.value, caretPos);
@@ -2104,6 +2122,7 @@ export function Composer(props: {
 
   /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
+    if (props.editingMessage?.busy) return;
     if (runLocalCommandFromDraft()) return;
     if (props.generating) {
       // A turn is running: what the operator wrote joins the queue the turn reads
@@ -2127,6 +2146,7 @@ export function Composer(props: {
     }
   }, [
     props.generating,
+    props.editingMessage?.busy,
     props.value,
     props.onSend,
     queueDraft,
@@ -2356,6 +2376,9 @@ export function Composer(props: {
   }
   // Escape closes the selector menu that is open, with or without its filter.
   useEscapeCloses(menuOpen !== null, closeMenu);
+  // Escape closes the slash, @, range and argument pickers wherever the focus
+  // is: a tap on the sheet's title, or Telegram Web's Back, leaves it on body.
+  useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
     type: "mode" | "llm" | "reasoning" | "permission",
@@ -2878,6 +2901,87 @@ export function Composer(props: {
             <button type="button" onClick={() => chooseQueueMode("after_turn")}>{t("composer.queueChoiceAfterTurn")}</button>
           </div>
         ) : null}
+        {props.editingMessage ? (
+          <div
+            className="composer-edit-banner"
+            role="status"
+            data-testid="composer-edit-banner"
+          >
+            <span className="composer-edit-banner-icon" aria-hidden="true">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </span>
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.editingMessage")}
+              </span>
+              <span
+                className="composer-edit-banner-snippet"
+                title={props.editingMessage.snippet}
+              >
+                {props.editingMessage.snippet}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.editingHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove composer-edit-cancel"
+              data-testid="composer-edit-cancel"
+              aria-label={t("composer.cancelEdit")}
+              title={t("composer.cancelEdit")}
+              disabled={props.editingMessage.busy === true}
+              onClick={() => props.editingMessage?.onCancel()}
+            >
+              ×
+            </button>
+          </div>
+        ) : props.rewindUndo ? (
+          <div
+            className="composer-edit-banner composer-edit-banner--done"
+            role="status"
+            data-testid="composer-undo-banner"
+          >
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.messageEdited")}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.undoEditHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="composer-queue-mode composer-undo-edit"
+              data-testid="composer-undo-edit"
+              disabled={props.rewindUndo.busy === true}
+              onClick={() => props.rewindUndo?.onUndo()}
+            >
+              {t("composer.undoEdit")}
+            </button>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove"
+              data-testid="composer-undo-dismiss"
+              aria-label={t("composer.undoDismiss")}
+              title={t("composer.undoDismiss")}
+              onClick={() => props.rewindUndo?.onDismiss()}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <div className="composer-card" ref={composerCardRef}>
           <div className="composer-context-row">
             <div className="composer-context-scroll">
@@ -3021,6 +3125,7 @@ export function Composer(props: {
                 }
                 autoComplete="off"
                 value={props.value}
+                readOnly={props.editingMessage?.busy === true}
                 onChange={(ev) => {
                   const v = ev.target.value;
                   const caret = ev.target.selectionStart ?? v.length;
@@ -3131,6 +3236,21 @@ export function Composer(props: {
                   ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
+                    return;
+                  }
+                  // Escape leaves an edit the way the banner's cross does,
+                  // once no picker or popover above claimed it.
+                  if (
+                    ev.key === "Escape" &&
+                    props.editingMessage &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.altKey &&
+                    !ev.ctrlKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    if (!props.editingMessage.busy) props.editingMessage.onCancel();
                     return;
                   }
                   if (argOpen && argItems.length > 0) {
@@ -3489,9 +3609,11 @@ export function Composer(props: {
                     ? t("composer.queueSend")
                     : props.generating
                       ? t("composer.stopGeneration")
-                      : t("composer.send")
+                      : props.editingMessage
+                        ? t("composer.sendEdit")
+                        : t("composer.send")
                 }
-                disabled={!props.generating && idleSendDisabled}
+                disabled={props.editingMessage?.busy || (!props.generating && idleSendDisabled)}
                 onClick={() => {
                   if (queueArmed) {
                     queueDraft();

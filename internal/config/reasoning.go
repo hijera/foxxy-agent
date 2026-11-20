@@ -92,52 +92,35 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 	return remapMinimalToNone(levels)
 }
 
-// ReasoningOffOffered reports whether thinking can really be turned off for
-// this model entry, so "off" may be offered next to its levels.
-//
-// Off is only honest where the provider has a switch for it: the chat-template
-// flag of Qwen3 on an OpenAI-compatible server, Anthropic's thinking block, the
-// Codex backend's "none" tier, and any model whose configured levels include
-// "none". A gpt-5 model's "minimal" still reasons, and the o-series and
-// gpt-oss have no switch at all, so off is not offered there. A model with no
-// levels (none detected, or reasoning_levels: []) has nothing to switch.
+// ReasoningOffOffered reports whether the operator enabled the off pseudo-level
+// for this model entry. The setting attests that this deployment honours its
+// provider-specific request; FoxxyCode does not infer that capability from a model
+// name or provider type. A model with no reasoning levels has nothing to switch.
 func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
+	if ent == nil || !ent.AllowReasoningOff {
+		return false
+	}
 	levels := c.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
-		return false
-	}
-	for _, lv := range levels {
-		if lv == ReasoningNone {
-			return true
-		}
-	}
-	providerType := ""
-	if c != nil {
-		if prov := c.FindProvider(ent.ProviderName()); prov != nil {
-			providerType = prov.Type
-		}
-	}
-	switch providerType {
-	case "anthropic", "codex":
-		return true
-	case "openai", "neuraldeep":
-		return isQwenThinking(strings.ToLower(strings.TrimSpace(ent.APIModel())))
-	default:
-		return false
-	}
+	return len(levels) > 0
 }
 
 // ReasoningChoicesFor returns what a session may select for this model entry:
-// its levels, then "off" when the provider can turn thinking off.
+// its levels, then "off" when the model configuration permits it.
 func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
 	levels := c.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
+	choices := make([]string, 0, len(levels)+1)
+	for _, level := range levels {
+		if level != ReasoningOff {
+			choices = append(choices, level)
+		}
+	}
+	if len(choices) == 0 {
 		return nil
 	}
 	if c.ReasoningOffOffered(ent) {
-		levels = append(levels, ReasoningOff)
+		choices = append(choices, ReasoningOff)
 	}
-	return levels
+	return choices
 }
 
 // DefaultReasoningLevelFor returns the pre-selected level for one model entry
@@ -228,9 +211,11 @@ func isQwenThinking(id string) bool {
 	return strings.HasPrefix(id, "qwen3")
 }
 
-// isKimiThinking matches Moonshot Kimi K2 and later, which stream their thinking
-// on the reasoning_content channel. Detection covers the bare vendor ids
-// (kimi-k2, kimi-k2.6) and the rolling kimi-latest alias.
+// isKimiThinking matches thinking-capable Moonshot Kimi models. Detection covers
+// the bare vendor ids (kimi-k2, kimi-k2.6), the rolling kimi-latest alias, and
+// vendor-namespace ids (moonshotai/kimi-k2-thinking). Kimi K2 Instruct is a
+// non-thinking model even though it shares the Kimi prompt family. It and the
+// older moonshot-v1-* ids stay unmatched.
 //
 // Detection only offers the levels; it does not by itself change the request.
 // The wire shape follows the level actually in effect (session pick, else
@@ -238,5 +223,11 @@ func isQwenThinking(id string) bool {
 // level set the call carries reasoning_effort and max_completion_tokens, and
 // without one it stays on max_tokens exactly as before.
 func isKimiThinking(id string) bool {
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	if strings.HasPrefix(id, "kimi-k2-instruct") {
+		return false
+	}
 	return strings.HasPrefix(id, "kimi-")
 }

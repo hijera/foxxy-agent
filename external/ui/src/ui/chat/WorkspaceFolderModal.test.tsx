@@ -78,7 +78,14 @@ describe("WorkspaceFolderModal", () => {
     expect(actions.children[1]).toBe(toggle.closest("label"));
     expect(toggle).toHaveAttribute("role", "switch");
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByTestId("workspace-modal-new-folder")).toHaveTextContent("+");
+    // The scheduler's plus glyph on its colours (shared CSS rules), not a "+"
+    // typed into a text button.
+    expect(
+      screen.getByTestId("workspace-modal-new-folder").querySelector("svg"),
+    ).not.toBeNull();
+    expect(screen.getByTestId("workspace-modal-new-folder")).toHaveClass(
+      "workspace-modal-btn--add",
+    );
     expect(screen.getByTestId("workspace-modal-new-folder")).toHaveAttribute(
       "title",
       "New folder",
@@ -111,6 +118,14 @@ describe("WorkspaceFolderModal", () => {
     const row = await screen.findByTestId("workspace-modal-row-directory-link");
     expect(row).toHaveTextContent("directory-link");
     expect(row).toHaveTextContent("→ /targets/project");
+    // A link wears the folder glyph with an arrow cut out of it; a plain folder
+    // does not.
+    expect(row.querySelector(".workspace-modal-symlink-icon svg")).not.toBeNull();
+    expect(
+      screen
+        .getByTestId("workspace-modal-row-visible")
+        .querySelector(".workspace-modal-symlink-icon"),
+    ).toBeNull();
     fireEvent.click(row);
 
     await waitFor(() =>
