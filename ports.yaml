@@ -14172,3 +14172,130 @@ ports:
   reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with deterministic
     FoxxyCode swarm session routing and its tests.
   remaining: []
+- upstream_sha: 5c54a6ace026f10c2b5eba365f068eb452205211
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted Edits, line diffs and change notifications from the FoxxyCode PR
+    #132 port, in the final working-copy scope of 1.2.73.'
+  remaining: []
+- upstream_sha: d3603f2e56bb7bb4921c4599ad06586221f538b1
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: Adapted the workspace viewer, protected file access and Swarm media transport
+    alongside existing FoxxyCode authentication and CORS.
+  remaining: []
+- upstream_sha: 563e969c84cf834c20b9a81086c712008a21e580
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: fix(web): keep dock close controls
+    visible and document file previews.'
+  remaining: []
+- upstream_sha: 9211ac314ee63bfb442fa208bd073b48fc3e0c12
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): pick a chat''s views
+    from a header menu and open files in a window.'
+  remaining: []
+- upstream_sha: a41d0fd2e350448b3159f54c78c5af7643a7502e
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: fix(web): answer the cross-review
+    of the views and the Files window.'
+  remaining: []
+- upstream_sha: 78c7dbb6ec82306969e768e44e5ef2ed22fc67df
+  status: skipped
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  reason: Redundant integration merge. Its second parent is already contained in the
+    1.2.72 synchronization base.
+  remaining: []
+- upstream_sha: 024548c24522bb52e7a36277b5cd10f5be6192f5
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): put the views of a
+    chat in its header as buttons.'
+  remaining: []
+- upstream_sha: 10a801c0e5854d1c53dffb023b3e85d960b27b2b
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): edits from git only,
+    one edits window, a bar over the composer.'
+  remaining: []
+- upstream_sha: b9ca12615d9e1ef9111a2e8bf96b76639a3c0785
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): git''s count on a plate
+    joined to the composer, no Edits button.'
+  remaining: []
+- upstream_sha: 916fafcf9e656367886539f8162a09184e205ea4
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): the environment in
+    the rail, one plate over the composer.'
+  remaining: []
+- upstream_sha: 64d14c5f60653a0e55b0f7f7bf10645cb360c9ef
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: fix(web): the wand and the first
+    line 8px under the plate''s seam.'
+  remaining: []
+- upstream_sha: 9f1a7347b4220225c5800496144f48e640c4a989
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: Preserved FoxxyCode project and SVN behavior while separating home workspace
+    preferences from session navigation.
+  remaining: []
+- upstream_sha: 95a75ba1a861fca3e491d5eb139dcd7cf8c1106a
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): the edits window framed
+    and headed like the Files window.'
+  remaining: []
+- upstream_sha: b66368672fbc1326be5321d897874bd6f6fff3d1
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: 'Adapted in the consolidated 1.2.73 port: feat(web): edits and files windows
+    read evenly, long files scroll through.'
+  remaining: []
+- upstream_sha: caee338c6c6e241235b4c34056354b3e85ab501e
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: Carried the diff and browser coverage and adapted the fixtures for Windows
+    and asynchronous workspace reads.
+  remaining: []
+- upstream_sha: d81d6cca0c12716035a0539130cab8ac66fe2a27
+  status: adapted
+  fork_commits:
+  - 2823fa12839a85ac46deb3e3120ad01d83135464
+  - 227df070b478932160436bdd6c59902f3cccb66f
+  reason: Adapted the release net change with FoxxyCode branding, Chromium 104, the
+    Classic layout, native IDE diffs and guarded per-file review.
+  remaining: []
