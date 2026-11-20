@@ -2,41 +2,44 @@ package prompts
 
 import "strings"
 
-// Family classifies an LLM by its provider type and model id into a prompt "family"
-// slug used to select a provider-tuned system prompt file (agent.<family>.md).
+// Families returns the ordered family slugs used to select prompt templates.
 //
 // Model-id patterns take precedence over the provider type because open models
-// (qwen/gemma/gpt-oss/kimi) are frequently served through OpenAI-compatible or
+// are frequently served through OpenAI-compatible or
 // neuraldeep endpoints, so the provider type alone would misclassify them.
-//
-// Returns "" when no family matches; callers fall back to the shared base prompt.
-func Family(providerType, modelID string) string {
+// DeepSeek also keeps the previously selected family as a fallback for modes
+// and custom prompt directories that have no DeepSeek variant.
+func Families(providerType, modelID string) []string {
 	p := strings.ToLower(strings.TrimSpace(providerType))
 	m := strings.ToLower(strings.TrimSpace(modelID))
 
+	var families []string
 	switch {
 	case strings.Contains(m, "gpt-oss"):
-		return "gpt-oss"
+		return []string{"gpt-oss"}
 	case strings.Contains(m, "gemini"):
-		return "gemini"
+		return []string{"gemini"}
 	case strings.Contains(m, "gemma"):
-		return "gemma"
+		return []string{"gemma"}
 	case strings.Contains(m, "qwen"):
-		return "qwen"
+		return []string{"qwen"}
 	// "moonshot" covers the moonshot-v1-* ids Moonshot's OpenAI-compatible API
 	// serves and the moonshotai/ vendor namespace; must win over p == "openai".
 	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
-		return "kimi"
-	case strings.Contains(m, "deepseek") || p == "deepseek":
-		return "deepseek"
+		return []string{"kimi"}
+	case strings.Contains(m, "deepseek"):
+		families = append(families, "deepseek")
+	}
+
+	switch {
 	case strings.Contains(m, "claude") || p == "anthropic":
-		return "anthropic"
+		return append(families, "anthropic")
 	case isOpenAIModel(m) || p == "openai":
-		return "openai"
+		return append(families, "openai")
 	case p == "neuraldeep":
-		return "neuraldeep"
+		return append(families, "neuraldeep")
 	default:
-		return ""
+		return families
 	}
 }
 

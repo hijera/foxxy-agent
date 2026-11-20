@@ -299,7 +299,10 @@ prompts:
   #                           Kimi and Moonshot model IDs select the kimi family through
   #                           both NeuralDeep and OpenAI-compatible providers.
   #                           DeepSeek model IDs select the deepseek family through
-  #                           NeuralDeep and OpenAI-compatible providers.
+  #                           NeuralDeep and OpenAI-compatible providers. If a
+  #                           DeepSeek template or section is absent, the loader
+  #                           tries the previous family (neuraldeep or openai)
+  #                           before using the shared default.
   #                           Prompt selection does not imply reasoning support:
   #                           Kimi-K2-Instruct (including -0905) and moonshot-v1
   #                           use Kimi guidance without auto-detected reasoning levels

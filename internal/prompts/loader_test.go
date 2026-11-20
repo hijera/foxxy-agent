@@ -650,7 +650,7 @@ func mustWrite(t *testing.T, path, content string) {
 
 // knownFamilies lists every prompt family with a notes_<family>.md fragment.
 // Shared by the family render tests below so a new family is added once and
-// covered by all of them; keep it in sync with prompts.Family.
+// covered by all of them; keep it in sync with prompts.Families.
 var knownFamilies = []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "kimi", "deepseek", "neuraldeep"}
 
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
