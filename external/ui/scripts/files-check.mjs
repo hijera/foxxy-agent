@@ -1139,6 +1139,7 @@ async function scenarioPhone(sid) {
   await until("the tasks put away", async () => (await p.page.getByTestId("bgtasks-panel").count()) === 0);
   // On a phone the plate keeps its shape, and the edits window fits the screen too.
   await p.page.setViewportSize({ width: 390, height: 844 });
+  await p.page.getByTestId("workspace-bar-edits").waitFor({ timeout: 15000 });
   const phonePlate = await plate(p.page);
   check(
     "on a phone the plate is joined to the composer card, git's count at its right edge, nothing sideways",
@@ -1198,6 +1199,9 @@ async function scenarioCrossOrigin(sid) {
   });
   await x.page.goto(`${NODE}/#/s/${sid}/files?path=notes%2Fplan.md&line=2`);
   const win = x.page.getByTestId("files-view");
+  // The workspace context and the initial direct-link preview load in
+  // parallel. Wait for the scope before measuring the focus refresh.
+  await win.locator(".files-subtitle").filter({ hasText: "demo-workspace" }).waitFor();
   await win.locator('[data-file-line="1"] code', { hasText: "# Plan" }).waitFor({ timeout: 20000 });
   check("from another origin the Files window reads through the relay", true);
   const exposed = await x.page.evaluate(async ({ mount, token, sid }) => {

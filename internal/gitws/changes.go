@@ -2,6 +2,7 @@ package gitws
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,11 +29,14 @@ type WorkChange struct {
 // parsing porcelain but destroys file content: a source file that begins or ends
 // with a blank line would come back altered. Anything reading blobs uses this.
 func runGitRaw(dir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	// Same contract as runGit: these calls run inside request handlers and
 	// agent turns, so a credential prompt must fail instead of hanging them.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	platform.HideConsoleWindow(cmd)
 	platform.AdaptCommand(cmd)
 	return cmd.Output()
 }
