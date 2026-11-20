@@ -7,28 +7,34 @@ import "strings"
 // Model-id patterns take precedence over the provider type because open models
 // are frequently served through OpenAI-compatible or
 // neuraldeep endpoints, so the provider type alone would misclassify them.
-// DeepSeek also keeps the previously selected family as a fallback for modes
-// and custom prompt directories that have no DeepSeek variant.
+// Any DeepSeek id keeps the deepseek family first - including distill ids such
+// as deepseek-r1-distill-qwen-*, which then fall back to the distilled base
+// family below. DeepSeek also keeps the previously selected family as a
+// fallback for modes and custom prompt directories that have no DeepSeek variant.
 func Families(providerType, modelID string) []string {
 	p := strings.ToLower(strings.TrimSpace(providerType))
 	m := strings.ToLower(strings.TrimSpace(modelID))
 
 	var families []string
+	// Must win over the early-return patterns below: a distill id carries both
+	// "deepseek" and the base model's name.
+	if strings.Contains(m, "deepseek") {
+		families = append(families, "deepseek")
+	}
+
 	switch {
 	case strings.Contains(m, "gpt-oss"):
-		return []string{"gpt-oss"}
+		return append(families, "gpt-oss")
 	case strings.Contains(m, "gemini"):
-		return []string{"gemini"}
+		return append(families, "gemini")
 	case strings.Contains(m, "gemma"):
-		return []string{"gemma"}
+		return append(families, "gemma")
 	case strings.Contains(m, "qwen"):
-		return []string{"qwen"}
+		return append(families, "qwen")
 	// "moonshot" covers the moonshot-v1-* ids Moonshot's OpenAI-compatible API
 	// serves and the moonshotai/ vendor namespace; must win over p == "openai".
 	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
-		return []string{"kimi"}
-	case strings.Contains(m, "deepseek"):
-		families = append(families, "deepseek")
+		return append(families, "kimi")
 	}
 
 	switch {

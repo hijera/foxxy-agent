@@ -48,6 +48,12 @@ func TestPromptCacheDeepSeekPromptFeature(t *testing.T) {
 				}
 				return nil
 			})
+			sc.Step(`^the DeepSeek system prompt does not include "([^"]+)"$`, func(marker string) error {
+				if strings.Contains(prompt, marker) {
+					return fmt.Errorf("prompt unexpectedly contains %q", marker)
+				}
+				return nil
+			})
 		},
 	}
 	if suite.Run() != 0 {

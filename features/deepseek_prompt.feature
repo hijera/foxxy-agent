@@ -17,6 +17,7 @@ Feature: DeepSeek prompt selection
     And the custom DeepSeek prompt directory has "agent.<provider>.md" with "provider prompt"
     When the "agent" system prompt is built for DeepSeek
     Then the DeepSeek system prompt includes "provider prompt"
+    And the DeepSeek system prompt does not include "shared prompt"
 
     Examples:
       | provider   |
@@ -29,3 +30,4 @@ Feature: DeepSeek prompt selection
     And the custom DeepSeek prompt directory has "agent.deepseek.md" with "DeepSeek prompt"
     When the "agent" system prompt is built for DeepSeek
     Then the DeepSeek system prompt includes "DeepSeek prompt"
+    And the DeepSeek system prompt does not include "provider prompt"

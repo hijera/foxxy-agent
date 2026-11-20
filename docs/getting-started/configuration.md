@@ -299,11 +299,14 @@ prompts:
   #                           gemma, kimi, deepseek, neuraldeep); family defaults are built in.
   #                           Kimi and Moonshot model IDs select the kimi family through
   #                           both NeuralDeep and OpenAI-compatible providers.
-  #                           DeepSeek model IDs select the deepseek family through
-  #                           NeuralDeep and OpenAI-compatible providers. If a
-  #                           DeepSeek template or section is absent, the loader
-  #                           tries the previous family (neuraldeep or openai)
-  #                           before using the shared default.
+  #                           DeepSeek model IDs select the deepseek family first,
+  #                           through NeuralDeep and OpenAI-compatible providers.
+  #                           If a DeepSeek template or section is absent, the
+  #                           loader tries the next family in the chain (the
+  #                           serving provider's own: neuraldeep, openai, or
+  #                           anthropic; for distill IDs such as
+  #                           deepseek-r1-distill-qwen-*, the distilled base
+  #                           family) before using the shared default.
   #                           Prompt selection does not imply reasoning support:
   #                           Kimi-K2-Instruct (including -0905) and moonshot-v1
   #                           use Kimi guidance without auto-detected reasoning levels

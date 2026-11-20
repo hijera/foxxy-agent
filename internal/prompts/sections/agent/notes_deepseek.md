@@ -10,7 +10,7 @@
 #### Code hallucination prevention
 
 - DeepSeek-Coder and DeepSeek-V2 can generate plausible but incorrect code from training memory. Always read file contents before referencing specific lines, functions, or imports.
-- When uncertain about a file's structure, use `grep` or `search` first to locate definitions, then read the relevant sections.
+- When uncertain about a file's structure, use `grep` first to locate definitions, then `read` the relevant sections.
 - Never assert that a function exists, accepts certain parameters, or returns a specific type without verifying it in the source.
 - If a file path seems wrong or the content does not match expectations, re-check the path and re-read.
 
