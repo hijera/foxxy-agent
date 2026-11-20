@@ -146,6 +146,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
+			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
 		Compaction: CompactionJSON{
 			Engine:           CompactionEngineCoddy,
@@ -170,10 +171,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
-			Dir:            "${FOXXYCODE_HOME}/scheduler",
 			MaxQueue:       10,
 			Timeout:        "30m",
 			RetainSessions: 5,
+			ProjectTrust:   ProjectTrustAsk,
 		},
 		Gateways: GatewaysJSON{
 			Telegram: TelegramGatewayJSON{
@@ -182,6 +183,13 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				RichMessages:     true,
 				DefaultAccess:    string(AccessAll),
 				DefaultIsolation: string(IsolationIndividual),
+			},
+			Pachca: PachcaGatewayJSON{
+				Enabled:             false,
+				Token:               "${PACHCA_BOT_TOKEN}",
+				PollIntervalSeconds: PachcaPollIntervalDefault,
+				DefaultAccess:       string(AccessAll),
+				DefaultIsolation:    string(IsolationIndividual),
 			},
 		},
 		UI: UIJSON{SendMode: UISendModeEnter},

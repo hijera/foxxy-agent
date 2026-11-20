@@ -245,18 +245,21 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		}
 	}
 
-	// partialWithoutTools is what a cut answer hands back next to its error:
-	// the text and reasoning already delivered, never the tool calls, which
-	// must not run on the strength of an answer that never finished; nil when
-	// nothing worth keeping arrived.
-	partialWithoutTools := func() *Response {
-		if strings.TrimSpace(fullContent) == "" && strings.TrimSpace(reasoning) == "" {
+	// cutPartial is what a cut answer hands back next to its error: the text
+	// and reasoning already delivered, plus the tool calls whose arguments
+	// arrived whole - fork(cut-keeps-complete-calls): those are the step the
+	// model finished asking for and the loop runs them, while a call cut
+	// mid-JSON must not run. Nil when nothing worth keeping arrived.
+	cutPartial := func() *Response {
+		whole := WholeToolCalls(toolCalls)
+		if strings.TrimSpace(fullContent) == "" && strings.TrimSpace(reasoning) == "" && len(whole) == 0 {
 			return nil
 		}
 		return &Response{
 			Content:            fullContent,
 			Reasoning:          reasoning,
 			ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+			ToolCalls:          whole,
 			InputTokens:        inputTokens,
 			OutputTokens:       outputTokens,
 			CachedInputTokens:  cachedInputTokens,
@@ -282,29 +285,33 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		// of its input. That is a cut inside the event (issue #384), the
 		// terminal event itself included, and it takes the contract of a
 		// stream cut short of its terminal event: the delivered text and
-		// reasoning next to a truncation error, no tool calls, the decoder's
-		// error kept as the cause.
+		// reasoning next to a truncation error, and the tool calls whose
+		// arguments arrived whole - fork(cut-keeps-complete-calls) - the
+		// decoder's error kept as the cause.
 		if trunc := streamDecodeTruncation(err, emitted, 0); trunc != nil {
-			return partialWithoutTools(), fmt.Errorf("codex stream: %w", trunc)
+			return cutPartial(), fmt.Errorf("codex stream: %w", trunc)
 		}
 		// Same transport wrapper as the openai and anthropic paths: a failure
 		// mid-read is retried only while nothing reached the caller, and an
-		// HTTP error keeps its status reachable through Unwrap.
+		// HTTP error keeps its status reachable through Unwrap. The whole tool
+		// calls survive it like the truncation below; content alone stays out.
+		if partial := cutPartial(); partial != nil && len(partial.ToolCalls) > 0 {
+			return partial, fmt.Errorf("codex stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		}
 		return nil, fmt.Errorf("codex stream: %w", &streamTransportError{cause: err, emitted: emitted})
 	}
 
 	if terminal == "" || incompleteReason != "" {
 		// Cut before a terminal event, or ended for a reason nothing maps.
 		// Mirror the other providers: keep the delivered text and reasoning
-		// next to the error, and drop the tool calls, which must not run on the
-		// strength of an answer that never finished.
+		// next to the error and the tool calls whose arguments arrived whole.
 		streamErr := fmt.Errorf("codex stream: %w", &streamTruncatedError{emitted: emitted})
 		if terminal != "" {
 			// Not a cut, so not a truncation, but held to the same rule: once
 			// deltas reached the caller no retry replays them.
 			streamErr = codexStreamEventError("response incomplete: "+incompleteReason, "", emitted)
 		}
-		return partialWithoutTools(), streamErr
+		return cutPartial(), streamErr
 	}
 
 	if stopReason == "" {

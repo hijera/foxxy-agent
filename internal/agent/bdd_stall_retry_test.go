@@ -73,6 +73,26 @@ func (s *stallFeatureState) modelStopsMidAnswerThenFinishes() error {
 	})
 }
 
+func (s *stallFeatureState) modelCutAfterMarkdownThenRestartsLine() error {
+	s.tune = func(c *config.Agent) { c.LLMContinueErrorDelaysMS = []int{1} }
+	return s.build([]stallBehaviour{
+		{deltaThenErr: "1. First rule.\n2. **Safety**", err: fmt.Errorf("openai stream: unexpected EOF")},
+		{answer: "2. **Safety** requires the remaining steps."},
+	})
+}
+
+func (s *stallFeatureState) restartedMarkdownLineAppearsOnce() error {
+	var joined strings.Builder
+	for _, m := range s.harness.assistantMessages() {
+		joined.WriteString(m.Content)
+	}
+	want := "1. First rule.\n2. **Safety** requires the remaining steps."
+	if got := joined.String(); got != want {
+		return fmt.Errorf("answer = %q, want %q", got, want)
+	}
+	return nil
+}
+
 func (s *stallFeatureState) modelWritesOneLongToolCall() error {
 	// Twenty silent frames at 10ms each is 200ms of stream against a 60ms guard:
 	// only the progress signal keeps this alive.
@@ -256,6 +276,8 @@ func initializeStallRetryScenario(t *testing.T, sc *godog.ScenarioContext) {
 	sc.Step(`^a model that answers nothing on its first two calls and then replies$`, s.modelAnswersNothingTwiceThenReplies)
 	sc.Step(`^a model whose first call dies with a transport error and then replies$`, s.modelDiesWithTransportErrorThenReplies)
 	sc.Step(`^a model that stops mid-answer on its first call and then finishes$`, s.modelStopsMidAnswerThenFinishes)
+	sc.Step(`^a model cut after bold text that restarts the unfinished line$`, s.modelCutAfterMarkdownThenRestartsLine)
+	sc.Step(`^the restarted Markdown line appears exactly once$`, s.restartedMarkdownLineAppearsOnce)
 	sc.Step(`^a model that spends longer than the stall guard writing one tool call$`, s.modelWritesOneLongToolCall)
 	sc.Step(`^the turn budget allows only one reasoning step$`, s.turnBudgetAllowsOneStep)
 	sc.Step(`^the operator sends a prompt$`, s.operatorSendsPrompt)

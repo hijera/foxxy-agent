@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 
 VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in foxxy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -74,6 +74,7 @@ Named model entries the agent and UI can select.
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
 | `models[].reasoning_levels` | list of strings |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, kimi-* except the non-thinking kimi-k2-instruct checkpoints, including vendor-namespace ids such as moonshotai/kimi-k2-thinking, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
+| `models[].allow_reasoning_off` | boolean | false | Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically. |
 | `models[].stream` | boolean | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
 
 ### `agent`
@@ -321,6 +322,7 @@ Optional memory subagent (implementation in external/memory; enable at runtime w
 | `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the cap is the larger of the two. |
 | `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory subagent LLM calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.max_note_chars` | integer or null | 900 | Longest body one note saved by foxxycode_memory_save may have, in characters (not bytes). An explicit 0 removes the cap. |
 | `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
 | `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and foxxycode -t reports it. 0 means no cap. |
 
@@ -409,19 +411,19 @@ Embedded SPA preferences for desktop and HTTP UI.
 
 ### `scheduler`
 
-Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
+Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${FOXXYCODE_HOME}/scheduler (user jobs) and <workspace>/.foxxycode/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scheduler.enable` | boolean | false | Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp\|http -scheduler-enabled. |
-| `scheduler.dir` | string | "" | Directory with *.md job definitions. Empty resolves to ${FOXXYCODE_HOME}/scheduler. |
 | `scheduler.max_queue` | integer | 10 | Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused. |
 | `scheduler.timeout` | string | 30m | Wall-clock limit for one run, as a Go duration (e.g. "30m", "1h30m"); the background task pool still caps it at tools.background.max_timeout_seconds. |
+| `scheduler.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for project jobs, the *.md files in <workspace>/.foxxycode/scheduler that travel with the checkout: "ask" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /foxxycode/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through FoxxyCode is approved at once; "allow" runs them like the operator's own jobs; "deny" never runs them. See https://foxxycode.dev/docs/operate/scheduler#project-jobs-and-trust. |
 | `scheduler.retain_sessions` | integer | 5 | Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes. |
 
 ### `gateways`
 
-Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with foxxycode gateway). See https://github.com/hijera/foxxy-agent/blob/main/docs/surfaces/gateway.md.
+Messenger bot adapters (used only by binaries built with -tags gateway, or -tags gateway.telegram / gateway.pachca for one adapter; run with foxxycode gateway). See https://github.com/hijera/foxxy-agent/blob/main/docs/surfaces/gateway.md and https://github.com/hijera/foxxy-agent/blob/main/docs/surfaces/pachca.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -440,6 +442,24 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | `gateways.telegram.chats[].chat_id` | integer |  | Telegram chat id (negative for groups/supergroups). |
 | `gateways.telegram.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.telegram.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
+| `gateways.telegram.mini_app` | object |  | Makes the web UI of this foxxycode serve the bot's Telegram Mini App. The web UI adapts to Telegram by itself; these keys tell the bot where it is, so it can set its menu button and answer /app with a button that opens the chat's own conversation. Telegram opens Mini Apps over https only, so the web UI has to be published behind a TLS proxy, with sign-in on (httpserver.login). See https://foxxycode.dev/docs/surfaces/gateway#mini-app. |
+| `gateways.telegram.mini_app.url` | string | "" | The public https address the web UI is served at, for example https://foxxycode.example.com/. Plain http is accepted only for a loopback host (the offline stand cmd/tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone. |
+| `gateways.telegram.mini_app.menu_button` | boolean or null | true | Make the bot's menu button (beside the message field) open the web UI. Turned off, with url emptied or while the web UI asks for no sign-in, the bot puts back the menu button it replaced (a Mini App set in @BotFather, else the commands), as long as the button still opens the address the bot set. |
+| `gateways.pachca` | object |  | Pachca integration bot adapter: reads the bot's events history and answers through the Pachca REST API. Turn on Save events history (events_history_enabled) in the bot's outgoing webhook settings. See https://foxxycode.dev/docs/surfaces/pachca. |
+| `gateways.pachca.enable` | boolean | false | Run the Pachca bot in this foxxycode serve process. |
+| `gateways.pachca.token` | string | "" | Access token of the Pachca integration bot. Leave empty to read the PACHCA_BOT_TOKEN environment variable (e.g. via ~/.foxxycode/.env). |
+| `gateways.pachca.proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the FoxxyCode process; none connects directly; a proxy URL sends every Pachca API request through that proxy. |
+| `gateways.pachca.poll_interval_seconds` | integer | 2 | How often the events history is read, in seconds (1 to 60). Pachca answers that method at about five requests per two seconds. |
+| `gateways.pachca.admins` | list of integers |  | Pachca user IDs with elevated rights; admins always pass access checks. |
+| `gateways.pachca.default_access` | string | all | Fallback access level for chats without an override: "all", "admins", or "group:<name>". |
+| `gateways.pachca.default_isolation` | string, one of `individual`, `shared`, `admin` | individual | Fallback session isolation for group chats: "individual" (session per user), "shared" (one session for all), "admin" (admins only, shared session). |
+| `gateways.pachca.user_groups` | list of objects |  | Named sets of user IDs referenced from access fields as group:<name>. |
+| `gateways.pachca.user_groups[].name` | string |  | Group name referenced as group:<name>. |
+| `gateways.pachca.user_groups[].user_ids` | list of integers |  | Pachca user IDs in this group. |
+| `gateways.pachca.chats` | list of objects |  | Per-chat overrides keyed by the Pachca chat id (a thread has a chat id of its own). |
+| `gateways.pachca.chats[].chat_id` | integer |  | Pachca chat id. |
+| `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
+| `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
 
 ### `browser`
 

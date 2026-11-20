@@ -194,10 +194,12 @@ function providerProxyOverride(ctx: FieldOverrideContext) {
   );
 }
 
-// The Telegram bot's proxy reads like a provider's, so it gets the same
-// switch and URL field (Gateways tab, Telegram block).
+// A bot's proxy reads like a provider's, so it gets the same switch and URL
+// field (Gateways tab, the Telegram and Pachca blocks).
 function gatewaysFieldOverride(ctx: FieldOverrideContext) {
-  if (ctx.path !== "telegram.proxy") return null;
+  if (ctx.path !== "telegram.proxy" && ctx.path !== "pachca.proxy") {
+    return null;
+  }
   return (
     <ProxySettingField
       value={ctx.value}
@@ -613,7 +615,11 @@ export function SettingsSection(props: {
                   {
                     id: "reasoning",
                     legend: t("settings.models.group.reasoning"),
-                    paths: ["reasoning_levels", "reasoning_default"],
+                    paths: [
+                      "reasoning_levels",
+                      "reasoning_default",
+                      "allow_reasoning_off",
+                    ],
                   },
                 ]
               : undefined
@@ -789,6 +795,11 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         paths: ["model", "dir"],
       },
       {
+        id: "instructions",
+        legend: translate("settings.group.memory.instructions"),
+        paths: ["additional_prompt", "additional_prompt_max_chars"],
+      },
+      {
         id: "runs",
         legend: translate("settings.group.memory.runs"),
         paths: ["wait_seconds", "timeout_seconds", "keep_runs"],
@@ -801,12 +812,8 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
           "persist_max_turns",
           "copilot_max_tokens",
           "max_search_hits",
+          "max_note_chars",
         ],
-      },
-      {
-        id: "instructions",
-        legend: translate("settings.group.memory.instructions"),
-        paths: ["additional_prompt", "additional_prompt_max_chars"],
       },
     ];
   }

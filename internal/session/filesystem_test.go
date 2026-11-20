@@ -1064,7 +1064,7 @@ func savedState(t *testing.T, id string, n int) (*FileStore, *State) {
 func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 	msgs := buildHistory(400)
 
-	whole, encoded, err := encodeMessagesFile(msgs, nil)
+	whole, encoded, err := encodeMessagesFile(msgs, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,11 +1072,11 @@ func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 		t.Fatalf("encoding from nothing touched %d messages, want the whole history", encoded)
 	}
 
-	base, _, err := encodeMessagesFile(msgs[:398], nil)
+	base, _, err := encodeMessagesFile(msgs[:398], nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	grown, encoded, err := encodeMessagesFile(msgs, &persistedMessages{count: 398, bytes: base})
+	grown, encoded, err := encodeMessagesFile(msgs, &persistedMessages{count: 398, bytes: base}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1092,7 +1092,7 @@ func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 // encoder must notice rather than splice onto stale bytes.
 func TestAnEditedHistoryIsEncodedInFull(t *testing.T) {
 	msgs := buildHistory(20)
-	base, _, err := encodeMessagesFile(msgs, nil)
+	base, _, err := encodeMessagesFile(msgs, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1100,14 +1100,14 @@ func TestAnEditedHistoryIsEncodedInFull(t *testing.T) {
 	// encoded again.
 	edited := append([]llm.Message(nil), msgs...)
 	edited[3].Content = "rewritten"
-	out, encoded, err := encodeMessagesFile(edited, &persistedMessages{count: 20, bytes: base})
+	out, encoded, err := encodeMessagesFile(edited, &persistedMessages{count: 20, bytes: base}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if encoded != 20 {
 		t.Fatalf("an edited history encoded %d messages, want all of them", encoded)
 	}
-	want, _, err := encodeMessagesFile(edited, nil)
+	want, _, err := encodeMessagesFile(edited, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1392,18 +1392,18 @@ func TestSplicedMessagesMatchAFullEncodingForAwkwardContent(t *testing.T) {
 			base := buildHistory(3)
 			full := append(append([]llm.Message(nil), base...), tc.msg)
 
-			prev, _, err := encodeMessagesFile(base, nil)
+			prev, _, err := encodeMessagesFile(base, nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			spliced, encoded, err := encodeMessagesFile(full, &persistedMessages{count: len(base), bytes: prev})
+			spliced, encoded, err := encodeMessagesFile(full, &persistedMessages{count: len(base), bytes: prev}, "")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if encoded != 1 {
 				t.Fatalf("encoded %d messages, want only the appended one", encoded)
 			}
-			want, _, err := encodeMessagesFile(full, nil)
+			want, _, err := encodeMessagesFile(full, nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1497,7 +1497,7 @@ func TestASecondStateOverTheSameBundleIsNotMistakenForTheFirst(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		second.AddMessage(llm.Message{Role: llm.RoleUser, Content: "from the second state"})
 	}
-	if _, rev, _, _ := second.MessagesForPersist(); rev != 5 {
+	if _, rev, _, _, _ := second.MessagesForPersist(); rev != 5 {
 		t.Fatalf("the second state reached revision %d, the test needs the collision at 5", rev)
 	}
 	if err := fs.Save(second); err != nil {
@@ -1555,7 +1555,7 @@ func TestSaveNoticesTheHistoryWasReplacedUnderneathIt(t *testing.T) {
 	msgPath := filepath.Join(st.SessionDir, messagesFile)
 
 	// Somebody else writes a different history to the same path.
-	other, _, err := encodeMessagesFile(buildHistory(2), nil)
+	other, _, err := encodeMessagesFile(buildHistory(2), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
