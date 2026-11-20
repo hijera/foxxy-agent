@@ -1357,3 +1357,9 @@ Image preview cards in the composer and sent messages open the shared viewer. Wh
 Codex and Devin subscription quotas share the provider usage section and banner with NeuralDeep. Empty or failed quota reads say **Quota data unavailable**, with a stale last snapshot when available. The provider panel switch disables both display and reads. Credentials remain server-side.
 
 The Context popover offers manual compaction independently of `compaction.auto_enable`, shows its threshold and retains the fork's separate Summary segment. The hero footer includes GitHub, API documentation and the version of the active server. All labels use the app locale.
+
+## Chat views
+
+The Modern layout puts the environment switcher in the rail and Files and Background tasks in the chat header. The composer shares its upper edge with a workspace bar, which offers workspace picks before the first turn and Git change counts once a chat has started. The Classic layout restores the composer context row and moves the Edits entry to the chat header. The choice lives in the Appearance section.
+
+Files and Edits use the same window frame. The Edits file header contains the native diff entry when hosted in a local editor and takes review decisions per file revision.

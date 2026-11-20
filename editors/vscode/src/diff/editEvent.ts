@@ -6,6 +6,7 @@ export interface EditEvent {
   type:
     | "edit_proposed"
     | "edit_applied"
+    | "open_diff"
     | "open_file"
     | "reveal_file"
     | string;

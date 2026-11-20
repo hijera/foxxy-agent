@@ -77,6 +77,10 @@ export class IdeDiffService {
       void this.revealFile(ev.path);
       return;
     }
+    if (ev.type === "open_diff") {
+      void this.showDiff(ev).catch((error) => this.log?.(`[foxxycode] open_diff failed: ${String(error)}`));
+      return;
+    }
     const s = readSettings();
     if (!s.nativeDiffs) return;
     if (!this.isInProject(ev.path)) return;

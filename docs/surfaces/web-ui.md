@@ -43,10 +43,37 @@ Short commands and their output form one continuous card without an extra surrou
 - **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
 - **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
 
-## Composer context row
+## Chat layout
 
-- **Wrapping**: the workspace chips wrap on wider windows. On phones they share one horizontally scrolling strip; the improve-prompt button stays outside it and remains reachable.
-- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of that row, next to the environment / folder / branch / worktree controls — not in the textarea or the lower composer bar. On a phone it stays at the end of the row, outside the horizontally scrolling chip strip. Its label is translated (**`composer.enhance`**), it is disabled for a blank draft and while a request or generation is active, calls **`POST /foxxycode/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and shows an inline error.
+The default **Modern** layout puts the environment menu in the rail, **Files** and **Background tasks** in the chat header, and the workspace bar above the composer. Before the first prompt, the bar lets you pick the folder, branch, or worktree. During a chat, the bar shows the Git workspace and opens **Edits** from the change counts.
+
+Choose **Settings → Appearance → Chat layout → Classic** to put the environment and workspace controls back in the composer, with **Improve prompt** on the same row. Open **Edits** from the classic chat header. The browser or editor panel remembers the layout locally.
+
+![The chat header and workspace bar in Modern layout](../assets/chat-layout-modern-dark-1280.png)
+
+*The Modern layout opens Edits from the Git change counts.*
+
+![The composer context row and Edits button in Classic layout](../assets/chat-layout-classic-dark-1280.png)
+
+*The Classic layout restores the context row and keeps Edits in the header.*
+
+## Workspace files
+
+Open **Files** in the chat header or press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
+
+![Workspace tree and file previews in tabs](../assets/workspace-files-window-dark-1280.png)
+
+*Files shows the workspace tree beside the selected preview.*
+
+## The edits window
+
+**Edits** shows Git changes in the chat's workspace, including changes made outside the agent. The tree jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the IDE's native comparison. The web preview is available for remote sessions and when the native request cannot be dispatched.
+
+**Accept** marks the reviewed version in this browser or panel and keeps the file on disk. A new version needs review again. **Reject** asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since it was reviewed is left alone. **Discard all** in the menu resets the working copy changes together.
+
+![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
+
+*The Edits window shows the Git diff and review actions for each file.*
 
 ## Settings sections: General & Appearance
 
@@ -55,7 +82,7 @@ schema-derived config tabs:
 
 - **General** — composer **send mode** and the live **status line** toggle.
   The default tab.
-- **Appearance** — theme, the app-wide **Language** picker (see below), the
+- **Appearance** — theme, **Chat layout**, the app-wide **Language** picker, the
   **Animations and translucency** switch, and the "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
@@ -331,7 +358,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ## Environment (local / remote server)
 
-- **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). The menu hangs from the chip's left edge and stays inside the window: in the swarm header of a relay the chip is the last control on the right. It is as tall as the room between the chip and the window's edge and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window.
+- **Environment menu.** In Modern layout, open the environment switcher from the rail. In Classic layout, use the environment control in the composer. The menu lists Local, configured remotes and **Connect to…**.
 - **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step); there is no per-select token prompt. Between two remotes the app starts over on the new one in place, without reloading the page (**`EnvScope`**, **`onEnvironmentSwitch`**); to or from Local the page reloads. A **bearer token** comes from the remote's `httpserver.remotes` entry when it carries one, else it is entered in **`Connect to…`** (name / URL / token) and remembered per-remote in the browser. A remote that refuses its token and has none in the configuration offers **Enter token**, which opens that form filled in for it.
 - **Where each environment was left:** switching the environment starts the app over, so the route is remembered per environment (**`foxxycode_env_routes`**): back on Local the app opens the conversation Local was left in, a remote opens where it was left or at its home, and a relay's map never follows the app to a plain agent.
 - **Reachability dots:** each remote is probed on menu open (**`env/remoteProbe.ts`**) - **green** when it answers and accepts the token, **red** when it does not, **amber** while probing; **Local** is always green. A red remote says why on a line under it: it does not answer, it refuses the token (an agent's **`httpserver.auth_token`**, a relay's **`swarm.auth_token`**), or the browser keeps its answer from the page, which is how a CORS setting that leaves this origin out looks from a browser (the line names the origin and the two keys). An agent is asked for **`GET /v1/models`**; a relay, which serves no **`/v1`**, is recognised by its public **`GET /swarm/info`** and its token is checked on **`GET /swarm/nodes`**, and a no-CORS request tells a remote that answers from one that does not.

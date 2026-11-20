@@ -327,7 +327,22 @@ The running turn also emits **`turn_progress`** with **`startedAt`** (RFC3339), 
 
 After **`PUT`** **`/foxxycode/config`**, the next **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. A changed **`mcp.project_trust`** is applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
 
-### Stop and queue control snapshots
+### Workspace files and Edits
+
+All paths below are relative to the selected session's workspace.
+
+| Method | Route | Response |
+|---|---|---|
+| GET | `/foxxycode/sessions/{id}/workspace/tree` | Directory or workspace search results, with paging. |
+| GET | `/foxxycode/sessions/{id}/workspace/text` | A page of decoded text with line offsets. |
+| GET or HEAD | `/foxxycode/sessions/{id}/workspace/raw` | File bytes with range and conditional request support. |
+| POST | `/foxxycode/sessions/{id}/workspace/media-token` | Issues a time-limited raw URL bound to this session, workspace and file. |
+| GET | `/foxxycode/sessions/{id}/changes` | Git changes with stats and a per-file `revision`. Use `include=patch,content` to request the patch and text snapshots as well. |
+| GET | `/foxxycode/sessions/{id}/changes/file?path=...` | One changed file, with its revision, patch and text snapshots. |
+| POST | `/foxxycode/sessions/{id}/changes/revert` | Reverts `{"paths":[...]}` or `{"all":true}` to HEAD. With a single path, send `revision` to reject a stale decision with `409`. Active turns in the workspace also return `409`. The global event stream publishes `session_changes` after a discard. |
+| POST | `/foxxycode/sessions/{id}/changes/open-in-ide` | Local-only JSON request `{"path":"src/main.go"}`. Sends `open_diff` with both text snapshots on `GET /foxxycode/ide/events` and returns `204`. An editor disconnect returns `409`. Binary or oversized files return `422`. |
+
+## Stop and queue control snapshots
 
 On session open and reconnect, clients read **`GET /foxxycode/sessions/{id}/activity`** and **`GET /foxxycode/sessions/{id}/queue`** for the selected id. These reads do not depend on a matching row in a filtered or paginated History listing, a live turn reader, or another queue mutation. The UI and interactive remote console track server activity separately from their own prompt/stream lifetime. The browser skips both hydration reads during its own POST admission and confirms a **`turn_ended`** overlapping a pending or admitted POST through fresh REST before declaring idle.
 

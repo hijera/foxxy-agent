@@ -18,6 +18,7 @@ import {
   snapshotHostShell,
   subscribeHostShell,
 } from "./hostShell";
+import { openWorkspaceFile } from "../files/fileBus";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
@@ -423,9 +424,25 @@ export function PermissionToolPreview({
             (hasBody ? "" : " permission-preview-bar--standalone")
           }
         >
-          <div className="permission-preview-location" title={barHeader}>
-            {barHeader}
-          </div>
+          {(preview.kind === "diff" ||
+            preview.kind === "path" ||
+            preview.kind === "code") &&
+          /^(read|write|edit|read_file|write_file|edit_file|apply_patch|touch|mkdir|rm|list_dir)$/.test(
+            preview.toolName,
+          ) ? (
+            <button
+              type="button"
+              className="permission-preview-location files-open-path"
+              title={barHeader}
+                onClick={() => openWorkspaceFile(barHeader, preview.line)}
+            >
+              {barHeader}
+            </button>
+          ) : (
+            <div className="permission-preview-location" title={barHeader}>
+              {barHeader}
+            </div>
+          )}
           {preview.meta.length > 0 ? (
             <div className="permission-preview-meta">
               {preview.meta.map((item) => (

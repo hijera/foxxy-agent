@@ -6,7 +6,7 @@ package dev.foxxycode.intellij.diff
  * Mirrors the Go `ideEvent` struct in external/httpserver/ideevents.go.
  */
 data class FoxxyCodeEditEvent(
-    val type: String,        // "edit_proposed" | "edit_applied" | "open_file" | "reveal_file"
+    val type: String,        // "edit_proposed" | "edit_applied" | "open_file" | "reveal_file" | "open_diff"
     val toolCallId: String,
     val sessionId: String,
     val path: String,        // absolute path

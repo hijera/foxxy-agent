@@ -95,6 +95,12 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             }
             return
         }
+        if (ev.type == "open_diff") {
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) showDiff(ev)
+            }
+            return
+        }
         if (!FoxxyCodeSettings.getInstance().state.nativeDiffs) return
         if (!isInProject(ev.path)) return
         ApplicationManager.getApplication().invokeLater {

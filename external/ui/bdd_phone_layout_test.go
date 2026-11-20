@@ -40,11 +40,14 @@ func TestWebUIPhoneFeature(t *testing.T) {
 				}
 				return runVitestScenario(layout, "phone composer the send button and the context ring never shrink")
 			})
-			sc.Step(`^the context chips scroll sideways in one strip beside the improve-prompt button$`, func() error {
-				if err := runVitestScenario("src/ui/chat/Composer.phone.test.tsx", "the workspace strip keeps enhance outside its scrolling box"); err != nil {
+			sc.Step(`^the composer card has no chip row and the plate over it is finger-sized$`, func() error {
+				if err := runVitestScenario("src/ui/chat/Composer.test.tsx", "the improve-prompt button stands in the field's corner and the card has no chip row"); err != nil {
 					return err
 				}
-				return runVitestScenario(layout, "phone composer the context chips are one sideways-scrolling strip and do not squeeze")
+				if err := runVitestScenario(layout, "phone composer the classic workspace chip strip can scroll sideways"); err != nil {
+					return err
+				}
+				return runVitestScenario(layout, "phone composer the plate's picks and git's count are finger-sized on a touch screen or a phone")
 			})
 			sc.Step(`^the composer text is large enough that iOS Safari does not zoom into it$`, func() error {
 				return runVitestScenario(layout, "text fields do not make iOS Safari zoom the composer and its highlight mirror are 16px together")

@@ -1,5 +1,11 @@
 // Package gitws inspects and manipulates git working copies for
-// per-session workspace switching (folder, branch, worktree).
+// per-session workspace switching (folder, branch, worktree) and the Edits
+// view of a chat.
+//
+// Every operation drives the git binary when it is on PATH and falls back to
+// a built-in implementation on go-git when it is not (builtin.go,
+// builtin_changes.go), chosen per call by GitAvailable. The built-in one has
+// no rename detection and cannot open a linked worktree (ErrNeedsGitBinary).
 package gitws
 
 import (
@@ -61,11 +67,8 @@ func runGit(dir string, args ...string) (string, error) {
 }
 
 // Clone shallow-clones url into dest. When ref is non-empty it clones that
-// branch or tag. dest must not already exist.
+// branch or tag. dest must not exist or be an empty directory.
 func Clone(url, ref, dest string) error {
-	if !GitAvailable() {
-		return fmt.Errorf("git binary not found on PATH")
-	}
 	url = strings.TrimSpace(url)
 	if url == "" {
 		return fmt.Errorf("empty clone url")
@@ -78,6 +81,9 @@ func Clone(url, ref, dest string) error {
 	ref = strings.TrimSpace(ref)
 	if strings.HasPrefix(ref, "-") {
 		return fmt.Errorf("refusing ref that looks like an option: %q", ref)
+	}
+	if !GitAvailable() {
+		return builtinClone(url, ref, dest)
 	}
 	// Disable the ext:: transport (arbitrary command execution via clone URL).
 	args := []string{"-c", "protocol.ext.allow=never", "clone", "--depth", "1"}
@@ -94,21 +100,21 @@ func Clone(url, ref, dest string) error {
 // Pull fast-forwards the working copy at dir. Used to refresh an existing clone.
 func Pull(dir string) error {
 	if !GitAvailable() {
-		return fmt.Errorf("git binary not found on PATH")
+		return builtinPull(dir)
 	}
 	_, err := runGit(dir, "pull", "--ff-only")
 	return err
 }
 
 // Describe inspects dir. It never fails on plain folders: a non-repo dir
-// (or a missing git binary) yields Info{IsGitRepo: false}.
+// yields Info{IsGitRepo: false}.
 func Describe(dir string) Info {
 	info := Info{Path: dir}
 	if abs, err := filepath.Abs(dir); err == nil {
 		info.Path = abs
 	}
 	if !GitAvailable() {
-		return info
+		return builtinDescribe(info)
 	}
 	toplevel, err := runGit(info.Path, "rev-parse", "--show-toplevel")
 	if err != nil || toplevel == "" {
@@ -152,6 +158,9 @@ func defaultBranch(dir string) string {
 // reports the git directory as the main worktree. A plain directory or an
 // unavailable git binary yields an empty string.
 func MainCheckoutRoot(dir string) string {
+	if !GitAvailable() {
+		return builtinMainCheckoutRoot(dir)
+	}
 	common, err := runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil || common == "" {
 		return ""
@@ -214,6 +223,9 @@ func Checkout(dir, branch string) error {
 	if strings.HasPrefix(branch, "-") {
 		return fmt.Errorf("refusing branch name that looks like an option: %q", branch)
 	}
+	if !GitAvailable() {
+		return builtinCheckout(dir, branch)
+	}
 	if _, err := runGit(dir, "check-ref-format", "--branch", branch); err != nil {
 		return fmt.Errorf("invalid branch name %q: %w", branch, err)
 	}
@@ -264,6 +276,11 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	dirName := BranchDirName(branch)
 	if dirName == "" {
 		return "", false, fmt.Errorf("branch name has no usable directory name: %q", branch)
+	}
+	// The built-in backend has no `git worktree add`; it says so before
+	// creating anything on disk rather than half-building a tree.
+	if !GitAvailable() {
+		return "", false, fmt.Errorf("open a worktree for %q: %w", branch, ErrNeedsGitBinary)
 	}
 	if _, err := runGit(repoDir, "check-ref-format", "--branch", branch); err != nil {
 		return "", false, fmt.Errorf("invalid branch name %q: %w", branch, err)

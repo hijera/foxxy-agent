@@ -12,6 +12,9 @@ The Go source is the **repo root** (this extension lives at `editors/vscode/`); 
 copy. Functionally it is the full peer of the [IntelliJ plugin](../intellij), including native
 inline diffs (Accept / Reject / Revert / Show diff) driven by the foxxycode IDE event stream.
 
+In a local chat, open **Edits** and select a text file to compare it in the editor's native diff. The **Classic** chat layout is available from **Settings → Appearance**.
+
+
 ## How it works
 
 ```

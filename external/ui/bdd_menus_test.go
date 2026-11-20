@@ -21,6 +21,12 @@ func TestWebUIMenusFeature(t *testing.T) {
 		{`^the environment menu of a chip near the right edge stays inside the window$`,
 			"src/ui/chat/EnvironmentChip.test.tsx",
 			"EnvironmentChip stays inside the window when the chip is near the right edge"},
+		{`^the environment menu opens beside the rail from the foot of it$`,
+			"src/ui/nav/EnvironmentSwitcher.test.tsx",
+			"EnvironmentSwitcher menu direction opens beside the rail from the foot of it, growing upward"},
+		{`^the environment menu stays inside the window$`,
+			"src/ui/nav/EnvironmentSwitcher.test.tsx",
+			"EnvironmentSwitcher menu direction stays inside the window when the item is near the right edge"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_menus",

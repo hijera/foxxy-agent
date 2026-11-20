@@ -2,6 +2,9 @@
 
 A session is one conversation: the transcript, the working directory it runs in, the mode, model and permission mode it uses, its todo checklist, the files uploaded into it and the tool activity it produced. Every surface - the console, the web UI, an ACP editor, the Telegram gateway, a scheduler run, a subagent - works on the same kind of session, stored the same way, so a conversation started in one place can be continued in another. This page covers the bundle on disk, resuming, history rewind on message edit, the todo checklist, child sessions and the `foxxycode sessions` command. Writing a transcript to a file is [Session export](session-export.md).
 
+The workspace's Git changes and file previews are available from [the chat views](../surfaces/web-ui.md#the-edits-window).
+
+
 ## The bundle on disk
 
 Every session is a directory under the sessions root, `$FOXXYCODE_HOME/sessions/<id>/` (`~/.foxxycode/sessions/` by default). The root moves with `sessions.dir` in `config.yaml` or with `--sessions-dir` on `foxxycode serve`, `foxxycode acp`, the console and the `foxxycode sessions` verbs ([config.yaml reference](../reference/config.md#sessions)); the process creates it at start and fails to start when it cannot.

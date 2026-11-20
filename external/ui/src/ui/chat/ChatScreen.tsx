@@ -1,3 +1,4 @@
+import { useClassicChatLayout } from "../theme/chatLayout";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
@@ -26,6 +27,9 @@ import type { QueuedMessage, QueueMode } from "./Composer";
 import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import { finishedToolCalls } from "../changes/toolActivity";
+import { useWorkingCopy } from "../changes/workingCopy";
+import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -47,6 +51,7 @@ import {
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { useTranscriptResizeAnchor } from "./useTranscriptResizeAnchor";
+import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -173,6 +178,12 @@ export function ChatScreen(props: {
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
+  /** Opens the edits window: what git reports for the chat's folder. */
+  onOpenEdits?: () => void;
+  /** Opens (or puts away) the Files window from the header. */
+  onOpenFiles?: () => void;
+  /** The Files window is open. */
+  filesOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -571,6 +582,36 @@ export function ChatScreen(props: {
     />
   ) : null;
 
+  // What git reports for the chat's folder, counted by the bar over the
+  // composer, whose count opens the edits window. Every finished tool call may
+  // have written a file.
+  const classic = useClassicChatLayout();
+  const workingCopy = useWorkingCopy(props.sessionId ?? "", {
+    // Outside a git repository there is no count to show, and no plate.
+    enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
+    toolActivity: finishedToolCalls(props.items),
+  });
+  // Once the chat runs, where it works is a fact rather than a choice: a plate
+  // joined to the top of the composer card names it.
+  // The plate of a running chat is git's - the repository, the branch, the
+  // count - so a folder outside any repository has none.
+  const workspaceBar =
+    !classic &&
+    !readOnlyNotice &&
+    props.sessionId &&
+    props.workspaceLocked &&
+    (props.workspaceCtx?.is_git_repo || props.workspaceCtx?.is_svn_repo) ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        workingCopy={workingCopy}
+        onOpenEdits={props.onOpenEdits}
+      />
+    ) : undefined;
+  // The Files window belongs to a chat, so it opens only once one exists.
+  const openFiles = props.sessionId
+    ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
+    : undefined;
+
   const messageListProps: Omit<
     MessageListProps,
     "items" | "renderStart" | "renderEnd"
@@ -632,7 +673,9 @@ export function ChatScreen(props: {
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
     ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
-    ...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {}),
+    ...(props.onMentionArtifact
+      ? { onMentionArtifact: props.onMentionArtifact }
+      : {}),
   };
 
   const mainClassName = [
@@ -835,6 +878,7 @@ export function ChatScreen(props: {
               <div className="chat-title-column">
                 <ChatHeader
                   title={props.title}
+                  {...(classic && props.onOpenEdits ? { onOpenEdits: props.onOpenEdits } : {})}
                   editable={true}
                   onTitleSave={props.onTitleSave}
                   {...(props.onExportSession &&
@@ -853,14 +897,21 @@ export function ChatScreen(props: {
                   {...(props.onOpenBackgroundTasks
                     ? {
                         tasks: props.backgroundTasks ?? [],
-                        // The header control is where the panel was opened
-                        // from, so a second click puts it away again.
+                        // The header menu is where a view was opened from, so
+                        // picking it again puts it away.
                         onOpenTasks:
                           props.backgroundTasksOpen === true &&
                           props.onCloseBackgroundTasks
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
+
+                        ...(openFiles
+                          ? {
+                              onOpenFiles: openFiles,
+                              filesOpen: props.filesOpen === true,
+                            }
+                          : {}),
                       }
                     : {})}
                 />
@@ -886,12 +937,14 @@ export function ChatScreen(props: {
                 isAwaitingPermission,
               )}
               tail={
-                props.backgroundTasks ? (
-                  <SubagentPermissionCards
-                    tasks={props.backgroundTasks}
-                    onAnswered={() => props.onBackgroundTasksChanged?.()}
-                  />
-                ) : null
+                <>
+                  {props.backgroundTasks ? (
+                    <SubagentPermissionCards
+                      tasks={props.backgroundTasks}
+                      onAnswered={() => props.onBackgroundTasksChanged?.()}
+                    />
+                  ) : null}
+                </>
               }
             />
             <div className="chat-scroll-tail" aria-hidden />
@@ -919,6 +972,7 @@ export function ChatScreen(props: {
               )}
               {readOnlyNotice ?? (
                 <Composer
+                  cardTop={workspaceBar}
                   value={props.draft}
                   providerUsage={props.providerUsage ?? null}
                   attachedFiles={attachedFiles}

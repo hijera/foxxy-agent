@@ -1,3 +1,4 @@
+import { BranchIcon, FolderIcon } from "./workspaceIcons";
 import React, { useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -42,6 +43,7 @@ type Props = {
   opensUp?: boolean;
   // The workspace is chosen once: locked as soon as the conversation starts.
   locked?: boolean;
+  inWorkspaceBar?: boolean;
 };
 
 type MenuKind = "folder" | "branch" | "svn" | null;
@@ -80,7 +82,7 @@ export function WorkspaceChips(props: Props) {
     // API-only/remote state), so users can switch environments from the home screen.
     return (
       <div className="composer-context-chips">
-        <EnvironmentChip />
+        {!props.inWorkspaceBar ? <EnvironmentChip /> : null}
       </div>
     );
   }
@@ -142,6 +144,8 @@ export function WorkspaceChips(props: Props) {
   const showBranch = branchChipVisible(ctx);
   const worktreeActive = isWorktreeBadgeActive(ctx, !locked && props.worktreePref);
   const showSvn = svnChipVisible(ctx);
+  const pickClass = props.inWorkspaceBar ? "workspace-chip workspace-bar-item workspace-bar-pick" : "workspace-chip";
+  const checkboxClass = props.inWorkspaceBar ? "workspace-chip-checkbox workspace-bar-checkbox" : "workspace-chip-checkbox";
   const svnFolderActive = isSvnFolderCheckoutActive(ctx, props.svnFolderPref);
   const svnLabel = svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy"));
   const svnRevision = ctx.svn?.revision || 0;
@@ -156,43 +160,49 @@ export function WorkspaceChips(props: Props) {
   }
 
   return (
-    <div className="composer-context-chips">
-      <EnvironmentChip />
+    <div className={props.inWorkspaceBar ? "workspace-bar-picks" : "composer-context-chips"}>
+      {!props.inWorkspaceBar ? <EnvironmentChip /> : null}
       {!hideFolderChip ? (
         <button
           type="button"
-          className="workspace-chip"
+          className={pickClass}
           data-testid="composer-workspace-chip"
           title={ctx.is_worktree && ctx.repo_root ? ctx.repo_root : ctx.path}
           aria-haspopup="menu"
           disabled={locked}
+          aria-expanded={menuOpen === "folder"}
           onClick={(e) => toggleMenu("folder", e.currentTarget)}
         >
+          {props.inWorkspaceBar ? <FolderIcon /> : (
           <span className="workspace-chip-icon" aria-hidden="true">
             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
               <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
             </svg>
           </span>
-          <span className="workspace-chip-label">{folderChipLabel(ctx)}</span>
+          )}
+          <span className={props.inWorkspaceBar ? "workspace-bar-text" : "workspace-chip-label"}>{folderChipLabel(ctx)}</span>
         </button>
       ) : null}
 
       {showBranch ? (
         <button
           type="button"
-          className="workspace-chip"
+          className={pickClass}
           data-testid="composer-branch-chip"
           title={ctx.branch || t("composer.workspace.detached")}
           aria-haspopup="menu"
           disabled={locked}
+          aria-expanded={menuOpen === "branch"}
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
         >
+          {props.inWorkspaceBar ? <BranchIcon /> : (
           <span className="workspace-chip-icon" aria-hidden="true">
             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
               <path d="M5 3.25a1.75 1.75 0 1 1-2.5-1.58V3.25a3.25 3.25 0 0 0 3.25 3.25h3.5c.97 0 1.75.78 1.75 1.75v.42a1.75 1.75 0 1 1-1.5 0V8.25a.25.25 0 0 0-.25-.25h-3.5A4.73 4.73 0 0 1 3.5 7.1v3.23a1.75 1.75 0 1 1-1.5 0V4.83A1.75 1.75 0 0 1 5 3.25Z" />
             </svg>
           </span>
-          <span className="workspace-chip-label">
+          )}
+          <span className={props.inWorkspaceBar ? "workspace-bar-text" : "workspace-chip-label"}>
             {ctx.branch || t("composer.workspace.detached")}
           </span>
         </button>
@@ -200,7 +210,7 @@ export function WorkspaceChips(props: Props) {
 
       {showBranch ? (
         <label
-          className={`workspace-chip workspace-chip--check ${worktreeActive ? "is-active" : ""} ${locked || ctx.is_worktree ? "is-locked" : ""}`}
+          className={`${pickClass} workspace-chip--check ${props.inWorkspaceBar ? "workspace-bar-check" : ""} ${worktreeActive ? "is-active" : ""} ${locked || ctx.is_worktree ? "is-locked" : ""}`}
           data-testid="composer-worktree-chip"
           title={
             ctx.is_worktree
@@ -210,7 +220,7 @@ export function WorkspaceChips(props: Props) {
         >
           <input
             type="checkbox"
-            className="workspace-chip-checkbox"
+            className={checkboxClass}
             data-testid="composer-worktree-checkbox"
             checked={worktreeActive}
             disabled={locked || ctx.is_worktree}
@@ -225,11 +235,12 @@ export function WorkspaceChips(props: Props) {
       {showSvn ? (
         <button
           type="button"
-          className="workspace-chip"
+          className={pickClass}
           data-testid="composer-svn-chip"
           title={svnTitle}
           aria-haspopup="menu"
           disabled={locked}
+          aria-expanded={menuOpen === "svn"}
           onClick={(e) => toggleMenu("svn", e.currentTarget)}
         >
           <span className="workspace-chip-icon" aria-hidden="true">
@@ -243,13 +254,13 @@ export function WorkspaceChips(props: Props) {
 
       {showSvn ? (
         <label
-          className={`workspace-chip workspace-chip--check ${svnFolderActive ? "is-active" : ""} ${locked ? "is-locked" : ""}`}
+          className={`${pickClass} workspace-chip--check ${props.inWorkspaceBar ? "workspace-bar-check" : ""} ${svnFolderActive ? "is-active" : ""} ${locked ? "is-locked" : ""}`}
           data-testid="composer-svn-folder-chip"
           title={t("composer.workspace.svnFolderToggleTitle")}
         >
           <input
             type="checkbox"
-            className="workspace-chip-checkbox"
+            className={checkboxClass}
             data-testid="composer-svn-folder-checkbox"
             checked={svnFolderActive}
             disabled={locked}
