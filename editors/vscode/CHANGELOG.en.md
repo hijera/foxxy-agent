@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-11-19
 
+**Notification fixes.** Stop stays quiet even when the server becomes idle after acknowledging cancellation; the next completed task still alerts. Custom audio cannot be read outside the sound directory through a parent-directory link.
+
 **Saving diagrams in VS Code.** The MMD and SVG buttons use the editor's Save As picker and save through the extension, avoiding downloads cancelled inside the webview.
 
 **Diagrams and formulas in answers.**

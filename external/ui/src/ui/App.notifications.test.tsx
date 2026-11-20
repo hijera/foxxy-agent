@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -24,8 +24,9 @@ test.each([
   { name: "foreground by default", focused: true, whenFocused: false, delivered: false, longHistory: false },
   { name: "foreground enabled", focused: true, whenFocused: true, delivered: true, longHistory: false },
   { name: "background with a large live window", focused: false, whenFocused: false, delivered: true, longHistory: true },
-])("a completed task notifies once: $name", async ({ focused, whenFocused, delivered, longHistory }) => {
-  const sid = `sess_notification_${focused}_${whenFocused}_${longHistory}`;
+  { name: "acknowledged Stop", focused: false, whenFocused: true, delivered: false, longHistory: false, stop: true },
+])("a completed task notifies once: $name", async ({ focused, whenFocused, delivered, longHistory, stop }) => {
+  const sid = `sess_notification_${focused}_${whenFocused}_${longHistory}_${!!stop}`;
   let active = false;
   let finished = false;
   let events: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -56,6 +57,7 @@ test.each([
         { role: "user", content: "Please finish this task." },
         ...(finished ? [{ role: "assistant", content: "The change is ready." }] : [])],
     });
+    if (path === `/foxxycode/sessions/${sid}/cancel`) return json({});
     if (path === `/foxxycode/sessions/${sid}/activity`) return json({ sessionId: sid, turnActive: active });
     if (path === `/foxxycode/sessions/${sid}/queue`) return json({ messages: [], version: 0 });
     if (path === `/foxxycode/sessions/${sid}/composer-stream`) return new Response(new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }), { headers: { "Content-Type": "text/event-stream" } });
@@ -72,6 +74,11 @@ test.each([
   active = true;
   await act(async () => { events!.enqueue(new TextEncoder().encode(`event: turn_started\ndata: {"sessionId":"${sid}"}\n\n`)); });
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/composer-stream"))).toBe(true));
+  if (stop) {
+    const reads = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/activity")).length;
+    fireEvent.click(await screen.findByRole("button", { name: "Stop generation" }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/activity")).length).toBeGreaterThan(reads));
+  }
   active = false;
   finished = true;
   await act(async () => { events!.enqueue(new TextEncoder().encode(`event: turn_ended\ndata: {"sessionId":"${sid}"}\n\n`)); });
@@ -84,6 +91,14 @@ test.each([
   } else expect(host).not.toHaveBeenCalled();
   await act(async () => { events!.enqueue(new TextEncoder().encode(`event: turn_ended\ndata: {"sessionId":"${sid}"}\n\n`)); });
   expect(host).toHaveBeenCalledTimes(delivered ? 1 : 0);
+  if (stop) {
+    // A Stop suppresses only its own turn; the next completed task still alerts.
+    active = true;
+    await act(async () => { events!.enqueue(new TextEncoder().encode(`event: turn_started\ndata: {"sessionId":"${sid}"}\n\n`)); });
+    active = false;
+    await act(async () => { events!.enqueue(new TextEncoder().encode(`event: turn_ended\ndata: {"sessionId":"${sid}"}\n\n`)); });
+    await waitFor(() => expect(host).toHaveBeenCalledTimes(1));
+  }
 });
 
 test("completion retries a transient transcript read failure", async () => {

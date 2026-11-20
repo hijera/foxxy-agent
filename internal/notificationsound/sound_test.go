@@ -89,3 +89,24 @@ func TestStoreReportsCloseError(t *testing.T) {
 		t.Fatalf("close error = %v, want %v", err, closeErr)
 	}
 }
+
+func TestLoadRejectsEscapingParentSymlink(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	data := append([]byte("ID3"), make([]byte, 64)...)
+	if err := os.WriteFile(filepath.Join(outside, "private.mp3"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sounds := filepath.Join(home, "notification-sounds")
+	if err := os.MkdirAll(sounds, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(sounds, "linked")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, path := range []string{filepath.Join(sounds, "linked", "private.mp3"), filepath.Join("notification-sounds", "linked", "private.mp3")} {
+		if _, _, err := Load(home, path); !errors.Is(err, ErrLocation) {
+			t.Errorf("Load(%q) = %v, want ErrLocation", path, err)
+		}
+	}
+}

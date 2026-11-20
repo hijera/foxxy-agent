@@ -60,3 +60,25 @@ func TestNotificationSoundErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestNotificationSoundRejectsEscapingParentSymlink(t *testing.T) {
+	home, outside := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "private.wav"), notificationTestWAV(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sounds := filepath.Join(home, "notification-sounds")
+	if err := os.MkdirAll(sounds, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(sounds, "linked")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	cfg := &config.Config{Paths: config.Paths{Home: home}, UI: config.UIConfig{NotificationSoundFile: filepath.Join(sounds, "linked", "private.wav")}}
+	s := New(cfg, nil, slog.Default(), home)
+	defer s.Drain()
+	res := httptest.NewRecorder()
+	s.Handler().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/foxxycode/notification-sound", nil))
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403: %s", res.Code, res.Body.String())
+	}
+}

@@ -1070,7 +1070,7 @@ export function App() {
   });
 
   const turnActivity = useSessionTurnActivity({
-    onTurnFinished: (sid) => notifyFinishedTurn(sid),
+    onTurnFinished: (sid, runningGeneration) => notifyFinishedTurn(sid, runningGeneration),
     sessionId,
     connected: serverEventsConnected,
     onQuestion: (payload) => handleComposerSseQuestion(payload),
@@ -1129,10 +1129,13 @@ export function App() {
     void refreshSessionStats(sid);
   }
 
-  function notifyFinishedTurn(sid: string) {
+  function notifyFinishedTurn(sid: string, runningGeneration: number) {
     if (!isDesktopShell() && !isEditorEmbed()) return;
-    // Fence by generation, like attachViewedComposer: only the turn the user
-    // stopped is quieted, and a later normally-finished one still alerts.
+    // Stop records the running generation; observe(false) has already advanced
+    // to the idle generation. Keep both identities: one for cancellation, the
+    // other for rejecting a transcript read overtaken by a successor turn.
+    if (stopPendingBySidRef.current.has(sid) ||
+        stoppedTurnBySidRef.current.get(sid) === runningGeneration) return;
     const generation = turnActivity.generation(sid);
     const notificationId = `done_${sid}_${generation}`;
     const read = (attempt: number): void => {
@@ -1149,7 +1152,7 @@ export function App() {
         if (
           !appMountedRef.current ||
           stopPendingBySidRef.current.has(sid) ||
-          stoppedTurnBySidRef.current.get(sid) === generation ||
+          stoppedTurnBySidRef.current.get(sid) === runningGeneration ||
           turnActivity.generation(sid) !== generation ||
           turnActivity.get(sid) === true
         )

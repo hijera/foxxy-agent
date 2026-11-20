@@ -106,12 +106,34 @@ func Load(home, path string) ([]byte, string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(home, path)
 	}
-	if rel, err := filepath.Rel(filepath.Join(home, "notification-sounds"), path); err != nil ||
+	rootPath := filepath.Join(home, "notification-sounds")
+	rel, err := filepath.Rel(rootPath, path)
+	if err != nil ||
 		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil, "", ErrLocation
 	}
-	// Lstat so a symlink planted inside the directory cannot point elsewhere.
-	info, err := os.Lstat(path)
+	// Check the resolved location for a useful ErrLocation response, including
+	// links in parent directories. Root.Open below also confines the actual
+	// read if a directory or link changes after this check.
+	resolvedRoot, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return nil, "", err
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, "", err
+	}
+	resolvedRel, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) || filepath.IsAbs(resolvedRel) {
+		return nil, "", ErrLocation
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = root.Close() }()
+	// Keep rejecting a symlink as the selected file itself.
+	info, err := root.Lstat(rel)
 	if err != nil {
 		return nil, "", err
 	}
@@ -121,7 +143,7 @@ func Load(home, path string) ([]byte, string, error) {
 	if info.Size() > MaxBytes {
 		return nil, "", ErrTooLarge
 	}
-	f, err := os.Open(path)
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, "", err
 	}

@@ -1325,7 +1325,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/notification-sound": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get the selected notification sound",
-					"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Only files inside the agent home's notification-sounds directory are served; no path supplied by the caller is read. Returns bounded MP3/WAV bytes. Empty selection uses the host's standard sound and returns 204.",
+					"description": "Reads ui.notification_sound_file, resolving a relative path against the agent home. Only files inside the agent home's notification-sounds directory are served; parent-directory symlinks escaping it are rejected. No path supplied by the caller is read. Returns bounded MP3/WAV bytes. Empty selection uses the host's standard sound and returns 204.",
 					"operationId": "foxxycodeNotificationSoundGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Selected audio", "content": map[string]interface{}{

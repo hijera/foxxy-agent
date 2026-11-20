@@ -25,5 +25,5 @@ test("finished alert fires once even when a silent activity refresh ends the tur
     result.current.observe("s", false);
     result.current.observe("s", false);
   });
-  expect(finished).toHaveBeenCalledExactlyOnceWith("s");
+  expect(finished).toHaveBeenCalledExactlyOnceWith("s", 2);
 });

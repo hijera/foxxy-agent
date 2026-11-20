@@ -48,7 +48,9 @@ as notifications after switching away. The app must keep running to receive new 
 A completed task starts its alert with **Task finished**, followed by the latest answer
 excerpt. Completion is confirmed through session activity, including recovery after
 a stream disconnect, and duplicate completion events do not alert again. An intentional
-Stop does not produce a completion alert; a newly ready plan uses the plan-ready alert.
+Stop does not produce a completion alert, including when cancellation is acknowledged before
+the server becomes idle. The next normally completed task still notifies. A newly ready
+plan uses the plan-ready alert.
 Rebasing the visible history in a long chat does not suppress its completion alert.
 
 VS Code uses its notification center and IntelliJ uses IDE notification balloons, with
@@ -75,7 +77,8 @@ configured in Windows.
 `notification-sounds/` directory and sets `ui.notification_sound_file` immediately.
 **Preview** plays the selected sound even with notifications or sound disabled;
 **Stop playback** stops playback. The sound endpoint serves only files inside that
-`notification-sounds/` directory; the picker uploads there automatically.
+`notification-sounds/` directory, rejecting paths whose parent links escape that directory;
+the picker uploads there automatically.
 The same selection applies to desktop and editor panels. Missing or unplayable files
 fall back to the standard sound for alerts; Preview shows an error instead.
 
