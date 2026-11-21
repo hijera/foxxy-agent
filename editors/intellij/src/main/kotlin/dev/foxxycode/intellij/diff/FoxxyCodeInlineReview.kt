@@ -34,6 +34,7 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.MouseEvent
 import java.awt.geom.Path2D
+import java.awt.geom.RoundRectangle2D
 import java.util.IdentityHashMap
 
 /** Project-local review state for writable source editors. Lives on the EDT. */
@@ -236,11 +237,21 @@ internal class FoxxyCodeInlineReview(private val project: Project, parent: Dispo
             tint: Color,
             reject: Boolean,
         ) {
-            val radius = bounds.height
+            val stroke = JBUI.scale(1.5f)
+            val corner = bounds.height - stroke
+            val shape = RoundRectangle2D.Float(
+                bounds.x + stroke / 2,
+                bounds.y + stroke / 2,
+                bounds.width - stroke,
+                bounds.height - stroke,
+                corner,
+                corner,
+            )
             g.color = Color(tint.red, tint.green, tint.blue, if (reject) 18 else 31)
-            g.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, radius, radius)
-            g.color = Color(tint.red, tint.green, tint.blue, 77)
-            g.drawRoundRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1, radius, radius)
+            g.fill(shape)
+            g.color = Color(tint.red, tint.green, tint.blue, 165)
+            g.stroke = BasicStroke(stroke)
+            g.draw(shape)
 
             val iconX = bounds.x + padding
             val iconY = bounds.y + (bounds.height - iconSize) / 2

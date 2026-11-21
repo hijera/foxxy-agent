@@ -73,7 +73,7 @@ Floating **composer** card, **History** drawer chrome, **skills** slash menu, **
 - System stack: **`system-ui`**, `-apple-system`, **`Segoe UI`**, **`sans-serif`**
 - Comfortable padding: **`12px`** grid, radius **`12px`** (pill buttons **`999px`**)
 - Density tuned for dashboards: desktop layout (single navigation style + fluid chat). Sessions are a drawer overlay.
-- **Edits review actions** sit in each file header. **Accept** uses a compact pill with a checkmark and a soft accent tint. **Reject** uses the same shape with an undo glyph and the danger token. At widths of 720 px and below, the actions use the file toolbar's icon-button width to leave space for the filename. The button names and tooltips remain available. In the IntelliJ source editor, each changed block has the same pair of rounded actions. Their tint is drawn over the current editor color scheme.
+- **Edits review actions** sit in each file header. **Accept** uses a compact pill with a checkmark and a soft accent tint. **Reject** uses the same shape with an undo glyph and the danger token. At widths of 720 px and below, the actions use the file toolbar's icon-button width to leave space for the filename. The button names and tooltips remain available. In the IntelliJ source editor, each changed block has the same pair of rounded actions. An accent or danger outline defines each button over a softer tint drawn on the current editor color scheme.
 
 ### Token usage HUD
 
