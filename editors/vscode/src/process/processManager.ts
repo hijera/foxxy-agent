@@ -23,14 +23,22 @@ export interface StartResult {
   baseUrl: string;
 }
 
+/** A newer start or an explicit stop superseded this launch. */
+export class StartCancelledError extends Error {
+  constructor() {
+    super("FoxxyCode startup cancelled");
+    this.name = "StartCancelledError";
+  }
+}
+
 /** Owns the per-workspace `foxxycode http` subprocess: launch, readiness polling,
  *  restart, shutdown. Mirrors `editors/intellij/.../process/FoxxyCodeProcessManager.kt`. */
 export class ProcessManager {
   private child: ChildProcess | null = null;
   private _baseUrl: string | null = null;
   private starting: Promise<StartResult> | null = null;
-  /** Rejects the in-flight `startAndWait` when spawn fails or the process exits early. */
-  private startPromiseReject: ((e: Error) => void) | null = null;
+  private launchGeneration = 0;
+  private cancelStart: (() => void) | null = null;
 
   constructor(private readonly opts: ProcessManagerOptions) {}
 
@@ -51,10 +59,19 @@ export class ProcessManager {
   async start(): Promise<StartResult> {
     if (this.isRunning && this._baseUrl) return { baseUrl: this._baseUrl };
     if (this.starting) return this.starting;
-    this.starting = this.startAndWait().finally(() => {
-      this.starting = null;
+    this.stopInternal();
+    const generation = this.launchGeneration;
+    const cancelled = new Promise<never>((_, reject) => {
+      this.cancelStart = () => reject(new StartCancelledError());
     });
-    return this.starting;
+    const pending = Promise.race([this.startAndWait(generation), cancelled]).finally(() => {
+      if (this.starting === pending) {
+        this.starting = null;
+        this.cancelStart = null;
+      }
+    });
+    this.starting = pending;
+    return pending;
   }
 
   async restart(): Promise<StartResult> {
@@ -62,14 +79,13 @@ export class ProcessManager {
     return this.start();
   }
 
-  private async startAndWait(): Promise<StartResult> {
-    this.stopInternal();
-
+  private async startAndWait(generation: number): Promise<StartResult> {
     const { settings, extensionPath, workspaceRoot, log } = this.opts;
     const binary = resolveExisting(extensionPath, settings.binaryPath);
     if (!binary) throw new Error(t("process.error.binaryNotFound"));
 
     const port = await pickFreePort(settings.port);
+    this.assertCurrentLaunch(generation);
     const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
     // A fixed port can simply be taken - by another VS Code window (the setting
     // is user-wide while the process is per workspace) or by the previous
@@ -78,9 +94,11 @@ export class ProcessManager {
     // process would otherwise die on bind and surface as the generic "exited
     // before becoming ready". Mirrors FoxxyCodeProcessManager.kt.
     if (settings.port >= 1 && settings.port <= 65535 && !(await awaitPortAvailable(port, host))) {
+      this.assertCurrentLaunch(generation);
       log?.(`[foxxycode] fixed port ${host}:${port} is in use`);
       throw new Error(t("process.error.portInUse", String(port)));
     }
+    this.assertCurrentLaunch(generation);
 
     log?.(`[foxxycode] launching ${host}:${port}`);
     this.opts.onLaunching?.(host, port);
@@ -106,8 +124,6 @@ export class ProcessManager {
     const baseUrl = `http://${host}:${port}/`;
 
     return new Promise<StartResult>((resolve, reject) => {
-      this.startPromiseReject = reject;
-
       child.stdout.on("data", (chunk: Buffer) => {
         for (const line of chunk.toString("utf8").split(/\r?\n/)) {
           if (line.length) log?.(`[foxxycode] ${line}`);
@@ -120,46 +136,63 @@ export class ProcessManager {
       });
       child.on("error", (err: Error) => {
         log?.(`[foxxycode] spawn error: ${err.message}`);
-        this.child = null;
-        this._baseUrl = null;
-        this.rejectStartPromise(
+        if (this.child === child) {
+          this.child = null;
+          this._baseUrl = null;
+        }
+        reject(
           new Error(`${t("process.error.exitedBeforeReady")} — ${err.message}`),
         );
       });
       child.on("exit", (code) => {
         log?.(`[foxxycode] process exited code=${code}`);
-        this.child = null;
-        this._baseUrl = null;
-        if (this.startPromiseReject) {
-          this.rejectStartPromise(new Error(t("process.error.exitedBeforeReady")));
+        // A stopped backend may exit after its replacement has already spawned.
+        // Its callback owns only its own launch, never the replacement's state.
+        if (this.child === child) {
+          this.child = null;
+          this._baseUrl = null;
         }
+        reject(new Error(t("process.error.exitedBeforeReady")));
       });
 
-      void this.waitForReady(baseUrl)
+      void this.waitForReady(baseUrl, child, generation)
         .then(() => {
-          this.startPromiseReject = null;
+          this.assertLiveChild(child, generation);
           this._baseUrl = baseUrl;
           resolve({ baseUrl });
         })
         .catch((e: Error) => {
-          this.rejectStartPromise(e);
+          if (this.child === child) {
+            this.child = null;
+            this._baseUrl = null;
+            if (!child.killed) {
+              try {
+                child.kill();
+              } catch {
+                // Preserve the startup failure if termination also fails.
+              }
+            }
+          }
+          reject(e);
         });
     });
   }
 
   /** Polls `GET /v1/models` until 2xx-4xx (server accepting requests), 30s deadline. */
-  private async waitForReady(baseUrl: string): Promise<void> {
+  private async waitForReady(baseUrl: string, child: ChildProcess, generation: number): Promise<void> {
     const probe = baseUrl + "v1/models";
     const deadline = Date.now() + 30_000;
     let lastError = "timeout";
     while (Date.now() < deadline) {
-      if (!this.isRunning) {
-        throw new Error(t("process.error.exitedBeforeReady"));
-      }
+      this.assertLiveChild(child, generation);
       try {
         const res = await httpGet(probe, 1500);
-        if (res.status >= 200 && res.status <= 499) return;
+        if (res.status >= 200 && res.status <= 499) {
+          this.assertLiveChild(child, generation);
+          return;
+        }
       } catch (e) {
+        this.assertCurrentLaunch(generation);
         lastError = (e as Error).message ?? String(e);
       }
       await sleep(300);
@@ -167,10 +200,15 @@ export class ProcessManager {
     throw new Error(t("process.error.notReady", lastError));
   }
 
-  private rejectStartPromise(err: Error): void {
-    const rej = this.startPromiseReject;
-    this.startPromiseReject = null;
-    rej?.(err);
+  private assertCurrentLaunch(generation: number): void {
+    if (generation !== this.launchGeneration) throw new StartCancelledError();
+  }
+
+  private assertLiveChild(child: ChildProcess, generation: number): void {
+    this.assertCurrentLaunch(generation);
+    if (this.child !== child || child.killed || child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(t("process.error.exitedBeforeReady"));
+    }
   }
 
   stop(): void {
@@ -178,6 +216,11 @@ export class ProcessManager {
   }
 
   private stopInternal(): void {
+    this.launchGeneration++;
+    const cancel = this.cancelStart;
+    this.cancelStart = null;
+    this.starting = null;
+    cancel?.();
     const c = this.child;
     this.child = null;
     this._baseUrl = null;
