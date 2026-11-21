@@ -7,14 +7,17 @@ Feature: The views of a chat
   chat, without a tab strip; the files open in a window over the chat, the way
   the documentation does, with the workspace tree on the left and the files
   opened from it as tabs on the right, each shown as its source with nothing
-  over it. A card below the transcript lists the changes the working copy
-  currently contains. Review opens the diffs in a full window. A file opens
-  its diff in a side drawer or in a local IDE. The bar over the composer names
-  the repository and branch.
+  over it. In VS Code and IntelliJ, the chat keeps the Tasks button and the IDE
+  provides its project tree. The workspace bar over the composer names the
+  repository and branch and opens the Edits window from the change counts.
+  With the changed-files card enabled in Appearance, the card opens a full
+  review or hands off a selected file to the local IDE.
 
   Scenario: The header shows the views as buttons
     Then the header shows files and background tasks as buttons in a row
-    And the changes card is shown when Git reports edits and Ctrl+S toggles it
+    And the workspace change count opens Edits by default
+    And the VS Code chat hides the Files button
+    And the IntelliJ chat hides the Files button
     And a button opens its view
     And the button of the view on show is pressed
 
@@ -51,6 +54,9 @@ Feature: The views of a chat
 
   Scenario: A previously saved layout opens the current chat
     Then a saved classic preference opens the current layout
+
+  Scenario: The optional changed-files card supports the shortcut
+    Then the changes card is shown when Git reports edits and Ctrl+S toggles it
 
   Scenario: Edits can be reviewed from an IDE
     Then a card file opens just its diff in the drawer

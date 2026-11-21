@@ -343,6 +343,7 @@ import {
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
 import { EditsView } from "./changes/EditsView";
+import { useEditsPresentation } from "./changes/editsPresentation";
 import { openSessionDiffInIDE } from "./changes/api";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
@@ -7625,7 +7626,9 @@ export function App() {
 
   // A window over the chat - the files or the edits - is one more layer the
   // shell's backdrop covers the chat under.
-  const reviewPath = editFile?.sessionId === sessionId ? editFile.path : "";
+  const editsPresentation = useEditsPresentation();
+  const useCard = editsPresentation === "card";
+  const reviewPath = useCard && editFile?.sessionId === sessionId ? editFile.path : "";
   const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
@@ -8352,10 +8355,10 @@ export function App() {
             the chat, the window is the one on top. */}
         {changesViewerOpen && sessionId.trim() ? (
           <EditsView
-            key={`edits:${sessionId}:${reviewPath}`}
+            key={`edits:${sessionId}:${editsPresentation}:${reviewPath}`}
             sessionId={sessionId}
             initialPath={reviewPath}
-            fullScreen={!reviewPath}
+            fullScreen={useCard && !reviewPath}
             workspacePath={workspaceCtx?.path || ""}
             onClose={closeEditsWindow}
           />

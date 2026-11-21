@@ -533,6 +533,9 @@ export const messagesEn: Record<string, string> = {
   "appearance.locale.auto": "Auto",
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",
+  "appearance.editsPresentation.label": "Show changes",
+  "appearance.editsPresentation.workspace": "Count above the composer",
+  "appearance.editsPresentation.card": "Changed-files card below the transcript",
   "appearance.effects.label": "Animations and translucency",
   "appearance.effects.description":
     "Bouncing dots, shimmering titles and translucent blurred panels, in every client. In the IntelliJ panel they start switched off: every frame of them is copied into the IDE window, which slows the IDE down, especially without a GPU.",
@@ -1678,6 +1681,8 @@ export const messagesEn: Record<string, string> = {
   "changes.discardAllMessage": "Every changed file goes back to its last committed content and new files are deleted. Files git ignores stay. This cannot be undone.",
   "changes.discardYes": "Discard",
   "changes.discardFailed": "Could not discard: {message}",
+  "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
+  "workspaceBar.editsLabel.other": "Show the edits: {count} files changed",
   "workspaceBar.label": "Where this chat works",
   "workspaceBar.branchTitle": "Branch {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} on branch {branch}",

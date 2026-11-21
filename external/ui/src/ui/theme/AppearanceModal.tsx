@@ -21,6 +21,7 @@ import {
   type UiEffects,
 } from "./uiEffects";
 import { SwitchField } from "../settings/SwitchField";
+import { setEditsPresentation, useEditsPresentation } from "../changes/editsPresentation";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
   const obs = new MutationObserver(onStoreChange);
@@ -250,7 +251,33 @@ export function AppearanceThemePicker(props: {
         ))}
       </div>
       <AppearanceLanguagePicker doc={props.doc} setDoc={props.setDoc} />
+      <EditsPresentationPicker />
       <AppearanceEffectsSwitch doc={props.doc} setDoc={props.setDoc} />
+    </div>
+  );
+}
+
+function EditsPresentationPicker() {
+  const { t } = useT();
+  const presentation = useEditsPresentation();
+
+  return (
+    <div className="appearance-lang-block">
+      <label className="appearance-section-label" htmlFor="appearance-edits-presentation">
+        {t("appearance.editsPresentation.label")}
+      </label>
+      <div className="appearance-language-select-wrap">
+        <select
+          id="appearance-edits-presentation"
+          className="appearance-language-select"
+          data-testid="appearance-edits-presentation"
+          value={presentation}
+          onChange={(event) => setEditsPresentation(event.currentTarget.value === "card" ? "card" : "workspace")}
+        >
+          <option value="workspace">{t("appearance.editsPresentation.workspace")}</option>
+          <option value="card">{t("appearance.editsPresentation.card")}</option>
+        </select>
+      </div>
     </div>
   );
 }

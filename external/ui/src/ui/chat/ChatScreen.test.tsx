@@ -1,4 +1,6 @@
 import { ConfirmProvider } from "../components/useConfirm";
+import { setEditsPresentation } from "../changes/editsPresentation";
+import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -15,7 +17,10 @@ import type { TokenUsage } from "./types";
 import type { TranscriptItem } from "./types";
 import type { BackgroundTask } from "../tasks/types";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  document.cookie = "foxxycode_edits_presentation=; Path=/; Max-Age=0";
+});
 
 test("new background permission prompts follow the reader at the bottom, but polling does not", () => {
   const common = {
@@ -1054,8 +1059,32 @@ function stubSessionChanges(n: number, vcs = "git") {
   return fetchMock;
 }
 
+test("the workspace change count opens Edits by default", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
+  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), onOpenEdits })}</ConfirmProvider>);
+  const bar = screen.getByTestId("workspace-bar");
+  const edits = await within(bar).findByTestId("workspace-bar-edits");
+  expect(edits.textContent).toBe("+2−0");
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  fireEvent.click(edits);
+  expect(onOpenEdits).toHaveBeenCalledWith();
+});
+
+test.each(["vscode", "intellij"])("the %s chat hides the Files button", (host) => {
+  document.documentElement.dataset.embed = host;
+  try {
+    render(turnLineScreen({ generating: false, onOpenBackgroundTasks: vi.fn() }));
+    expect(screen.getByTestId("chat-views-tasks")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-views-files")).toBeNull();
+  } finally {
+    delete document.documentElement.dataset.embed;
+  }
+});
+
 // The changed-files card sits under the transcript while Git reports changes.
 test("the changes card is shown when Git reports edits and Ctrl+S toggles it", async () => {
+  setEditsPresentation("card");
   stubSessionChanges(0);
   const { unmount } = render(<ConfirmProvider>{turnLineScreen(workspaceProps(true))}</ConfirmProvider>);
   await screen.findByTestId("workspace-bar");
@@ -1101,8 +1130,18 @@ function workspaceProps(locked: boolean) {
 test("a running chat names its repository and reviews changes below the transcript", async () => {
   stubSessionChanges(2);
   const onOpenEdits = vi.fn();
-  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), onOpenEdits })}</ConfirmProvider>);
+  render(
+    <ConfirmProvider>
+      <AppearanceThemePicker />
+      {turnLineScreen({ ...workspaceProps(true), onOpenEdits })}
+    </ConfirmProvider>,
+  );
+  const picker = screen.getByLabelText("Show changes");
+  expect(picker).toHaveValue("workspace");
+  fireEvent.change(picker, { target: { value: "card" } });
+  expect(document.cookie).toContain("foxxycode_edits_presentation=card");
   const bar = screen.getByTestId("workspace-bar");
+  expect(within(bar).queryByTestId("workspace-bar-edits")).toBeNull();
   expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("foxxycode-agent");
   expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
   const edits = await screen.findByTestId("changes-card-open");

@@ -389,7 +389,11 @@ export function EditsView(props: {
 
   return (
     <div
-      className={"files-dock-cluster edits-window" + (expandedWindow ? " is-expanded" : drawer ? " changes-panel" : "")}
+      className={[
+        "files-dock-cluster edits-window",
+        props.fullScreen || props.initialPath ? "edits-window--card-review" : "",
+        expandedWindow ? "is-expanded" : drawer ? "changes-panel" : "",
+      ].filter(Boolean).join(" ")}
       data-testid="edits-view"
       role="dialog"
       aria-label={t("changes.viewer.title")}

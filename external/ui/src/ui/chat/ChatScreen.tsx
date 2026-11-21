@@ -28,6 +28,8 @@ import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import { finishedToolCalls } from "../changes/toolActivity";
 import { useWorkingCopy } from "../changes/workingCopy";
+import { useEditsPresentation } from "../changes/editsPresentation";
+import { editorEmbedId } from "../embedShell";
 import { SessionChangesCard, useChangesCard } from "../changes/SessionChangesCard";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
@@ -589,7 +591,9 @@ export function ChatScreen(props: {
     enabled: canReviewChanges,
     toolActivity: finishedToolCalls(props.items),
   });
-  const showChangesCard = useChangesCard(props.sessionId ?? "", canReviewChanges, workingCopy);
+  const editsPresentation = useEditsPresentation();
+  const useCard = editsPresentation === "card";
+  const showChangesCard = useChangesCard(props.sessionId ?? "", useCard && canReviewChanges, workingCopy);
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
   const workspaceBar =
@@ -597,10 +601,14 @@ export function ChatScreen(props: {
     props.sessionId &&
     props.workspaceLocked &&
     (props.workspaceCtx?.is_git_repo || props.workspaceCtx?.is_svn_repo) ? (
-      <WorkspaceBar context={props.workspaceCtx} />
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        workingCopy={useCard ? undefined : workingCopy}
+        onOpenEdits={useCard ? undefined : props.onOpenEdits}
+      />
     ) : undefined;
-  // The Files window belongs to a chat, so it opens only once one exists.
-  const openFiles = props.sessionId
+  const embedId = editorEmbedId();
+  const openFiles = props.sessionId && embedId !== "vscode" && embedId !== "intellij"
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
     : undefined;
 

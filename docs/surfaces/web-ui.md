@@ -45,15 +45,15 @@ Short commands and their output form one continuous card without an extra surrou
 
 ## Chat layout
 
-The chat places the environment menu in the rail, **Files** and **Background tasks** in the chat header, and the workspace bar above the composer. Before the first prompt, the bar lets you pick the folder, branch, or worktree. During a chat, the bar names the workspace and its current branch.
+The chat places the environment menu in the rail, **Background tasks** in the chat header, and the workspace bar above the composer. In the browser, the header also has **Files**. Before the first prompt, the workspace bar lets you pick the folder, branch, or worktree. During a chat, it names the workspace and branch and opens **Edits** from the Git line counts.
 
 ![The chat header and workspace bar](../assets/chat-layout-modern-dark-1280.png)
 
-*The workspace bar names the repository and its branch.*
+*The Git line counts on the workspace bar open Edits.*
 
 ## Workspace files
 
-Open **Files** in the chat header or press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
+In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
 
 ![Workspace tree and file previews in tabs](../assets/workspace-files-window-dark-1280.png)
 
@@ -61,7 +61,7 @@ Open **Files** in the chat header or press **Ctrl+Shift+F** (**Cmd+Shift+F** on 
 
 ## The edits window
 
-The card below the transcript shows changed files and line counts for the chat's Git working copy. It includes changes made outside the agent. **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
+Open **Edits** by clicking the Git additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. The browser or editor panel remembers this choice. Both presentations show the Git working copy, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
 
 In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
 
@@ -78,7 +78,7 @@ schema-derived config tabs:
 
 - **General** — composer **send mode** and the live **status line** toggle.
   The default tab.
-- **Appearance** — theme, the app-wide **Language** picker, the
+- **Appearance** — theme, **Show changes**, the app-wide **Language** picker, the
   **Animations and translucency** switch, and the "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in

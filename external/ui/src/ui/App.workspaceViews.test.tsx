@@ -167,6 +167,7 @@ test("the edits open in their window, and the address names them", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-edits"));
   const win = await screen.findByTestId("edits-view");
+  expect(win).not.toHaveClass("is-expanded");
   expect(within(win).getByText(t("changes.viewer.title"))).toBeTruthy();
   // No dock face for the edits: the window is their only view.
   expect(screen.queryByTestId("changes-panel")).toBeNull();

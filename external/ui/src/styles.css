@@ -6451,6 +6451,47 @@ textarea#composer {
     height: 16px;
   }
 
+  .workspace-bar-edits {
+    position: relative;
+  }
+
+  .workspace-bar-edits::after {
+    content: "";
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+}
+
+/* Git's count, at the right edge: the digits in the diff colours inside a
+   light frame, so it reads as a button; pointed at, the frame and the ground
+   brighten. Never the accent. */
+.workspace-bar-edits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  line-height: 15px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.workspace-bar-edits:hover,
+.workspace-bar-edits:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 34%, transparent);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  outline: none;
 }
 
 .workspace-chip-icon {
@@ -17679,7 +17720,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   border-bottom: 1px solid var(--foxxycode-glass-panel-border);
 }
 
-.edits-window.is-expanded {
+.edits-window--card-review.is-expanded {
   max-width: 1400px;
   margin-inline: auto;
 }
