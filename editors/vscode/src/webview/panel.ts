@@ -60,6 +60,7 @@ export class FoxxyCodePanelController {
   private frameLive = false;
   /** Mentions requested before the wrapper existed; flushed by `render()`. */
   private pendingMentions: string[] = [];
+  private renderGeneration = 0;
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -130,12 +131,14 @@ export class FoxxyCodePanelController {
 
   /** Show a status message while the server is booting (no iframe yet). */
   showStatus(message: string): void {
+    this.renderGeneration++;
     this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), false, this.activeHtmlLang());
   }
 
   /** Show an error message with Retry / Open Settings buttons. */
   showError(message: string): void {
+    this.renderGeneration++;
     this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), true, this.activeHtmlLang());
   }
@@ -208,6 +211,7 @@ export class FoxxyCodePanelController {
     }
   }
   dispose(): void {
+    this.renderGeneration++;
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
   }
@@ -215,11 +219,13 @@ export class FoxxyCodePanelController {
   // ---- rendering ------------------------------------------------------------
 
   private async render(): Promise<void> {
-    if (!this.base) return;
+    const base = this.base;
+    if (!base) return;
+    const generation = ++this.renderGeneration;
     const settings = readSettings();
     const theme = settings.followVscodeTheme ? currentFoxxyCodeTheme() : "dark";
     const lang = spaLanguageCode(vscode.env.language);
-    const localUrl = appendQueryParams(this.base, { theme, lang, embed: EMBED_ID });
+    const localUrl = appendQueryParams(base, { theme, lang, embed: EMBED_ID });
     // asExternalUri converts http://127.0.0.1:PORT/ to a forwarded URI in remote
     // workspaces (Remote SSH / Codespaces / WSL). Locally it returns the same URL.
     let external: vscode.Uri;
@@ -228,6 +234,7 @@ export class FoxxyCodePanelController {
     } catch {
       external = vscode.Uri.parse(localUrl);
     }
+    if (generation !== this.renderGeneration) return;
     const src = external.toString(true);
     this.currentUrl = src;
     this.opts.onUrl?.(src);

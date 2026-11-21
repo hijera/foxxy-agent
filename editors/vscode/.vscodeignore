@@ -7,6 +7,8 @@ tsconfig.json
 vitest.config.ts
 **/*.map
 **/*.ts
+# The godog restart harness is a Go test, not part of the extension.
+**/*.go
 .gitignore
 package.json.vsce.bak
 package-lock.json.vsce.bak
