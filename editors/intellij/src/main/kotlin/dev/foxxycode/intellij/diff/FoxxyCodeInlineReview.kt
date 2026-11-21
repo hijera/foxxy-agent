@@ -15,7 +15,10 @@ import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.event.EditorMouseEvent
+import com.intellij.openapi.editor.event.EditorMouseEventArea
 import com.intellij.openapi.editor.event.EditorMouseListener
+import com.intellij.openapi.editor.event.EditorMouseMotionListener
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
@@ -27,6 +30,7 @@ import com.intellij.util.ui.JBUI
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import java.awt.BasicStroke
 import java.awt.Color
+import java.awt.Cursor
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Point
@@ -41,10 +45,12 @@ import java.util.IdentityHashMap
 internal class FoxxyCodeInlineReview(private val project: Project, parent: Disposable) {
     private data class Block(val id: Long, val hunk: ReviewHunk)
     private data class Presentation(val inlays: List<Inlay<ReviewActions>>, val marks: List<RangeHighlighter>)
+    private data class ReviewButton(val inlay: Inlay<ReviewActions>, val reject: Boolean)
 
     private val factory = EditorFactory.getInstance()
     private val blocks = IdentityHashMap<Document, List<Block>>()
     private val presentations = IdentityHashMap<Editor, Presentation>()
+    private var hoveredButton: ReviewButton? = null
     private var nextId = 0L
     private val log = logger<FoxxyCodeInlineReview>()
 
@@ -80,15 +86,58 @@ internal class FoxxyCodeInlineReview(private val project: Project, parent: Dispo
         factory.eventMulticaster.addEditorMouseListener(object : EditorMouseListener {
             override fun mousePressed(event: EditorMouseEvent) {
                 if (event.mouseEvent.button != MouseEvent.BUTTON1) return
-                val hit = presentations[event.editor]?.inlays?.firstOrNull {
-                    it.bounds?.contains(event.mouseEvent.point) == true
-                } ?: return
-                val bounds = hit.bounds ?: return
-                val reject = hit.renderer.rejectAt(event.mouseEvent.point, bounds, event.editor) ?: return
+                val hit = buttonAt(event) ?: return
                 event.consume()
-                resolve(event.editor.document, hit.renderer.id, reject)
+                resolve(event.editor.document, hit.inlay.renderer.id, hit.reject)
+            }
+
+            override fun mouseExited(event: EditorMouseEvent) {
+                if (hoveredButton?.inlay?.editor === event.editor) setHover(null)
             }
         }, parent)
+        factory.eventMulticaster.addEditorMouseMotionListener(object : EditorMouseMotionListener {
+            override fun mouseMoved(event: EditorMouseEvent) = setHover(buttonAt(event))
+
+            override fun mouseDragged(event: EditorMouseEvent) = setHover(null)
+        }, parent)
+        factory.eventMulticaster.addVisibleAreaListener({ event ->
+            if (hoveredButton?.inlay?.editor === event.editor) setHover(null)
+        }, parent)
+    }
+
+    private fun buttonAt(event: EditorMouseEvent): ReviewButton? {
+        if (event.area != EditorMouseEventArea.EDITING_AREA) return null
+        val inlays = presentations[event.editor]?.inlays ?: return null
+        val point = event.mouseEvent.point
+        for (inlay in inlays) {
+            val bounds = inlay.bounds ?: continue
+            if (!bounds.contains(point)) continue
+            val reject = inlay.renderer.rejectAt(point, bounds, event.editor) ?: continue
+            return ReviewButton(inlay, reject)
+        }
+        return null
+    }
+
+    private fun setHover(button: ReviewButton?) {
+        val previous = hoveredButton
+        if (previous == button) return
+        hoveredButton = button
+
+        previous?.inlay?.let { inlay ->
+            inlay.renderer.hoveredReject = null
+            if (inlay !== button?.inlay && inlay.isValid) inlay.repaint()
+        }
+        button?.inlay?.let { inlay ->
+            inlay.renderer.hoveredReject = button.reject
+            if (inlay.isValid) inlay.repaint()
+        }
+
+        val previousEditor = previous?.inlay?.editor as? EditorEx
+        val editor = button?.inlay?.editor as? EditorEx
+        if (previousEditor !== editor) {
+            if (previousEditor != null && !previousEditor.isDisposed) previousEditor.setCustomCursor(this, null)
+            editor?.setCustomCursor(this, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
+        }
     }
 
     fun offer(editor: Editor, ev: FoxxyCodeEditEvent, replace: Boolean): Boolean {
@@ -164,6 +213,7 @@ internal class FoxxyCodeInlineReview(private val project: Project, parent: Dispo
 
     private fun clear(editor: Editor) {
         val shown = presentations.remove(editor) ?: return
+        if (hoveredButton?.inlay?.editor === editor) setHover(null)
         shown.inlays.filter { it.isValid }.forEach { Disposer.dispose(it) }
         if (!editor.isDisposed) {
             shown.marks.filter { it.isValid }.forEach(editor.markupModel::removeHighlighter)
@@ -177,6 +227,8 @@ internal class FoxxyCodeInlineReview(private val project: Project, parent: Dispo
 
     private class ReviewActions(val id: Long) : EditorCustomElementRenderer {
         private data class Buttons(val accept: Rectangle, val reject: Rectangle)
+
+        var hoveredReject: Boolean? = null
 
         private val accept = FoxxyCodeBundle.message("diff.action.accept")
         private val reject = FoxxyCodeBundle.message("diff.action.reject")
@@ -247,9 +299,15 @@ internal class FoxxyCodeInlineReview(private val project: Project, parent: Dispo
                 corner,
                 corner,
             )
-            g.color = Color(tint.red, tint.green, tint.blue, if (reject) 18 else 31)
+            val hovered = hoveredReject == reject
+            val fillAlpha = when {
+                hovered -> 70
+                reject -> 18
+                else -> 31
+            }
+            g.color = Color(tint.red, tint.green, tint.blue, fillAlpha)
             g.fill(shape)
-            g.color = Color(tint.red, tint.green, tint.blue, 165)
+            g.color = Color(tint.red, tint.green, tint.blue, if (hovered) 230 else 165)
             g.stroke = BasicStroke(stroke)
             g.draw(shape)
 
