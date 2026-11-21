@@ -89,7 +89,7 @@ func TestWebUISessionViewsFeature(t *testing.T) {
 		{`^Ctrl\+Shift\+F opens the files window and closes it$`,
 			"src/ui/App.workspaceViews.test.tsx",
 			"Ctrl+Shift+F opens the files window, and closes it"},
-		{`^classic layout restores the composer context row$`, "src/ui/chat/Composer.test.tsx", "classic layout restores the composer context row"},
+		{`^a saved classic preference opens the current layout$`, "src/ui/chat/Composer.test.tsx", "a saved classic preference opens the current layout"},
 		{`^a diff click in an editor requests the native diff$`, "src/ui/changes/EditsView.test.tsx", "a diff click in an editor requests the native diff"},
 		{`^accept keeps the reviewed version and restores the buttons when the file changes$`, "src/ui/changes/EditsView.test.tsx", "accept keeps the reviewed version and restores the buttons when the file changes"},
 	}

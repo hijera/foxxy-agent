@@ -1,4 +1,3 @@
-import { setClassicChatLayout } from "../theme/chatLayout";
 import React, { useState } from "react";
 import { afterEach, vi } from "vitest";
 import {
@@ -1630,27 +1629,6 @@ test("in the VS Code embed the page resolves the drop itself", async () => {
   vi.unstubAllGlobals();
 });
 
-test("enhance button shares the composer context row with workspace controls", () => {
-  setClassicChatLayout(true);
-  render(
-    <Composer
-      value="fix memory thing"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-
-  const button = screen.getByTestId("composer-enhance-btn");
-  expect(button).toHaveAttribute("title", "Enhance prompt");
-  expect(button.closest(".composer-context-row")).not.toBeNull();
-  expect(button.closest(".composer-field-wrap")).toBeNull();
-  expect(button.closest(".composer-bar")).toBeNull();
-});
-
 // --- @path:N-M line-range picker ---
 
 function stubShell(mobile: boolean) {
@@ -2970,12 +2948,22 @@ describe("cwd-scoped requests follow the chat workspace", () => {
   });
 });
 
-test("classic layout restores the composer context row", () => {
-  setClassicChatLayout(true);
-  renderComposer({ isEmpty: true });
-  const classic = screen.getByTestId("composer-enhance-btn");
-  expect(classic.closest(".composer-context-row")).toBeTruthy();
-  expect(classic.closest(".composer-field-wrap")).toBeNull();
-  act(() => setClassicChatLayout(false));
+test("a saved classic preference opens the current layout", () => {
+  localStorage.setItem("foxxycode.chat-layout", "classic");
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={vi.fn()}
+      onChange={vi.fn()}
+      onSend={vi.fn()}
+      workspaceCtx={pickCtx}
+      onWorkspacePickFolder={vi.fn()}
+    />,
+  );
+
   expect(screen.getByTestId("composer-enhance-btn").closest(".composer-field-wrap")).toBeTruthy();
+  expect(screen.getByTestId("workspace-bar")).toContainElement(screen.getByTestId("composer-workspace-chip"));
 });

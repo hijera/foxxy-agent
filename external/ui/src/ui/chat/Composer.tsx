@@ -1,4 +1,3 @@
-import { useClassicChatLayout } from "../theme/chatLayout";
 import { composerAutoFocusAllowed } from "./composerFocus";
 import { normalizeClipboardImageFile } from "./clipboardImageFile";
 import {
@@ -13,8 +12,6 @@ import {
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
-import { EnvironmentChip } from "./EnvironmentChip";
-import { WorkspaceChips } from "./WorkspaceChips";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
@@ -2865,12 +2862,8 @@ export function Composer(props: {
 
   // The plate over the card: the one a running chat hands in (cardTop), or,
   // before the chat starts, the folder, branch and worktree as picks on it.
-  const classic = useClassicChatLayout();
-  const plate: ReactNode = !classic && (
-    props.cardTop ??
-    (props.workspaceCtx &&
-    props.onWorkspacePickFolder &&
-    !props.workspaceLocked ? (
+  const plate: ReactNode = props.cardTop ?? (
+    props.workspaceCtx && props.onWorkspacePickFolder && !props.workspaceLocked ? (
       <WorkspaceBar
         context={props.workspaceCtx}
         pick={{
@@ -2884,7 +2877,8 @@ export function Composer(props: {
           opensUp: !props.isEmpty,
         }}
       />
-    ) : null));
+    ) : null
+  );
 
   const enhanceButton = (
     <button
@@ -3078,7 +3072,6 @@ export function Composer(props: {
         <div
           className={[
             "composer-card",
-            classic ? "composer-card--classic" : "",
             dragOverCard ? "composer-card--dragover" : "",
             plate ? "composer-card--joined" : "",
           ]
@@ -3116,27 +3109,6 @@ export function Composer(props: {
             setAttachedFiles((prev) => [...prev, ...files]);
           }}
         >
-          {classic ? (
-            <div className="composer-context-row">
-              <div className="composer-context-scroll">
-                {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-                  <WorkspaceChips
-                    context={props.workspaceCtx ?? null}
-                    worktreePref={props.worktreePref ?? false}
-                    svnFolderPref={props.svnFolderPref ?? false}
-                    onPickFolder={props.onWorkspacePickFolder}
-                    onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                    onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                    onPickSvnBranch={props.onWorkspacePickSvnBranch ?? (() => {})}
-                    onSvnFolderToggle={props.onSvnFolderToggle ?? (() => {})}
-                    opensUp={!props.isEmpty}
-                    locked={props.workspaceLocked ?? false}
-                  />
-                ) : <EnvironmentChip />}
-              </div>
-              {enhanceButton}
-            </div>
-          ) : null}
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
             <div
@@ -3191,7 +3163,7 @@ export function Composer(props: {
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
             {/* The wand stands in the field's top right corner, so the field
                 starts at the top of the card; the text keeps clear of it. */}
-            {!classic ? enhanceButton : null}
+            {enhanceButton}
             <div
               className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
             >

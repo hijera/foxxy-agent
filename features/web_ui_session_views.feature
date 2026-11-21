@@ -54,8 +54,8 @@ Feature: The views of a chat
     And a files address opens the window on its file
     And Ctrl+Shift+F opens the files window and closes it
 
-  Scenario: A classic layout can be restored
-    Then classic layout restores the composer context row
+  Scenario: A previously saved layout opens the current chat
+    Then a saved classic preference opens the current layout
 
   Scenario: Edits can be reviewed from an IDE
     Then a diff click in an editor requests the native diff

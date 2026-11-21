@@ -1,4 +1,3 @@
-import { setClassicChatLayout, useClassicChatLayout } from "./chatLayout";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale, onLocaleChange, themeLabel } from "../i18n/i18n";
@@ -250,7 +249,6 @@ export function AppearanceThemePicker(props: {
           />
         ))}
       </div>
-      <AppearanceChatLayoutPicker />
       <AppearanceLanguagePicker doc={props.doc} setDoc={props.setDoc} />
       <AppearanceEffectsSwitch doc={props.doc} setDoc={props.setDoc} />
     </div>
@@ -293,27 +291,5 @@ function AppearanceEffectsSwitch(props: {
       description={t("appearance.effects.description")}
       dataTestId="appearance-effects-switch"
     />
-  );
-}
-
-export function AppearanceChatLayoutPicker() {
-  const classic = useClassicChatLayout();
-  const { t } = useT();
-  return (
-    <div className="appearance-lang-block">
-      <label className="appearance-section-label" htmlFor="appearance-chat-layout">
-        {t("appearance.chatLayout")}
-      </label>
-      <div className="appearance-language-select-wrap">
-        <select
-          id="appearance-chat-layout"
-          value={classic ? "classic" : "modern"}
-          onChange={(event) => setClassicChatLayout(event.target.value === "classic")}
-        >
-          <option value="modern">{t("appearance.chatLayoutModern")}</option>
-          <option value="classic">{t("appearance.chatLayoutClassic")}</option>
-        </select>
-      </div>
-    </div>
   );
 }

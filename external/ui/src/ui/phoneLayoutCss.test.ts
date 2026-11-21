@@ -140,12 +140,6 @@ describe("phone composer", () => {
     expectDecl(llm, "max-width", /\S/);
   });
 
-  // The composer card holds no row of chips: the folder, the branch and the
-  // worktree are on the plate over it, so the field starts at the card's top.
-  test("the classic workspace chip strip can scroll sideways", () => {
-    expectDecl(declarations(phone, ".composer-context-scroll"), "overflow-x", /^auto$/);
-  });
-
   // A finger needs a target of its own: on a phone and on any touch screen the
   // picks of the plate are tall (they have no ground at rest, so the plate only
   // grows), and git's count keeps its slim framed look with an invisible hit

@@ -178,7 +178,6 @@ import {
   newChatWorkspaceIsReady,
   type PendingNewChatWorkspace,
 } from "./sessions/newChatWorkspace";
-import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";

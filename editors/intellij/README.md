@@ -11,7 +11,7 @@ foxxycode SPA, so nothing is re-implemented natively.
 The `foxxycode` binary is **built from source and bundled with the plugin** — no download step. The Go
 source is the **repo root** (this plugin lives at `editors/intellij/`); there is no nested copy.
 
-In a local chat, open **Edits** and select a text file to review the changed blocks in the source editor. The **Classic** chat layout is available from **Settings → Appearance**.
+In a local chat, open **Edits** and select a text file to review the changed blocks in the source editor.
 
 
 ## How it works

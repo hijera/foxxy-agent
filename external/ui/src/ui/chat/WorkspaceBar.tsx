@@ -67,7 +67,6 @@ export function WorkspaceBar(props: {
           onWorktreeToggle={props.pick.onWorktreeToggle}
           opensUp={props.pick.opensUp}
           locked={false}
-          inWorkspaceBar
           svnFolderPref={props.pick.svnFolderPref ?? false}
           onPickSvnBranch={props.pick.onPickSvnBranch ?? (() => {})}
           onSvnFolderToggle={props.pick.onSvnFolderToggle ?? (() => {})}

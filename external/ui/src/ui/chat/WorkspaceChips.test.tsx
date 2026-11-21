@@ -105,10 +105,7 @@ describe("WorkspaceChips", () => {
   });
   it("renders nothing without a context", () => {
     const { container } = renderChips({ context: null });
-    // The workspace/branch/worktree chips need a context, but the environment selector stays
-    // available (so the environment can be switched from the home screen before a workspace loads).
-    expect(container.querySelector(".composer-context-chips")).not.toBeNull();
-    expect(container.querySelector(".workspace-chip--env")).not.toBeNull();
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
     expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
   });
@@ -133,7 +130,7 @@ describe("WorkspaceChips", () => {
   it("renders no chip row inside an editor embed for a non-git workspace", () => {
     vi.mocked(isEditorEmbed).mockReturnValue(true);
     const { container } = renderChips({ context: plainCtx });
-    expect(container.querySelector(".composer-context-chips")).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("renders the worktree control as a real checkbox", () => {

@@ -1,4 +1,3 @@
-import { useClassicChatLayout } from "../theme/chatLayout";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { countTasks } from "../tasks/taskStatus";
@@ -25,10 +24,8 @@ export function ChatHeader(props: {
   onOpenFiles?: () => void;
   /** The files window is open. */
   filesOpen?: boolean;
-  onOpenEdits?: () => void;
 }) {
   const { t } = useT();
-  const classic = useClassicChatLayout();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(props.title || "");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -95,8 +92,6 @@ export function ChatHeader(props: {
       {props.actions ?? null}
       {props.onOpenTasks ? (
         <HeaderViews
-          classic={classic}
-          {...(props.onOpenEdits ? { onOpenEdits: props.onOpenEdits } : {})}
           tasks={props.tasks ?? []}
           onOpenTasks={props.onOpenTasks}
           tasksOpen={props.tasksOpen === true}
@@ -125,8 +120,6 @@ type ViewId = "tasks" | "files";
  * control always marked its open panel).
  */
 function HeaderViews(props: {
-  classic: boolean;
-  onOpenEdits?: () => void;
   tasks: BackgroundTask[];
   onOpenTasks: () => void;
   tasksOpen: boolean;
@@ -167,22 +160,17 @@ function HeaderViews(props: {
 
   return (
     <div
-      className={`chat-views${props.classic ? " chat-views--classic" : ""}`}
+      className="chat-views"
       role="toolbar"
       aria-label={t("chat.views.label")}
       data-testid="chat-views"
     >
-      {props.onOpenEdits ? (
-        <button type="button" className="chat-header-tasks" onClick={props.onOpenEdits}>
-          {t("changes.viewer.title")}
-        </button>
-      ) : null}
       {views.map((view) => (
         <span key={view.id} className="chat-view-tip-host">
           <button
             type="button"
             className={[
-              props.classic ? "chat-header-tasks" : "chat-view-btn",
+              "chat-view-btn",
               view.id === "tasks" ? "chat-view-btn--tasks" : "",
               view.pressed ? "is-active" : "",
               view.id === "tasks" && live ? "is-running" : "",

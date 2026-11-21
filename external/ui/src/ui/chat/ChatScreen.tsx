@@ -1,4 +1,3 @@
-import { useClassicChatLayout } from "../theme/chatLayout";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
@@ -585,7 +584,6 @@ export function ChatScreen(props: {
   // What git reports for the chat's folder, counted by the bar over the
   // composer, whose count opens the edits window. Every finished tool call may
   // have written a file.
-  const classic = useClassicChatLayout();
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
     // Outside a git repository there is no count to show, and no plate.
     enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
@@ -596,7 +594,6 @@ export function ChatScreen(props: {
   // The plate of a running chat is git's - the repository, the branch, the
   // count - so a folder outside any repository has none.
   const workspaceBar =
-    !classic &&
     !readOnlyNotice &&
     props.sessionId &&
     props.workspaceLocked &&
@@ -878,7 +875,6 @@ export function ChatScreen(props: {
               <div className="chat-title-column">
                 <ChatHeader
                   title={props.title}
-                  {...(classic && props.onOpenEdits ? { onOpenEdits: props.onOpenEdits } : {})}
                   editable={true}
                   onTitleSave={props.onTitleSave}
                   {...(props.onExportSession &&

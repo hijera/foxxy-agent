@@ -1,4 +1,3 @@
-import { setClassicChatLayout } from "../theme/chatLayout";
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -34,18 +33,6 @@ test("IME confirmation does not send", () => {
   const {onSend, ta} = mount(false, false);
   fireEvent.keyDown(ta, {key:"Enter", isComposing:true}); expect(onSend).not.toHaveBeenCalled();
 });
-test("the classic workspace strip keeps enhance outside its scrolling box", () => {
-  setClassicChatLayout(true);
-  try {
-    mount(true,true);
-    expect(document.querySelector(".composer-context-scroll")).not.toBeNull();
-    expect(document.querySelector(".composer-context-scroll .composer-enhance-btn")).toBeNull();
-  } finally {
-    cleanup();
-    setClassicChatLayout(false);
-  }
-});
-
 test("Shift+Enter leaves the newline to the browser and does not send", () => {
   const { onSend, ta } = mount(false, true);
   expect(fireEvent.keyDown(ta, { key: "Enter", shiftKey: true })).toBe(true);

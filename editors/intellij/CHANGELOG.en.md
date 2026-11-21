@@ -9,7 +9,7 @@
 
 ## Unreleased — 2026-11-20
 
-**Workspace files and edit review.** Open files from the chat, review Git changes in the native diff viewer, and accept or reject individual files. Appearance settings can restore the classic chat layout. Accept or reject individual changed blocks directly in the source editor. In the Edits window, compact review buttons leave room for the filename in narrow panels.
+**Workspace files and edit review.** Open files from the chat, review Git changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. In the Edits window, compact review buttons leave room for the filename in narrow panels.
 
 **Guidance for DeepSeek models.**
 DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.

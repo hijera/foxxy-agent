@@ -1,4 +1,3 @@
-import { useClassicChatLayout } from "../theme/chatLayout";
 import {
   Fragment,
   useEffect,
@@ -266,7 +265,6 @@ export function NavRail(props: {
   railLabelsWide: boolean;
   onToggleRailLabels: () => void;
 }) {
-  const classic = useClassicChatLayout();
   const { t, tp } = useT();
   // The sign-in state is read here rather than threaded down from the gate: the
   // rail is the one place in the app that is always on screen, which is where a
@@ -649,7 +647,7 @@ export function NavRail(props: {
           {/* The environment the page drives, at the foot of the rail and
               above the way out: never folded behind More. */}
           {inBar("environment") ? (
-            !classic ? <EnvironmentSwitcher className={navBtnCls} wide={pillWide} /> : null
+            <EnvironmentSwitcher className={navBtnCls} wide={pillWide} />
           ) : null}
 
           {inBar("signOut") ? (
