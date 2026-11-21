@@ -118,7 +118,7 @@ The first time you open the **FoxxyCode** tool window, a multi-step welcome wiza
 
 ### Review changes in the editor
 
-Applied edits appear with native editor inlays above each changed block. **Accept** keeps the block and clears its review marker. **Reject** restores that block through a normal editor command, with Undo available. **Show diff** opens the full native comparison. A deleted file or a snapshot that differs from the editor opens directly in the comparison when selected in **Edits**. A proposed edit still asks for permission to run the tool.
+Applied edits appear with native editor inlays above each changed block. The inlays use compact buttons with a checkmark for Accept and an undo arrow for Reject, tinted for the active editor color scheme. **Accept** keeps the block and clears its review marker. **Reject** restores that block through a normal editor command, with Undo available. **Show diff** opens the full native comparison. A deleted file or a snapshot that differs from the editor opens directly in the comparison when selected in **Edits**. A proposed edit still asks for permission to run the tool.
 
 Reconfigure anytime in **Settings | Tools | FoxxyCode**: optional binary path override (leave empty to
 use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extra `foxxycode http` args, and **"Match
