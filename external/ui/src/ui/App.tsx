@@ -343,6 +343,7 @@ import {
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
 import { EditsView } from "./changes/EditsView";
+import { openSessionDiffInIDE } from "./changes/api";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
   clearFinishedBackgroundTasks,
@@ -1482,11 +1483,10 @@ export function App() {
   const [fileLine, setFileLine] = useState(
     initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
   );
-  // The edits window (EditsView) is the one view of the edits, a window over
-  // the chat framed like the Files window.
   const [changesViewerOpen, setChangesViewerOpen] = useState(
     initialRoute.branch === "session" && initialRoute.editsOpen === true,
   );
+  const [editFile, setEditFile] = useState<{ sessionId: string; path: string } | null>(null);
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
   //
@@ -2679,7 +2679,10 @@ export function App() {
     // The Files and the edits windows have addresses of their own; any other
     // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
-    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
+    if (!(p.branch === "session" && p.editsOpen)) {
+      setEditFile(null);
+      setChangesViewerOpen(false);
+    }
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -7097,10 +7100,8 @@ export function App() {
     }
   }, [sessionId]);
 
-  /** Opens the edits window, from git's count in the bar over the composer;
-   *  it takes the Files window's place, so one Escape never closes two
-   *  layers. */
-  const openEditsWindow = useCallback(() => {
+  /** Opens the review window, or the file drawer when the card names a path. */
+  const openEditsWindow = useCallback((path?: string) => {
     const sid = sessionId.trim();
     if (!sid) {
       return;
@@ -7112,13 +7113,27 @@ export function App() {
     setDocsRoute(null);
     setSwarmRoute(false);
     setFilesOpen(false);
+    setEditFile(path ? { sessionId: sid, path } : null);
     setChangesViewerOpen(true);
     setSessionChangesHash(sid);
   }, [sessionId]);
 
+  const openEditFile = useCallback((path: string) => {
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (isEditorEmbed() && getEnv().mode === "local") {
+      void openSessionDiffInIDE(sid, path).then((opened) => {
+        if (!opened && viewedSessionIdRef.current === sid) openEditsWindow(path);
+      });
+      return;
+    }
+    openEditsWindow(path);
+  }, [sessionId, openEditsWindow]);
+
   /** Puts the edits window away; the address goes back to the chat, or to the
    *  tasks when the dock under it shows them on the stacked shell. */
   const closeEditsWindow = useCallback(() => {
+    setEditFile(null);
     setChangesViewerOpen(false);
     const sid = sessionId.trim();
     if (!sid) return;
@@ -7610,6 +7625,7 @@ export function App() {
 
   // A window over the chat - the files or the edits - is one more layer the
   // shell's backdrop covers the chat under.
+  const reviewPath = editFile?.sessionId === sessionId ? editFile.path : "";
   const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
@@ -8336,8 +8352,10 @@ export function App() {
             the chat, the window is the one on top. */}
         {changesViewerOpen && sessionId.trim() ? (
           <EditsView
-            key={`edits:${sessionId}`}
+            key={`edits:${sessionId}:${reviewPath}`}
             sessionId={sessionId}
+            initialPath={reviewPath}
+            fullScreen={!reviewPath}
             workspacePath={workspaceCtx?.path || ""}
             onClose={closeEditsWindow}
           />
@@ -8362,6 +8380,7 @@ export function App() {
             title={currentTitle}
             sessionId={sessionId}
             onOpenEdits={openEditsWindow}
+            onOpenEditFile={openEditFile}
             onOpenFiles={() =>
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }

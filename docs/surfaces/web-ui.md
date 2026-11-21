@@ -45,11 +45,11 @@ Short commands and their output form one continuous card without an extra surrou
 
 ## Chat layout
 
-The chat places the environment menu in the rail, **Files** and **Background tasks** in the chat header, and the workspace bar above the composer. Before the first prompt, the bar lets you pick the folder, branch, or worktree. During a chat, the bar shows the Git workspace and opens **Edits** from the change counts.
+The chat places the environment menu in the rail, **Files** and **Background tasks** in the chat header, and the workspace bar above the composer. Before the first prompt, the bar lets you pick the folder, branch, or worktree. During a chat, the bar names the workspace and its current branch.
 
 ![The chat header and workspace bar](../assets/chat-layout-modern-dark-1280.png)
 
-*The workspace bar opens Edits from the Git change counts.*
+*The workspace bar names the repository and its branch.*
 
 ## Workspace files
 
@@ -61,9 +61,11 @@ Open **Files** in the chat header or press **Ctrl+Shift+F** (**Cmd+Shift+F** on 
 
 ## The edits window
 
-**Edits** shows Git changes in the chat's workspace, including changes made outside the agent. The tree jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
+The card below the transcript shows changed files and line counts for the chat's Git working copy. It includes changes made outside the agent. **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
 
 In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
+
+![Changed-files card below the transcript](../assets/session-changes-card-dark-1280.png)
 
 ![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
 

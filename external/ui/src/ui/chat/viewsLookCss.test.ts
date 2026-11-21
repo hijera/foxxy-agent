@@ -40,15 +40,6 @@ test("a pressed toggle and the active row of the tree carry a light outline too"
   );
 });
 
-test("git's count on the plate is framed as a button, and its frame brightens on hover", () => {
-  const rest = ruleBody(".workspace-bar-edits");
-  expect(rest).toMatch(/border: 1px solid color-mix\(in srgb, var\(--text\)/);
-  expect(rest).not.toContain("var(--accent)");
-  const hover = ruleBody(".workspace-bar-edits:focus-visible");
-  expect(hover).toMatch(/border-color: color-mix\(in srgb, var\(--text\)/);
-  expect(hover).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
-});
-
 test("the plate's icons sit a pixel above the middle of the lowercase letters, in the plate's own colour", () => {
   const icon = ruleBody(".workspace-bar-icon");
   expect(icon).toContain("vertical-align: middle");

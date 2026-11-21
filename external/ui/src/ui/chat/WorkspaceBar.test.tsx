@@ -1,15 +1,13 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, expect, test } from "vitest";
 import { WorkspaceBar, middleTruncate } from "./WorkspaceBar";
 import type { WorkspaceContext } from "./workspaceContext";
-import type { WorkingCopy } from "../changes/workingCopy";
 import { initLocale } from "../i18n/i18n";
 
 /**
  * The plate over the composer of a running chat names where the chat works:
  * the repository, the branch - its tooltip naming the worktree when the chat
- * runs in a linked one - and what git reports as changed, which opens the
- * edits.
+ * runs in a linked one.
  */
 
 afterEach(() => {
@@ -35,21 +33,8 @@ const worktree: WorkspaceContext = {
   branch: "feat/session-changes",
 };
 
-function copy(files: number, additions = 0, deletions = 0, vcs = "git"): WorkingCopy {
-  return {
-    loaded: true,
-    error: "",
-    changes: {
-      sessionId: "s1",
-      vcs,
-      files: [],
-      totals: { files, additions, deletions },
-    },
-  };
-}
-
 test("a repository: its name, the branch, and no worktree mark", () => {
-  render(<WorkspaceBar context={repo} workingCopy={copy(0)} />);
+  render(<WorkspaceBar context={repo} />);
   const name = screen.getByTestId("workspace-bar-repo");
   expect(name.textContent).toBe("foxxycode-agent");
   expect(name.getAttribute("title")).toBe("/home/me/src/foxxycode-agent");
@@ -61,10 +46,10 @@ test("a repository: its name, the branch, and no worktree mark", () => {
 });
 
 test("a linked worktree: the repository's name, the branch glyph, and the worktree in the tooltip", () => {
-  const { unmount } = render(<WorkspaceBar context={repo} workingCopy={copy(0)} />);
+  const { unmount } = render(<WorkspaceBar context={repo} />);
   const branchGlyph = screen.getByTestId("workspace-bar-branch").querySelector("svg")!.innerHTML;
   unmount();
-  render(<WorkspaceBar context={worktree} workingCopy={copy(0)} />);
+  render(<WorkspaceBar context={worktree} />);
   expect(screen.getByTestId("workspace-bar-repo").textContent).toBe("foxxycode-agent");
   const branch = screen.getByTestId("workspace-bar-branch");
   const mark = screen.getByTestId("workspace-bar-worktree");
@@ -78,33 +63,12 @@ test("a linked worktree: the repository's name, the branch glyph, and the worktr
   );
 });
 
-test("what git reports, at the right edge, opens the edits", () => {
-  const onOpenEdits = vi.fn();
-  render(<WorkspaceBar context={repo} workingCopy={copy(3, 18267, 280)} onOpenEdits={onOpenEdits} />);
-  const edits = screen.getByTestId("workspace-bar-edits");
-  expect(edits.textContent).toBe("+18,267−280");
-  expect(edits.getAttribute("aria-label")).toBe("Show the edits: 3 files changed");
-  // A plain button: no pressed state, nothing lit.
-  expect(edits.hasAttribute("aria-pressed")).toBe(false);
-  expect(screen.getByTestId("workspace-bar").lastElementChild).toBe(edits);
-  fireEvent.click(edits);
-  expect(onOpenEdits).toHaveBeenCalledTimes(1);
-});
-
 test("a folder in no repository has a name and nothing else", () => {
   const plain: WorkspaceContext = { path: "/tmp/demo", name: "demo", is_git_repo: false, is_worktree: false };
-  render(<WorkspaceBar context={plain} workingCopy={copy(0, 0, 0, "")} onOpenEdits={() => {}} />);
+  render(<WorkspaceBar context={plain} />);
   expect(screen.getByTestId("workspace-bar-repo").textContent).toBe("demo");
   expect(screen.queryByTestId("workspace-bar-branch")).toBeNull();
   expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
-});
-
-test("the counts follow the language of the page", () => {
-  initLocale("ru");
-  render(<WorkspaceBar context={repo} workingCopy={copy(2, 18267, 280)} onOpenEdits={() => {}} />);
-  const edits = screen.getByTestId("workspace-bar-edits");
-  expect(edits.textContent).toBe("+18 267−280");
-  expect(edits.getAttribute("aria-label")).toBe("Показать правки: изменено 2 файла");
 });
 
 test("a cut is never longer than asked, whatever the room", () => {

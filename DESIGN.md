@@ -1343,6 +1343,6 @@ The Context popover offers manual compaction independently of `compaction.auto_e
 
 ## Chat views
 
-The environment switcher sits in the rail. Files and Background tasks sit in the chat header. The bar above the composer offers workspace picks before the first turn and opens Edits from the Git change counts after the chat starts.
+The environment switcher sits in the rail. Files and Background tasks sit in the chat header. The bar above the composer offers workspace picks before the first turn and names the workspace after the chat starts. A changed-files card under the transcript shows the working-copy changes, with a file list, totals, Review and Discard all. Ctrl+S or Cmd+S toggles its visibility.
 
-Files and Edits use the same window frame. The Edits file header contains the native diff entry when hosted in a local editor and takes review decisions per file revision.
+Review uses a full window with the shared glass frame. A file row opens a side drawer with a file list above the selected diff, or hands off to a connected local IDE. The Edits file header contains the native diff entry when hosted in a local editor and takes review decisions per file revision.

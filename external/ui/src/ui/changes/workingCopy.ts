@@ -6,7 +6,7 @@ import { EMPTY_SESSION_CHANGES, type SessionChanges } from "./types";
 
 /**
  * What git reports for a chat's folder, shared by every view that shows it -
- * git's count on the plate over the composer and the edits window - so one
+ * the changed-files card and the edits viewer - so one
  * read serves all of them.
  *
  * Nothing is recorded per turn: the server answers from the working copy, so

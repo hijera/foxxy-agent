@@ -6423,8 +6423,7 @@ textarea#composer {
 
 /* A finger needs a target of its own: on a phone and on any touch screen the
    picks and the worktree checkbox are 36px tall (they have no ground at rest,
-   so only the plate grows around them), and git's count keeps its slim framed
-   look with an invisible hit area 40px tall laid over it. */
+   so only the plate grows around them). */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   .workspace-bar {
     font-size: 13px;
@@ -6452,47 +6451,6 @@ textarea#composer {
     height: 16px;
   }
 
-  .workspace-bar-edits {
-    position: relative;
-  }
-
-  .workspace-bar-edits::after {
-    content: "";
-    position: absolute;
-    left: -6px;
-    right: -6px;
-    top: 50%;
-    height: 40px;
-    transform: translateY(-50%);
-  }
-}
-
-/* Git's count, at the right edge: the digits in the diff colours inside a
-   light frame, so it reads as a button; pointed at, the frame and the ground
-   brighten. Never the accent. */
-.workspace-bar-edits {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  margin-left: auto;
-  padding: 0 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 7px;
-  background: transparent;
-  line-height: 15px;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.workspace-bar-edits:hover,
-.workspace-bar-edits:focus-visible {
-  border-color: color-mix(in srgb, var(--text) 34%, transparent);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-  outline: none;
 }
 
 .workspace-chip-icon {
@@ -16868,33 +16826,6 @@ html:not([data-theme="light"]) .context-breakdown-error {
   color: var(--diff-del-no);
 }
 
-.changes-action {
-  min-height: 26px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 0.5px solid var(--foxxycode-glass-panel-border);
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.changes-action:hover:not(:disabled) {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 24%, var(--foxxycode-blend-base));
-}
-
-.changes-action:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.changes-action--danger:hover:not(:disabled) {
-  border-color: var(--diff-del-no);
-  color: var(--diff-del-no);
-}
-
 /* ── Files window ─────────────────────────────────────────────────────────
    The session's workspace in a window over the chat, framed the way the
    documentation reader is (.docs-dock-cluster): the same glass sheet right of
@@ -17554,6 +17485,205 @@ html:not([data-theme="light"]) .context-breakdown-error {
 /* The folder, then git's count of the edits, on the subtitle line. Where
    the line is short (a phone gives it 40% of the width) the folder's name
    takes the ellipsis and the count stays whole. */
+.changes-card {
+  margin: 8px 0 2px;
+  border: 0.5px solid var(--foxxycode-glass-panel-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+  overflow: hidden;
+}
+
+/* Shown by Ctrl+S in a chat that changed nothing: the key still answers. */
+.changes-card-empty {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+.changes-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--foxxycode-glass-panel-border);
+}
+
+.changes-card-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.changes-card-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changes-card-stat,
+.changes-row-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+
+
+.changes-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.changes-action {
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--foxxycode-glass-panel-border);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.changes-action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--foxxycode-blend-base));
+}
+
+.changes-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.changes-action--primary {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+
+
+.changes-card-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.changes-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  border-top: 0.5px solid
+    color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.changes-card-rows .changes-row:first-child {
+  border-top: 0;
+}
+
+.changes-row:hover,
+.changes-row.is-active {
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.changes-row-path {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.changes-row-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The folder is context, not identity: it yields the space when a row is tight. */
+.changes-row-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.changes-row-binary {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+.changes-row--added .changes-row-name {
+  color: var(--diff-add-no);
+}
+
+.changes-row--deleted .changes-row-name {
+  text-decoration: line-through;
+  color: var(--diff-del-no);
+}
+
+.changes-row--more {
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+.edits-window.changes-panel {
+  left: auto;
+  width: min(560px, calc(100vw - 28px));
+  margin-inline: 0;
+}
+
+.changes-panel .files-layout.has-tree {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 34%) minmax(0, 1fr);
+}
+
+.changes-panel .files-sidebar {
+  border-right: 0;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+
+.edits-window.is-expanded {
+  max-width: 1400px;
+  margin-inline: auto;
+}
+
 .edits-window .files-subtitle {
   display: flex;
   align-items: baseline;

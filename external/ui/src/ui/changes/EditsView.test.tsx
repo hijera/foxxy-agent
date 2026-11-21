@@ -105,6 +105,21 @@ function open(onClose: () => void = () => {}) {
   );
 }
 
+test("a card file opens just its diff in the drawer", async () => {
+  render(
+    <ConfirmProvider>
+      <EditsView sessionId="s1" initialPath="src/a.ts" onClose={() => {}} />
+    </ConfirmProvider>,
+  );
+  const viewer = screen.getByTestId("edits-view");
+  expect(viewer).toHaveClass("changes-panel");
+  await screen.findByTestId("dv-file-src/a.ts");
+  expect(screen.queryByTestId("dv-file-docs/b.md")).toBeNull();
+  fireEvent.click(screen.getByTestId("edits-expand"));
+  expect(viewer).toHaveClass("is-expanded");
+  await screen.findByTestId("dv-file-docs/b.md");
+});
+
 /** Opens the window's ⋮ menu and returns it. */
 function openMenu(): HTMLElement {
   fireEvent.click(screen.getByTestId("edits-more"));

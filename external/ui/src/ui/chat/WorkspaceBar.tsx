@@ -1,6 +1,4 @@
 import { useT } from "../i18n/I18nProvider";
-import { getLocale } from "../i18n/i18n";
-import { hasEdits, type WorkingCopy } from "../changes/workingCopy";
 import {
   BRANCH_CHARS,
   folderChipLabel,
@@ -32,24 +30,15 @@ export type WorkspacePick = {
  * folder and the branch are buttons that open their menus and the worktree a
  * checkbox (WorkspaceChips), the branch and the worktree only in a git
  * repository. Once the chat runs it is a fact: the repository, its branch -
- * the tooltip naming the worktree when the chat runs in a linked one - and, at
- * the right edge in a light frame, what git reports as changed there, which
- * opens the edits window. Git's count waits for a session.
+ * with a tooltip naming the worktree when the chat runs in a linked one.
  */
 export function WorkspaceBar(props: {
   context: WorkspaceContext;
-  workingCopy?: WorkingCopy | undefined;
-  onOpenEdits?: (() => void) | undefined;
   pick?: WorkspacePick | undefined;
 }) {
-  const { t, tp } = useT();
+  const { t } = useT();
   const ctx = props.context;
-  const number = new Intl.NumberFormat(getLocale());
   const branch = ctx.branch || t("workspace.detached");
-  const copy = props.workingCopy;
-  const showEdits =
-    !props.pick && !!copy && props.onOpenEdits !== undefined && hasEdits(copy);
-  const totals = copy?.changes.totals;
 
   return (
     <div
@@ -107,19 +96,6 @@ export function WorkspaceBar(props: {
           ) : null}
         </>
       )}
-      {showEdits && totals ? (
-        <button
-          type="button"
-          className="workspace-bar-edits"
-          aria-label={tp("workspaceBar.editsLabel", totals.files)}
-          title={tp("workspaceBar.editsLabel", totals.files)}
-          data-testid="workspace-bar-edits"
-          onClick={() => props.onOpenEdits?.()}
-        >
-          <span className="changes-add">{"+" + number.format(totals.additions)}</span>
-          <span className="changes-del">{"−" + number.format(totals.deletions)}</span>
-        </button>
-      ) : null}
     </div>
   );
 }

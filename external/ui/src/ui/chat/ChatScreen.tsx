@@ -28,6 +28,7 @@ import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import { finishedToolCalls } from "../changes/toolActivity";
 import { useWorkingCopy } from "../changes/workingCopy";
+import { SessionChangesCard, useChangesCard } from "../changes/SessionChangesCard";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
@@ -179,6 +180,7 @@ export function ChatScreen(props: {
   onCloseBackgroundTasks?: () => void;
   /** Opens the edits window: what git reports for the chat's folder. */
   onOpenEdits?: () => void;
+  onOpenEditFile?: (path: string) => void;
   /** Opens (or puts away) the Files window from the header. */
   onOpenFiles?: () => void;
   /** The Files window is open. */
@@ -581,28 +583,21 @@ export function ChatScreen(props: {
     />
   ) : null;
 
-  // What git reports for the chat's folder, counted by the bar over the
-  // composer, whose count opens the edits window. Every finished tool call may
-  // have written a file.
+  // Every finished tool call may have changed the working copy.
+  const canReviewChanges = !readOnlyNotice && !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false;
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
-    // Outside a git repository there is no count to show, and no plate.
-    enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
+    enabled: canReviewChanges,
     toolActivity: finishedToolCalls(props.items),
   });
+  const showChangesCard = useChangesCard(props.sessionId ?? "", canReviewChanges, workingCopy);
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
-  // The plate of a running chat is git's - the repository, the branch, the
-  // count - so a folder outside any repository has none.
   const workspaceBar =
     !readOnlyNotice &&
     props.sessionId &&
     props.workspaceLocked &&
     (props.workspaceCtx?.is_git_repo || props.workspaceCtx?.is_svn_repo) ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        workingCopy={workingCopy}
-        onOpenEdits={props.onOpenEdits}
-      />
+      <WorkspaceBar context={props.workspaceCtx} />
     ) : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
@@ -934,6 +929,15 @@ export function ChatScreen(props: {
               )}
               tail={
                 <>
+                  {showChangesCard && props.sessionId && props.onOpenEdits ? (
+                    <SessionChangesCard
+                      key={props.sessionId}
+                      sessionId={props.sessionId}
+                      workingCopy={workingCopy}
+                      onReview={props.onOpenEdits}
+                      onFile={props.onOpenEditFile ?? props.onOpenEdits}
+                    />
+                  ) : null}
                   {props.backgroundTasks ? (
                     <SubagentPermissionCards
                       tasks={props.backgroundTasks}

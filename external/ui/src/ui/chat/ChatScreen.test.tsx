@@ -1,3 +1,4 @@
+import { ConfirmProvider } from "../components/useConfirm";
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -1053,20 +1054,23 @@ function stubSessionChanges(n: number, vcs = "git") {
   return fetchMock;
 }
 
-// The edits open from git's count in the bar over the composer, which is
-// there only while git reports changes; the header has no Edits button.
-test("the count of the edits is there only while git reports changes", async () => {
+// The changed-files card sits under the transcript while Git reports changes.
+test("the changes card is shown when Git reports edits and Ctrl+S toggles it", async () => {
   stubSessionChanges(0);
-  const { unmount } = render(turnLineScreen(workspaceProps(true)));
+  const { unmount } = render(<ConfirmProvider>{turnLineScreen(workspaceProps(true))}</ConfirmProvider>);
   await screen.findByTestId("workspace-bar");
   await act(async () => new Promise((r) => setTimeout(r, 20)));
-  expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
   expect(screen.queryByTestId("chat-views-edits")).toBeNull();
   unmount();
   stubSessionChanges(2);
-  render(turnLineScreen(workspaceProps(true)));
-  await screen.findByTestId("workspace-bar-edits");
-  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
+  render(<ConfirmProvider>{turnLineScreen(workspaceProps(true))}</ConfirmProvider>);
+  const changes = await screen.findByTestId("session-changes-card");
+  expect(document.getElementById("messages")).toContainElement(changes);
+  fireEvent.keyDown(window, { ctrlKey: true, code: "KeyS", key: "ы" });
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  fireEvent.keyDown(window, { ctrlKey: true, code: "KeyS", key: "ы" });
+  expect(screen.getByTestId("session-changes-card")).toBeInTheDocument();
   vi.unstubAllGlobals();
 });
 
@@ -1093,18 +1097,16 @@ function workspaceProps(locked: boolean) {
   };
 }
 
-// Once the chat runs, where it works is a fact: a plate joined to the top of
-// the composer card names the repository and the branch and counts git's
-// changes at its right edge, and the composer carries no workspace chips.
-test("a running chat names its repository, branch and changes over the composer", async () => {
+// The composer names the repository and branch. Changes are reviewed from the transcript.
+test("a running chat names its repository and reviews changes below the transcript", async () => {
   stubSessionChanges(2);
   const onOpenEdits = vi.fn();
-  render(turnLineScreen({ ...workspaceProps(true), onOpenEdits }));
+  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), onOpenEdits })}</ConfirmProvider>);
   const bar = screen.getByTestId("workspace-bar");
   expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("foxxycode-agent");
   expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
-  const edits = await within(bar).findByTestId("workspace-bar-edits");
-  expect(edits.textContent).toBe("+2−0");
+  const edits = await screen.findByTestId("changes-card-open");
+  expect(edits.textContent).toContain("+2−0");
   fireEvent.click(edits);
   expect(onOpenEdits).toHaveBeenCalledWith();
   // The plate is the card's top: right before it, the card joined to it, and
@@ -1112,8 +1114,7 @@ test("a running chat names its repository, branch and changes over the composer"
   const card = document.querySelector(".composer-card")!;
   expect(bar.nextElementSibling).toBe(card);
   expect(card).toHaveClass("composer-card--joined");
-  // The count is the last thing on the plate, at its right edge.
-  expect(bar.lastElementChild).toBe(edits);
+  expect(bar).not.toContainElement(edits);
   expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
   expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
   expect(screen.queryByTestId("composer-files")).toBeNull();

@@ -141,22 +141,14 @@ describe("phone composer", () => {
   });
 
   // A finger needs a target of its own: on a phone and on any touch screen the
-  // picks of the plate are tall (they have no ground at rest, so the plate only
-  // grows), and git's count keeps its slim framed look with an invisible hit
-  // area 40px tall laid over it.
-  test("the plate's picks and git's count are finger-sized on a touch screen or a phone", () => {
+  // picks of the plate are tall.
+  test("the plate's picks are finger-sized on a touch screen or a phone", () => {
     const touch = mediaBlocks(
       new RegExp(`^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\),\\s*\\(any-hover:\\s*none\\)\\s*and\\s*\\(any-pointer:\\s*coarse\\)\\s*$`),
     );
     for (const sel of [".workspace-bar-pick", ".workspace-bar-check"]) {
       expectDecl(declarations(touch, sel), "min-height", /^(3[4-9]|4\d)px$/);
     }
-    const count = declarations(touch, ".workspace-bar-edits");
-    expect(count).not.toMatch(/min-height/);
-    expectDecl(count, "position", /^relative$/);
-    const hit = declarations(touch, ".workspace-bar-edits::after");
-    expectDecl(hit, "position", /^absolute$/);
-    expectDecl(hit, "height", /^(3[6-9]|4\d)px$/);
   });
 });
 

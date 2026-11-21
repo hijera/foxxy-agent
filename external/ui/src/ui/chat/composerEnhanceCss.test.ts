@@ -53,16 +53,6 @@ test("the field's first line is level with the wand", () => {
   expect(Math.abs(touchTop + (16 * 1.5) / 2 - wandMiddle)).toBeLessThanOrEqual(0.5);
 });
 
-// Git's count on the plate and the wand under it end on one vertical line.
-test("git's count on the plate lines up with the wand under it", () => {
-  const css = cssText();
-  const bar = css.match(/\n\.workspace-bar\s*\{([^}]+)\}/s)![1]!;
-  const padding = /padding:\s*([^;]+);/.exec(bar)![1]!.trim().split(/\s+/);
-  const right = parseFloat(padding[1]!);
-  const wand = css.match(/\.composer-enhance-btn\s*\{([^}]+)\}/s)![1]!;
-  expect(right).toBe(parseFloat(/right:\s*([\d.]+)px/.exec(wand)![1]!));
-});
-
 test("the picks of the plate are its own flex items, not a nested box", () => {
   // The folder, branch and worktree picks dissolve into the plate's row
   // (display: contents), so each shrinks with its own ellipsis.

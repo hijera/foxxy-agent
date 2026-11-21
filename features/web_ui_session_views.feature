@@ -7,19 +7,14 @@ Feature: The views of a chat
   chat, without a tab strip; the files open in a window over the chat, the way
   the documentation does, with the workspace tree on the left and the files
   opened from it as tabs on the right, each shown as its source with nothing
-  over it. Over the composer of a running chat a plate joined to the top of
-  the composer card names the repository, the branch - its tooltip naming the
-  worktree in a linked one - and, at its right edge and only while git reports
-  uncommitted changes in the chat's folder, git's count of them in a light
-  frame, which opens the edits window, every diff in one document. The edits
-  window is framed and headed the way the Files window is: the tree switch and
-  the title on the left, a menu, the expand button and the close button on the
-  right, and on the left a tree of the changed files - only those - whose rows
-  scroll the diffs to their file.
+  over it. A card below the transcript lists the changes the working copy
+  currently contains. Review opens the diffs in a full window. A file opens
+  its diff in a side drawer or in a local IDE. The bar over the composer names
+  the repository and branch.
 
   Scenario: The header shows the views as buttons
     Then the header shows files and background tasks as buttons in a row
-    And the count of the edits is there only while git reports changes
+    And the changes card is shown when Git reports edits and Ctrl+S toggles it
     And a button opens its view
     And the button of the view on show is pressed
 
@@ -28,7 +23,7 @@ Feature: The views of a chat
     And the background tasks open in the dock with no tab strip
 
   Scenario: The plate over the composer names where a running chat works
-    Then a running chat names its repository, branch and changes over the composer
+    Then a running chat names its repository and reviews changes below the transcript
     And a linked worktree is named in the tooltip of its branch
     And before the chat starts the folder, branch and worktree are picks on the plate
     And the start screen opens on the folder and the worktree choice remembered in this browser
@@ -58,5 +53,6 @@ Feature: The views of a chat
     Then a saved classic preference opens the current layout
 
   Scenario: Edits can be reviewed from an IDE
-    Then a diff click in an editor requests the native diff
+    Then a card file opens just its diff in the drawer
+    And a diff click in an editor requests the native diff
     And accept keeps the reviewed version and restores the buttons when the file changes

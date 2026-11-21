@@ -171,6 +171,8 @@ export function EditsView(props: {
   sessionId: string;
   /** The chat's workspace folder, named under the title. */
   workspacePath?: string;
+  initialPath?: string;
+  fullScreen?: boolean;
   onClose: () => void;
 }) {
   const { t, tp } = useT();
@@ -182,9 +184,10 @@ export function EditsView(props: {
   const [view, setView] = useState<DiffView>(readDiffViewCookie);
   // A phone opens on the diffs; the tree switch brings the list over them.
   const [treeOpen, setTreeOpen] = useState(() => !onPhone());
-  const [expandedWindow, setExpandedWindow] = useState(false);
+  const [expandedWindow, setExpandedWindow] = useState(props.fullScreen === true);
+  const drawer = !!props.initialPath && !expandedWindow;
   const [menuOpen, setMenuOpen] = useState(false);
-  const [active, setActive] = useState("");
+  const [active, setActive] = useState(props.initialPath || "");
   // A file picked in the tree, scrolled to once the diffs are on screen (on a
   // phone the tree gives way to them first).
   const [jump, setJump] = useState<{ path: string; seq: number } | null>(null);
@@ -227,7 +230,7 @@ export function EditsView(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
-  const effectiveView: DiffView = narrow ? "unified" : view;
+  const effectiveView: DiffView = narrow || drawer ? "unified" : view;
 
   // Escape closes the window when nothing nearer took it: the confirmation
   // dialog over it answers its own, the tree's filter clears itself, the menu
@@ -251,8 +254,6 @@ export function EditsView(props: {
     };
   }, []);
 
-  const patches = usePatches(sessionId, changes.files);
-
   // The diffs read in the order the tree lists their files, so the mark that
   // follows the scroll walks the tree from top to bottom.
   const files = useMemo(() => {
@@ -264,6 +265,11 @@ export function EditsView(props: {
   }, [changes.files]);
   // Until the reader picks or scrolls, the file at the top is the one on show.
   const onShow = files.some((f) => f.path === active) ? active : files[0]?.path || "";
+  const shownFiles = useMemo(
+    () => drawer ? files.filter((file) => file.path === onShow) : files,
+    [drawer, files, onShow],
+  );
+  const patches = usePatches(sessionId, shownFiles);
 
   const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -383,9 +389,7 @@ export function EditsView(props: {
 
   return (
     <div
-      className={
-        "files-dock-cluster edits-window" + (expandedWindow ? " is-expanded" : "")
-      }
+      className={"files-dock-cluster edits-window" + (expandedWindow ? " is-expanded" : drawer ? " changes-panel" : "")}
       data-testid="edits-view"
       role="dialog"
       aria-label={t("changes.viewer.title")}
@@ -451,7 +455,7 @@ export function EditsView(props: {
                   role="menu"
                   aria-label={t("files.more")}
                 >
-                  {narrow ? null : (
+                  {narrow || drawer ? null : (
                     <button
                       type="button"
                       role="menuitemcheckbox"
@@ -560,7 +564,7 @@ export function EditsView(props: {
                 {t("changes.empty")}
               </div>
             ) : (
-              files.map((file) => {
+              shownFiles.map((file) => {
                 const state = patches.get(file.path);
                 const revision = file.binary ? file.revision : state?.revision;
                 const isAccepted = !!revision && accepted.get(file.path) === revision;
