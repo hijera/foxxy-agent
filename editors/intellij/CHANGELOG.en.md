@@ -7,7 +7,7 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-20
+## 0.3.52 — 2026-11-20
 
 **Guidance for DeepSeek models.**
 DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
