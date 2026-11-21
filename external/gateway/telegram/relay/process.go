@@ -200,7 +200,11 @@ func RunWorker(ctx context.Context, dir string) error {
 		return err
 	}
 	defer func() { _ = os.Remove(path) }()
+	lg := openWorkerLog(dir)
+	defer lg.close()
+	lg.write("relay worker started (pid %d)", os.Getpid())
 	s := NewServer(ctx, d.Secret)
+	s.log = lg
 	s.loadSelections(filepath.Join(dir, "selection.json"))
 	srv := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 40 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second}
 	done := make(chan error, 1)
@@ -210,11 +214,14 @@ func RunWorker(ctx context.Context, dir string) error {
 	for {
 		select {
 		case err := <-done:
+			lg.write("relay worker stopped: %v", err)
 			return err
 		case <-ctx.Done():
+			lg.write("relay worker cancelled; stopping")
 			return srv.Close()
 		case now := <-tick.C:
 			if s.Sweep(now) {
+				lg.write("all editor leases expired; exiting")
 				cancel()
 				return srv.Close()
 			}

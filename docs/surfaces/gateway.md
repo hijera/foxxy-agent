@@ -177,11 +177,16 @@ The relay uses a private, random loopback port and a bearer credential in
 locks prevent simultaneous IntelliJ and VS Code launches from starting competing
 services. Bot tokens remain in memory; the selection file stores hashed chat
 identities and opaque project IDs. Access rules and admin-only isolation apply to
-the project picker as well as to agent messages.
+the project picker as well as to agent messages. The worker records client
+registrations and upstream failures in `relay.log` next to `endpoint.json`
+(truncated past 1 MB when the next worker starts).
 
 Backends renew their leases every 15 seconds and reconnect if the relay dies.
 Disconnected projects expire after 75 seconds; the relay exits once all editor
-leases have expired. Closing one project leaves the others connected, including when the IDE
+leases have expired. Updates that arrive while a project is disconnected, or
+while the relay is down, are not replayed once it reconnects: the relay
+acknowledges them to Telegram when it routes them, so send the message again
+after the project comes back. Closing one project leaves the others connected, including when the IDE
 terminates the entire backend process tree. Changes to
 the Telegram enable switch, token, proxy or ACL in settings restart that project's
 adapter automatically. Projects sharing a token must agree on the Bot API origin

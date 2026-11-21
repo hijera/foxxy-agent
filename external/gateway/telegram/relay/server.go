@@ -30,6 +30,10 @@ import (
 
 const leaseTime = 75 * time.Second
 
+// relayBodyLimit bounds one forwarded Bot API request or response held in
+// memory. Telegram accepts documents up to 50 MB, so the bound follows that.
+const relayBodyLimit = 50 << 20
+
 // Registration describes a live project. Tokens stay in memory in the relay.
 type Registration struct {
 	ID      string
@@ -53,12 +57,16 @@ type upstream struct {
 	http               *http.Client
 	cancel             context.CancelFunc
 	started            bool
+	// lastFailLog rate-limits the worker log line for repeated poll failures.
+	// Written only by the bot's own poll goroutine under s.mu.
+	lastFailLog time.Time
 }
 
 // Server multiplexes Bot API calls and routes updates to one project at a time.
 type Server struct {
 	ctx           context.Context
 	secret        string
+	log           *workerLog
 	mu            sync.Mutex
 	clients       map[string]*client
 	bots          map[string]*upstream
@@ -116,6 +124,7 @@ func (s *Server) Register(r Registration) error {
 		c.seen = time.Now()
 	} else {
 		s.clients[r.ID] = &client{Registration: r, seen: time.Now(), wake: make(chan struct{}, 1)}
+		s.log.write("client %s registered: project %s via %s", r.ID, r.Project, r.Editor)
 	}
 	s.lastClient = time.Now()
 	return nil
@@ -132,8 +141,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/clients/") && r.Method == http.MethodDelete {
 		s.mu.Lock()
-		delete(s.clients, strings.TrimPrefix(r.URL.Path, "/clients/"))
+		id := strings.TrimPrefix(r.URL.Path, "/clients/")
+		delete(s.clients, id)
 		s.mu.Unlock()
+		s.log.write("client %s unregistered", id)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -144,6 +155,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.Register(reg); err != nil {
+			s.log.write("register %s (%s) rejected: %v", reg.Project, reg.Editor, err)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -176,7 +188,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "relay owns update delivery", http.StatusForbidden)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, relayBodyLimit))
 	if err != nil {
 		http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
 		return
@@ -231,7 +243,7 @@ func (b *upstream) call(ctx context.Context, method, contentType string, body []
 		return 0, nil, errors.New("telegram unavailable")
 	}
 	defer func() { _ = res.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(res.Body, relayBodyLimit))
 	return res.StatusCode, data, err
 }
 
@@ -281,19 +293,35 @@ func writeUpdates(w http.ResponseWriter, updates []tgbotapi.Update) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": updates})
 }
 
+// logPollFailure records a failed upstream poll in the worker log. Telegram
+// errors repeat every few seconds during an outage, so the line is written
+// at most once a minute per bot. The description never carries the token.
+func (s *Server) logPollFailure(bot *upstream, status, retryAfter int, description string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if !bot.lastFailLog.IsZero() && now.Sub(bot.lastFailLog) < time.Minute {
+		return
+	}
+	bot.lastFailLog = now
+	s.log.write("telegram poll failed: status=%d retry_after=%ds %s", status, retryAfter, strings.TrimSpace(description))
+}
+
 func (s *Server) poll(ctx context.Context, bot *upstream) {
 	offset := 0
 	for ctx.Err() == nil {
 		form := url.Values{"offset": {strconv.Itoa(offset)}, "timeout": {"30"}, "allowed_updates": {`["message","callback_query"]`}}
 		status, data, err := bot.call(ctx, "getUpdates", "application/x-www-form-urlencoded", []byte(form.Encode()))
 		var result struct {
-			OK         bool              `json:"ok"`
-			Result     []tgbotapi.Update `json:"result"`
-			Parameters struct {
+			OK          bool              `json:"ok"`
+			Result      []tgbotapi.Update `json:"result"`
+			Description string            `json:"description"`
+			Parameters  struct {
 				RetryAfter int `json:"retry_after"`
 			} `json:"parameters"`
 		}
 		if err != nil || status != http.StatusOK || json.Unmarshal(data, &result) != nil || !result.OK {
+			s.logPollFailure(bot, status, result.Parameters.RetryAfter, result.Description)
 			delay := 3 * time.Second
 			if result.Parameters.RetryAfter > 0 && result.Parameters.RetryAfter < 300 {
 				delay = time.Duration(result.Parameters.RetryAfter) * time.Second
@@ -417,6 +445,14 @@ func (s *Server) route(token string, u tgbotapi.Update) {
 		if cb.From != nil {
 			user = cb.From.ID
 		}
+	}
+	if cb := u.CallbackQuery; cb != nil && (m == nil || m.Chat == nil) {
+		// Telegram no longer exposes the menu's message; still stop the spinner.
+		s.mu.Lock()
+		bot := s.bots[token]
+		s.mu.Unlock()
+		s.answerCallback(bot, cb.ID, "This menu expired. Open it again in its project.")
+		return
 	}
 	if m == nil || m.Chat == nil || user == 0 {
 		return

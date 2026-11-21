@@ -506,6 +506,68 @@ func TestExpiredProjectIsNotSilentlyReplaced(t *testing.T) {
 	}
 }
 
+func TestRelayForwardsLargeUploads(t *testing.T) {
+	w := newWorld(t)
+	// Telegram accepts documents up to 50 MB; a 9 MB body must pass the
+	// relay's bound instead of answering 413.
+	form := url.Values{"commands": {"[]"}, "padding": {strings.Repeat("x", 9<<20)}}
+	res, err := w.request(context.Background(), "idea", "setMyCommands", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	err = json.NewDecoder(res.Body).Decode(&result)
+	_ = res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK || !result.OK {
+		t.Fatalf("large body rejected: status=%d ok=%v", res.StatusCode, result.OK)
+	}
+	if len(w.fake.Calls("setMyCommands")) != 1 {
+		t.Fatal("large body was not forwarded upstream")
+	}
+}
+
+func TestCallbackWithoutAccessibleMessageIsAnswered(t *testing.T) {
+	w := newWorld(t)
+	w.server.route("123:test", tgbotapi.Update{UpdateID: 9, CallbackQuery: &tgbotapi.CallbackQuery{ID: "cb-gone", From: &tgbotapi.User{ID: 7}, Data: "model:test"}})
+	if len(w.fake.Calls("answerCallbackQuery")) != 1 {
+		t.Fatal("callback without an accessible message was left unanswered")
+	}
+}
+
+func TestWorkerLogsUpstreamFailure(t *testing.T) {
+	w := newWorld(t)
+	dir := t.TempDir()
+	lg := openWorkerLog(dir)
+	defer lg.close()
+	w.server.log = lg
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer failing.Close()
+	w.server.mu.Lock()
+	w.server.bots["123:test"].base = failing.URL
+	w.server.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if res, _ := w.request(ctx, "idea", "getUpdates", url.Values{}); res != nil {
+		_ = res.Body.Close()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, _ := os.ReadFile(filepath.Join(dir, "relay.log")) // #nosec G304 -- test-owned temp file
+		if strings.Contains(string(data), "poll failed") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("upstream poll failure was not logged")
+}
+
 func TestBotOriginAndProxyCannotChangeUnderAnotherEditor(t *testing.T) {
 	w := newWorld(t)
 	r := w.server.clients["code"].Registration
