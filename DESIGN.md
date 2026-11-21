@@ -73,6 +73,7 @@ Floating **composer** card, **History** drawer chrome, **skills** slash menu, **
 - System stack: **`system-ui`**, `-apple-system`, **`Segoe UI`**, **`sans-serif`**
 - Comfortable padding: **`12px`** grid, radius **`12px`** (pill buttons **`999px`**)
 - Density tuned for dashboards: desktop layout (single navigation style + fluid chat). Sessions are a drawer overlay.
+- **Edits review actions** sit in each file header. **Accept** uses a compact pill with a checkmark and a soft accent tint. **Reject** uses the same shape with an undo glyph and the danger token. At widths of 720 px and below, the actions use the file toolbar's icon-button width to leave space for the filename. The button names and tooltips remain available.
 
 ### Token usage HUD
 
@@ -349,6 +350,7 @@ Component thresholds decide a component's own layout from the width it gets, not
 | Threshold | Component | Why it is its own |
 | --- | --- | --- |
 | **`min-width: 640px`** | plan document card head | the title and the actions sit side by side only once the card is wide enough for both |
+| **`max-width: 720px`** | file review actions in Edits | the file tree shares a narrow IDE panel with the diff, and icon buttons leave room for the filename |
 | **`min-width: 761px`** | desktop rail pill | the rail's track (**`--rail-pill-track`**) and its **44px** hit icons; it predates the grid and also reaches the tablet top bar from 761px |
 | **`max-width: 1279px`** | documentation outline | the reader's third column (**On this page**) needs **1280px** |
 | **`min-width: 900px`** | documentation outline on a tablet | on the stacked shell **On this page** stands beside the page once the page keeps at least about 600px next to it; below, it folds into a button above the page |

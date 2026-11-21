@@ -114,12 +114,19 @@ function SplitBody({
   );
 }
 
+function ReviewCheck() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m4 12 5 5L20 6" />
+    </svg>
+  );
+}
+
 /**
  * One file of the edits window: a header that names it and states its line
  * counts, over its diff.
  *
- * The header carries the per-file actions the window offers, revealed on
- * hover so a long list of files stays quiet until pointed at.
+ * The header keeps the file actions next to the name and line counts.
  */
 export function DiffFileSection(props: {
   file: ChangedFile;
@@ -143,6 +150,9 @@ export function DiffFileSection(props: {
   const [copied, setCopied] = useState(false);
   const file = props.file;
   const dir = dirName(file.path);
+  const rejectTitle = t(file.status === "added" ? "changes.review.rejectAddedTitle" : "changes.discardFileTitle", {
+    name: file.path,
+  });
 
   // Parsing and colouring depend on the patch, not on how it is drawn, so
   // flipping between unified and split does not re-highlight the file.
@@ -209,8 +219,6 @@ export function DiffFileSection(props: {
           </span>
         </button>
 
-        {/* Copy and discard are always in sight; the name folds the diff,
-            so there is no second chevron here. */}
         <span className="dv-file-actions">
           {props.onOpenNative ? (
             <button
@@ -220,26 +228,6 @@ export function DiffFileSection(props: {
               onClick={props.onToggle}
             >
               <Chevron open={!props.collapsed} />
-            </button>
-          ) : null}
-          {props.accepted ? (
-            <span className="dv-review-state">{t("changes.review.accepted")}</span>
-          ) : props.onAccept ? (
-            <button type="button" className="dv-review-btn" onClick={props.onAccept} disabled={props.discardBusy}>
-              {t("changes.review.accept")}
-            </button>
-          ) : null}
-          {props.onDiscard ? (
-            <button
-              type="button"
-              className="dv-review-btn dv-review-btn--reject"
-              title={t("changes.discardFileTitle", { name: file.path })}
-              aria-label={t("changes.discardFileTitle", { name: file.path })}
-              disabled={props.discardBusy === true}
-              data-testid={`dv-discard-${file.path}`}
-              onClick={props.onDiscard}
-            >
-              {t("changes.review.reject")}
             </button>
           ) : null}
           <button
@@ -254,6 +242,40 @@ export function DiffFileSection(props: {
           >
             {copied ? "✓" : "⧉"}
           </button>
+          {props.accepted ? (
+            <span className="dv-review-state" title={t("changes.review.accepted")}>
+              <ReviewCheck />
+              <span className="dv-review-label">{t("changes.review.accepted")}</span>
+            </span>
+          ) : props.onAccept ? (
+            <button
+              type="button"
+              className="dv-review-btn"
+              aria-label={t("changes.review.accept")}
+              title={t("changes.review.acceptTitle")}
+              onClick={props.onAccept}
+              disabled={props.discardBusy}
+            >
+              <ReviewCheck />
+              <span className="dv-review-label">{t("changes.review.accept")}</span>
+            </button>
+          ) : null}
+          {props.onDiscard ? (
+            <button
+              type="button"
+              className="dv-review-btn dv-review-btn--reject"
+              title={rejectTitle}
+              aria-label={rejectTitle}
+              disabled={props.discardBusy === true}
+              data-testid={`dv-discard-${file.path}`}
+              onClick={props.onDiscard}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+              </svg>
+              <span className="dv-review-label">{t("changes.review.reject")}</span>
+            </button>
+          ) : null}
         </span>
 
         {/* Git's counts close the row, at its right end. */}
