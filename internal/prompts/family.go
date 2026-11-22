@@ -2,39 +2,50 @@ package prompts
 
 import "strings"
 
-// Family classifies an LLM by its provider type and model id into a prompt "family"
-// slug used to select a provider-tuned system prompt file (agent.<family>.md).
+// Families returns the ordered family slugs used to select prompt templates.
 //
 // Model-id patterns take precedence over the provider type because open models
-// (qwen/gemma/gpt-oss/kimi) are frequently served through OpenAI-compatible or
+// are frequently served through OpenAI-compatible or
 // neuraldeep endpoints, so the provider type alone would misclassify them.
-//
-// Returns "" when no family matches; callers fall back to the shared base prompt.
-func Family(providerType, modelID string) string {
+// Any DeepSeek id keeps the deepseek family first - including distill ids such
+// as deepseek-r1-distill-qwen-*, which then fall back to the distilled base
+// family below. DeepSeek also keeps the previously selected family as a
+// fallback for modes and custom prompt directories that have no DeepSeek variant.
+func Families(providerType, modelID string) []string {
 	p := strings.ToLower(strings.TrimSpace(providerType))
 	m := strings.ToLower(strings.TrimSpace(modelID))
 
+	var families []string
+	// Must win over the early-return patterns below: a distill id carries both
+	// "deepseek" and the base model's name.
+	if strings.Contains(m, "deepseek") {
+		families = append(families, "deepseek")
+	}
+
 	switch {
 	case strings.Contains(m, "gpt-oss"):
-		return "gpt-oss"
+		return append(families, "gpt-oss")
 	case strings.Contains(m, "gemini"):
-		return "gemini"
+		return append(families, "gemini")
 	case strings.Contains(m, "gemma"):
-		return "gemma"
+		return append(families, "gemma")
 	case strings.Contains(m, "qwen"):
-		return "qwen"
+		return append(families, "qwen")
 	// "moonshot" covers the moonshot-v1-* ids Moonshot's OpenAI-compatible API
 	// serves and the moonshotai/ vendor namespace; must win over p == "openai".
 	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
-		return "kimi"
+		return append(families, "kimi")
+	}
+
+	switch {
 	case strings.Contains(m, "claude") || p == "anthropic":
-		return "anthropic"
+		return append(families, "anthropic")
 	case isOpenAIModel(m) || p == "openai":
-		return "openai"
+		return append(families, "openai")
 	case p == "neuraldeep":
-		return "neuraldeep"
+		return append(families, "neuraldeep")
 	default:
-		return ""
+		return families
 	}
 }
 

@@ -29,14 +29,15 @@ import (
 )
 
 type rewindFeatureState struct {
-	root     string
-	sessRoot string
-	ts       *httptest.Server
-	mgr      *session.Manager
-	srv      *Server
-	store    *session.FileStore
-	sid      string
-	status   int
+	root       string
+	sessRoot   string
+	ts         *httptest.Server
+	mgr        *session.Manager
+	srv        *Server
+	store      *session.FileStore
+	sid        string
+	status     int
+	snapshotID string
 }
 
 func (s *rewindFeatureState) reset() error {
@@ -49,6 +50,7 @@ func (s *rewindFeatureState) reset() error {
 	s.sessRoot = filepath.Join(root, "sessions")
 	s.sid = ""
 	s.status = 0
+	s.snapshotID = ""
 	return nil
 }
 
@@ -271,6 +273,99 @@ func TestSessionRewind(t *testing.T) {
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/session_rewind.feature"},
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("non-zero status returned, failed to run feature tests")
+	}
+}
+
+func (s *rewindFeatureState) transcriptOffersUndo(idx int) error {
+	status, body, err := s.request(http.MethodGet, "/foxxycode/sessions/"+s.sid+"/messages", nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("messages returned %d", status)
+	}
+	undo, ok := body["rewindUndo"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("expected rewindUndo in the messages response, got %v", body["rewindUndo"])
+	}
+	if got, _ := undo["userMessageIndex"].(float64); int(got) != idx {
+		return fmt.Errorf("rewindUndo.userMessageIndex = %v, want %d", undo["userMessageIndex"], idx)
+	}
+	s.snapshotID, _ = undo["snapshotId"].(string)
+	if s.snapshotID == "" {
+		return fmt.Errorf("expected a rewindUndo.snapshotId")
+	}
+	return nil
+}
+
+func (s *rewindFeatureState) transcriptOffersNoUndo() error {
+	_, body, err := s.request(http.MethodGet, "/foxxycode/sessions/"+s.sid+"/messages", nil)
+	if err != nil {
+		return err
+	}
+	if v, ok := body["rewindUndo"]; ok {
+		return fmt.Errorf("expected no rewindUndo, got %v", v)
+	}
+	return nil
+}
+
+func (s *rewindFeatureState) undoLastRewind() error {
+	status, body, err := s.request(http.MethodPost, "/foxxycode/sessions/"+s.sid+"/rewind/undo", map[string]string{"snapshotId": s.snapshotID})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("rewind undo returned %d: %v", status, body)
+	}
+	return nil
+}
+
+func (s *rewindFeatureState) transcriptHoldsOriginalTurns(n int) error {
+	msgs, err := s.sessionMessages()
+	if err != nil {
+		return err
+	}
+	if len(msgs) != 2*n {
+		return fmt.Errorf("expected %d messages, got %d: %v", 2*n, len(msgs), msgs)
+	}
+	for i := 0; i < n; i++ {
+		ask, _ := msgs[2*i]["content"].(string)
+		answer, _ := msgs[2*i+1]["content"].(string)
+		if !strings.Contains(ask, fmt.Sprintf("ask %d", i)) || !strings.Contains(answer, fmt.Sprintf("answer %d", i)) {
+			return fmt.Errorf("turn %d is not the original one: %q / %q", i, ask, answer)
+		}
+	}
+	return nil
+}
+
+func TestSessionRewindUndo(t *testing.T) {
+	suite := godog.TestSuite{
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			s := &rewindFeatureState{}
+			sc.Before(func(ctx context.Context, scd *godog.Scenario) (context.Context, error) {
+				return ctx, s.reset()
+			})
+			sc.After(func(ctx context.Context, scd *godog.Scenario, err error) (context.Context, error) {
+				s.close()
+				return ctx, nil
+			})
+			sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
+			sc.Step(`^a stored session with (\d+) user messages$`, s.storedSession)
+			sc.Step(`^I rewind the session at user message (\d+)$`, s.rewindAt)
+			sc.Step(`^I send the prompt "([^"]*)" to the session$`, s.sendPrompt)
+			sc.Step(`^the transcript offers to undo the edit of user message (\d+)$`, s.transcriptOffersUndo)
+			sc.Step(`^I undo the last rewind$`, s.undoLastRewind)
+			sc.Step(`^the transcript holds the (\d+) original turns$`, s.transcriptHoldsOriginalTurns)
+			sc.Step(`^the transcript offers no undo$`, s.transcriptOffersNoUndo)
+		},
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/session_rewind_undo.feature"},
 			TestingT: t,
 		},
 	}

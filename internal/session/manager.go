@@ -1273,6 +1273,8 @@ type turnAdmission struct {
 	// queue stays shut, so a follow-up written meanwhile is refused as busy
 	// instead of being accepted by a turn that never reads it.
 	noQueue bool
+	// rewindUndo is set on the outer prompt so it can receive a targeted undo.
+	rewindUndo bool
 }
 
 // admissionFor derives the admission of a prompt from its options: a
@@ -1353,6 +1355,10 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	markedCtx, ran := withTurnRanMarker(ctx)
 	turnCtx, cancel := context.WithCancel(markedCtx)
 	state.SetCancel(cancel)
+	finishUndoWatch := func() {}
+	if adm.rewindUndo {
+		finishUndoWatch = watchRewindUndoCancel(turnCtx, state, cancel)
+	}
 	if !adm.noQueue {
 		// A follow-up is typed by the operator, like the prompt it follows:
 		// its references resolve with the operator's scope, bound to the turn.
@@ -1364,6 +1370,7 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	finish := func() {
 		finishOnce.Do(func() {
 			cancel()
+			finishUndoWatch()
 			// Closed before anything else: the turn is over, so a follow-up
 			// arriving now belongs to the next prompt, not to this one. A
 			// cancelled or failed turn drops what it never got to read, which
@@ -1536,6 +1543,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	lockStart := time.Now()
 	adm := admissionFor(opts)
 	adm.sender = sender
+	adm.rewindUndo = true
 	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, adm)
 	lockWait = time.Since(lockStart)
 	if err != nil {
@@ -2452,6 +2460,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 		return nil, err
 	}
 	return func() {
+		// A turn that followed an edited one ends the undo of that edit; its
+		// kept tail leaves the bundle while the lock is still ours.
+		retireStaleRewindUndo(st)
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil

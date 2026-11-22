@@ -14115,3 +14115,60 @@ ports:
   reason: Adapted in the consolidated upstream 1.2.61-1.2.70 port with FoxxyCode branding,
     compatibility behavior, localization and documentation.
   remaining: []
+- upstream_sha: a99be7f71e41ab44baa66755e1949c45540efd32
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with FoxxyCode branding,
+    cross-process session refresh, localization and documentation.
+  remaining: []
+- upstream_sha: f83fb45e5ea8c1cf73f81ef491b4e820a3e8f9c4
+  status: skipped
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: 'Redundant integration merge: its first-parent memory changes were already
+    ported through 1.2.70 and the edit-undo branch is included in the consolidated
+    port.'
+  remaining: []
+- upstream_sha: 2a6946547a692b5ed7dff1b06e08349c3af4aad0
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with FoxxyCode branding,
+    cross-process session refresh, localization and documentation.
+  remaining: []
+- upstream_sha: cff64dd2cc58dc7a8bd2ab199b1c089e1a826d84
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with FoxxyCode branding
+    and swarm behavior preserved.
+  remaining: []
+- upstream_sha: 1246656965346094c32678f66b80d03790ee3fe3
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with FoxxyCode branding
+    and swarm behavior preserved.
+  remaining: []
+- upstream_sha: 81336843d955f50cd316ba0708f6772438ee3e74
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with deterministic
+    FoxxyCode swarm session routing.
+  remaining: []
+- upstream_sha: c159229c420181984d54f9a6cecf9f81e9190d08
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with the FoxxyCode
+    swarm guide updated.
+  remaining: []
+- upstream_sha: b9f75122ff13706b8716b162b88a2bfb36a6203b
+  status: adapted
+  fork_commits:
+  - ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b
+  reason: Adapted in the consolidated upstream 1.2.71-1.2.72 port with deterministic
+    FoxxyCode swarm session routing and its tests.
+  remaining: []

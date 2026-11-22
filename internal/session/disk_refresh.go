@@ -27,8 +27,9 @@ import (
 //     rewrite a file somebody else changed (FileStore.Save): a mode switch in
 //     a stale panel must not undo the other process's turn.
 //
-// "Changed" is read from the content, not only from the stamp. A file that is
-// gone, or that holds a proper prefix of this State's history, is older than
+// "Changed" is read from the content, not only from the stamp. Rewind and
+// undo persist a rewrite identity with the transcript. Without a new identity,
+// a file that is gone or holds a proper prefix of this State's history is older than
 // this State, not newer: an older build without these guards wrote its stale
 // copy back, or somebody deleted the file. Then this State's history is the
 // one worth keeping, and the save writes it back as it always did.
@@ -159,7 +160,7 @@ func (s *State) recordPersistedMeta(meta SessionMeta) {
 // than this State: the file changed since this State last saw it, the history
 // in memory stayed where it was then, and what the file holds now is not an
 // older copy of it (diskHistoryIsNewer).
-func (s *State) staleAgainstDisk(dir string, msgs []llm.Message, rev, editRev uint64) bool {
+func (s *State) staleAgainstDisk(dir string, msgs []llm.Message, rev, editRev uint64, rewriteID string) bool {
 	s.mu.RLock()
 	stamp := s.diskMsgs
 	s.mu.RUnlock()
@@ -169,21 +170,66 @@ func (s *State) staleAgainstDisk(dir string, msgs []llm.Message, rev, editRev ui
 	if stamp.sameFile(statMessages(dir)) {
 		return false
 	}
-	return diskHistoryIsNewer(readMessagesAt(dir), msgs)
+	disk := readMessagesAt(dir)
+	return isNewHistoryRewrite(disk.RewriteID, rewriteID) || diskHistoryIsNewer(disk.Messages, msgs)
 }
 
-// readMessagesAt decodes a bundle's messages.json; nil when it is missing or
-// unreadable.
-func readMessagesAt(dir string) []llm.Message {
+// readMessagesAt decodes the transcript and its rewrite identity together.
+func readMessagesAt(dir string) messagesFileData {
 	b, err := readFileWithRetry(filepath.Join(dir, messagesFile))
 	if err != nil {
-		return nil
+		return messagesFileData{}
 	}
 	var wrap messagesFileData
 	if json.Unmarshal(b, &wrap) != nil {
-		return nil
+		return messagesFileData{}
 	}
-	return wrap.Messages
+	return wrap
+}
+
+func isNewHistoryRewrite(disk, local string) bool {
+	return disk != "" && disk != local
+}
+
+// TranscriptView is the history and undo offer from one transcript read.
+type TranscriptView struct {
+	Messages []llm.Message
+	Revision uint64
+	UILog    []UILogEntry
+	Undo     *RewindUndoOffer
+}
+
+// ReadTranscript sees a rewind or undo written by another process without
+// contending with prompt admission or changing the live session.
+func (m *Manager) ReadTranscript(st *State) TranscriptView {
+	dir := st.GetPersistedSessionDir()
+	st.mu.RLock()
+	view := TranscriptView{
+		Messages: append([]llm.Message(nil), st.Messages...),
+		Revision: st.msgRev,
+		UILog:    append([]UILogEntry(nil), st.UILog...),
+	}
+	stamp, rewriteID := st.diskMsgs, st.historyRewriteID
+	clean := stamp.set && stamp.rev == st.msgRev && stamp.editRev == st.msgEditRev
+	st.mu.RUnlock()
+	if dir == "" || st.IsReadOnlyTranscript() {
+		return view
+	}
+	if m.store != nil && clean && !m.SessionTurnActiveInProcess(st.ID) && !stamp.sameFile(statMessages(dir)) {
+		if disk, err := m.store.readSnapshotAt(dir, st.ID); err == nil && isNewHistoryRewrite(disk.HistoryRewriteID, rewriteID) {
+			view.Messages = disk.Messages
+			view.UILog = disk.UILog
+			view.Revision++
+			rewriteID = disk.HistoryRewriteID
+		}
+	}
+	snap := readRewindUndoSnapshot(dir)
+	if snap != nil && (snap.ID == "" || snap.ID == rewriteID) {
+		if id := snap.snapshotID(); id != "" && rewindUndoValid(view.Messages, snap) {
+			view.Undo = &RewindUndoOffer{SnapshotID: id, UserMessageIndex: snap.UserMessageIndex}
+		}
+	}
+	return view
 }
 
 // diskHistoryIsNewer reports whether the history read from disk is newer than
@@ -229,7 +275,7 @@ func restorePersistedNonMessageFields(st *State, snap *LoadedSnapshot) {
 
 func restorePersistedFields(st *State, snap *LoadedSnapshot) {
 	restorePersistedNonMessageFields(st, snap)
-	st.ReplaceMessagesWithoutPersist(snap.Messages)
+	st.replaceMessagesWithoutPersist(snap.Messages, &snap.HistoryRewriteID)
 }
 
 // refreshFromDiskIfChanged re-reads a live session whose messages.json another
@@ -244,7 +290,7 @@ func (m *Manager) refreshFromDiskIfChanged(st *State) {
 		return
 	}
 	st.mu.RLock()
-	stamp, metaStamp, rev, editRev := st.diskMsgs, st.diskMeta, st.msgRev, st.msgEditRev
+	stamp, metaStamp, rev, editRev, rewriteID := st.diskMsgs, st.diskMeta, st.msgRev, st.msgEditRev, st.historyRewriteID
 	st.mu.RUnlock()
 	if !stamp.set || stamp.rev != rev || stamp.editRev != editRev {
 		return
@@ -261,8 +307,9 @@ func (m *Manager) refreshFromDiskIfChanged(st *State) {
 		m.log.Warn("session changed on disk; re-reading it failed", "session", st.ID, "error", err)
 		return
 	}
+	rewritten := msgsChanged && isNewHistoryRewrite(snap.HistoryRewriteID, rewriteID)
 	ours := st.GetMessages()
-	if msgsChanged && !diskHistoryIsNewer(snap.Messages, ours) {
+	if msgsChanged && !rewritten && !diskHistoryIsNewer(snap.Messages, ours) {
 		// The file is older than this State: its next save writes it back.
 		return
 	}

@@ -11,6 +11,17 @@
 
 **Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
 
+## 0.3.52 — 2026-11-20
+
+**Guidance for DeepSeek models.**
+DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
+
+## 0.3.51 — 2026-11-19
+
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
 ## 0.3.50 — 2026-11-19
 
 **Diagrams and formulas in answers.**
