@@ -6,7 +6,10 @@ import { expect, test } from "vitest";
 const dir = dirname(fileURLToPath(import.meta.url));
 
 function cssText(): string {
-  return readFileSync(join(dir, "../../styles.css"), "utf8");
+  // The markers below span line breaks ("{\n  /* The mirror draws"): a CRLF
+  // working tree on Windows has "{\r\n" and would find none of them, so the
+  // source is read with line endings normalized.
+  return readFileSync(join(dir, "../../styles.css"), "utf8").replace(/\r\n/g, "\n");
 }
 
 // The wand sits in the field's top right corner instead of a row of its own,
