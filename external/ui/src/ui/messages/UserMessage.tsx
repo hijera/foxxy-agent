@@ -41,11 +41,16 @@ function copyableMentions(text: string, keyPrefix: string) {
         title={token}
         onClick={() => {
           const path = token.slice(1);
+          // A URL scheme ("https://...") is a link, not a workspace path - and
+          // a Windows drive letter ("C:/...") is a path, not a scheme.
+          const urlLike =
+            /^[a-z][a-z0-9+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path);
           if (
             (path.includes("/") ||
               path.includes(".") ||
               /^(README|LICENSE|CHANGELOG)(?:$|[:#])/i.test(path)) &&
-            !/^(session|rule|agent|foxxycode):/.test(path)
+            !/^(session|rule|agent|foxxycode):/.test(path) &&
+            !urlLike
           )
             openWorkspaceFile(path);
           else copyUserToken(token);

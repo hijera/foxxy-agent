@@ -98,6 +98,40 @@ test("skills copy their literal text and workspace mentions open Files", async (
   unsubscribe();
 });
 
+// A web mention is a link, not a workspace path: resolving it as one asks
+// Files for "https:/docs.example.com/page" and shows a file-unavailable error,
+// so the click keeps the old copy-to-clipboard behaviour.
+test("a web mention copies its token instead of opening Files", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+    writable: true,
+  });
+  const open = vi.fn();
+  const unsubscribe = onOpenWorkspaceFile(open);
+  render(<UserMessage content="see @https://docs.example.com/page" />);
+  await fireEvent.click(
+    screen.getByRole("button", { name: "@https://docs.example.com/page" }),
+  );
+  expect(open).not.toHaveBeenCalled();
+  expect(writeText).toHaveBeenCalledWith("@https://docs.example.com/page");
+  unsubscribe();
+});
+
+// The URL-scheme exclusion must not catch a Windows drive letter, which is
+// also a letter followed by a colon.
+test("an absolute Windows path mention still opens Files", async () => {
+  const open = vi.fn();
+  const unsubscribe = onOpenWorkspaceFile(open);
+  render(<UserMessage content="open @C:/work/app/main.go" />);
+  await fireEvent.click(
+    screen.getByRole("button", { name: "@C:/work/app/main.go" }),
+  );
+  expect(open).toHaveBeenCalledWith({ path: "C:/work/app/main.go", line: undefined });
+  unsubscribe();
+});
+
 test("edit button is absent when onEdit is not provided", () => {
   render(<UserMessage content="hello" />);
   expect(screen.queryByTestId("user-message-edit")).toBeNull();
