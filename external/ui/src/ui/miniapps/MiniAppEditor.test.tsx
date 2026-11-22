@@ -47,3 +47,52 @@ test("editing a displayed expected result updates the enforced field", async () 
   expect(submitted?.success?.expected_result).toBe("after");
   expect(submitted?.success?.expectations).toBeUndefined();
 });
+
+test("applying an assistant proposal replaces the document instead of merging it", async () => {
+  let submitted: MiniAppDocument | undefined;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/assistant")) {
+      return new Response(
+        JSON.stringify({
+          reply: "Dropped the extra input.",
+          draft: {
+            schema_version: "1.0.0",
+            kind: "foxxycode.miniapp",
+            id: "proposal-app",
+            state: "draft",
+            revision: "revision-9",
+            metadata: { name: "Proposal", goal: "Check replace" },
+            success: { mode: "all", checks: [] },
+          },
+        }),
+      );
+    }
+    submitted = JSON.parse(String(init?.body)) as MiniAppDocument;
+    return new Response(JSON.stringify({ ...submitted, revision: "revision-3" }));
+  });
+  const initial: MiniAppDocument = {
+    schema_version: "1.0.0",
+    kind: "foxxycode.miniapp",
+    id: "proposal-app",
+    state: "draft",
+    revision: "revision-1",
+    metadata: { name: "Proposal", goal: "Check replace" },
+    inputs: [{ id: "extra", type: "string", title: "Extra" }],
+    success: { mode: "all", checks: [] },
+  };
+
+  render(<MiniAppEditor initial={initial} onRun={() => {}} />);
+  fireEvent.change(screen.getByLabelText("Message to the Mini App assistant"), {
+    target: { value: "drop the extra input" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+  await waitFor(() => expect(submitted).toBeDefined());
+  // A proposal is a complete document: a field it dropped must not survive
+  // the merge from the current draft.
+  expect(submitted?.inputs).toBeUndefined();
+});
+

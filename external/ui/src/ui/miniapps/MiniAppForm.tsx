@@ -142,7 +142,7 @@ export function MiniAppForm(props: {
     new Set(inputs.map((input) => input.ui?.group ?? "")),
   );
   const [busyFields, setBusyFields] = useState<Set<string>>(new Set());
-  const busyRef = useRef(busyFields);
+  const busyRef = useRef<Map<string, number>>(new Map());
   const field = (input: MiniAppInput) => {
     const value = props.values[input.id];
     const change = (next: unknown) => props.onChange(input.id, next);
@@ -155,10 +155,13 @@ export function MiniAppForm(props: {
           value={value}
           onChange={change}
           onBusy={(busy) => {
-            const next = new Set(busyRef.current);
-            if (busy) next.add(input.id);
-            else next.delete(input.id);
-            busyRef.current = next;
+            const counts = new Map(busyRef.current);
+            const current = counts.get(input.id) ?? 0;
+            if (busy) counts.set(input.id, current + 1);
+            else if (current <= 1) counts.delete(input.id);
+            else counts.set(input.id, current - 1);
+            busyRef.current = counts;
+            const next = new Set(counts.keys());
             setBusyFields(next);
             props.onBusy(next.size > 0);
           }}

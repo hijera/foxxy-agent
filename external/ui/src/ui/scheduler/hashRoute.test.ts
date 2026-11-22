@@ -47,6 +47,18 @@ describe("parseAppHash", () => {
       branch: "miniapps",
       appId: "build/hello",
     });
+    // A pasted address with a malformed escape keeps the literal text: the
+    // router must not come down on it.
+    setHash("#/miniapps/%zz");
+    expect(parseAppHash()).toEqual({ branch: "miniapps", appId: "%zz" });
+    setHash("#/s/%zz");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "%zz",
+      historyOpen: false,
+      tasksOpen: false,
+      taskId: null,
+    });
   });
 
   test("parses home hash with history sidebar query only", () => {

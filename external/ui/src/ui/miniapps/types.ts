@@ -217,3 +217,21 @@ export type MiniAppAssistantResponse = {
 export type MiniAppApiResult<T> =
   | { ok: true; data: T; status: number }
   | { ok: false; status: number; message: string };
+
+/** The run statuses the server emits today. An unknown one must render as its
+ * raw value, not as a missing translation key. */
+export const MINI_APP_RUN_STATUSES: readonly string[] = [
+  "pending",
+  "queued",
+  "running",
+  "waiting_for_input",
+  "waiting_for_confirmation",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+];
+
+export function isKnownRunStatus(status: string | undefined | null): boolean {
+  return !!status && MINI_APP_RUN_STATUSES.includes(status);
+}

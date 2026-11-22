@@ -333,6 +333,11 @@ export function MiniAppEditor(props: {
   const showNotice = (message: string, error = false) =>
     setNotice({ message, error });
 
+  // The editor resets when the APP under it changes. A save also replaces
+  // props.initial (new revision, same id) to load the server copy, and that
+  // must not wipe the assistant conversation: the thread belongs to the app,
+  // not to the revision.
+  const initialAppId = props.initial.id;
   useEffect(() => {
     setDraft(clone(props.initial));
     setRawJsonText(JSON.stringify(props.initial, null, 2));
@@ -344,7 +349,7 @@ export function MiniAppEditor(props: {
     setAssistantMessages([]);
     setAssistantPrompt("");
     setAssistantProposal(null);
-  }, [props.initial]);
+  }, [initialAppId]);
   useEffect(() => {
     const candidate =
       props.sourceEvidence?.repair_proposals ??
@@ -357,12 +362,21 @@ export function MiniAppEditor(props: {
     setValidatedRevision(null);
     setAssistantProposal(null);
     props.onChecksReset?.();
-    setDraft((current) => {
-      const next = { ...current, ...patch };
-      setRawJsonText(JSON.stringify(next, null, 2));
-      setRawJsonError(null);
-      return next;
-    });
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    setRawJsonText(JSON.stringify(next, null, 2));
+    setRawJsonError(null);
+  };
+  // The assistant proposes a complete document: replace, don't merge, so a
+  // field the proposal dropped does not survive from the current draft.
+  const replaceWith = (document: MiniAppDocument) => {
+    setDirty(true);
+    setValidatedRevision(null);
+    setAssistantProposal(null);
+    props.onChecksReset?.();
+    setDraft(document);
+    setRawJsonText(JSON.stringify(document, null, 2));
+    setRawJsonError(null);
   };
   const askAssistant = async () => {
     const message = assistantPrompt.trim();
@@ -390,8 +404,7 @@ export function MiniAppEditor(props: {
   };
   const applyAssistantProposal = () => {
     if (!assistantProposal) return;
-    update(assistantProposal.draft);
-    setAssistantProposal(null);
+    replaceWith(assistantProposal.draft);
     showNotice(t("miniapps.assistantApplied"));
   };
   const save = async () => {

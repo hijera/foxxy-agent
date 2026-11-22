@@ -76,6 +76,9 @@ export function MiniAppsPage(props: {
       return;
     }
     setRunning(null);
+    // Drop the previous app's editor right away: keeping the old fields on
+    // screen until the fetch resolves reads as if they belonged to the new id.
+    setSelected(null);
     let cancelled = false;
     void (async () => {
       const result = await getMiniAppDraft(id);
@@ -138,7 +141,10 @@ export function MiniAppsPage(props: {
 
   const runReleased = async () => {
     if (!selected || !releasedVersion) return;
-    const result = await getMiniAppRelease(selected.id, releasedVersion);
+    const id = selected.id;
+    const version = releasedVersion;
+    const result = await getMiniAppRelease(id, version);
+    if ((selectionRef.current || "").trim() !== id) return;
     if (result.ok) setRunning({ app: result.data, released: true });
     else setError(result.message);
   };

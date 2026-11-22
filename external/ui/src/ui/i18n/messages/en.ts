@@ -1566,7 +1566,6 @@ export const messagesEn: Record<string, string> = {
   "miniapps.approve": "Approve",
   "miniapps.result": "Result",
   "miniapps.events": "Run events",
-  "miniapps.stepUpdate": "Step update",
   "miniapps.cancelRun": "Cancel run",
   "miniapps.rerun": "Run again",
   "miniapps.runHistory": "Run history",

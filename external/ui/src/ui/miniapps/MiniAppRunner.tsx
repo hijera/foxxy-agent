@@ -20,6 +20,7 @@ import type {
   MiniAppRun,
   MiniAppRunEvent,
 } from "./types";
+import { isKnownRunStatus } from "./types";
 
 function initialValue(input: MiniAppInput): unknown {
   if (input.default !== undefined) return input.default;
@@ -69,6 +70,18 @@ export function MiniAppRunner(props: {
   useEffect(() => {
     if (!runId) return undefined;
     let cancelled = false;
+    let timer: number | undefined;
+    let unsubscribe: (() => void) | undefined;
+    // A terminal run must stop the loop: a succeeded/failed row left on
+    // screen would otherwise poll (and reconnect) forever.
+    const stopPolling = () => {
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+        timer = undefined;
+      }
+      unsubscribe?.();
+      unsubscribe = undefined;
+    };
     const tick = async () => {
       const result = await getRun(runId);
       if (!cancelled && result.ok) {
@@ -96,11 +109,17 @@ export function MiniAppRunner(props: {
           completedNotifiedRef.current = true;
           props.onCompleted?.(result.data);
         }
+        if (
+          ["succeeded", "failed", "cancelled", "interrupted"].includes(
+            result.data.status || "",
+          )
+        ) {
+          stopPolling();
+        }
       }
     };
     void tick();
-    const timer = window.setInterval(() => void tick(), 1000);
-    let unsubscribe: (() => void) | undefined;
+    timer = window.setInterval(() => void tick(), 1000);
     try {
       unsubscribe = subscribeMiniAppEvents("run", runId, (event) => {
         if (!cancelled)
@@ -131,8 +150,7 @@ export function MiniAppRunner(props: {
     }
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      unsubscribe?.();
+      stopPolling();
     };
   }, [runId]);
 
@@ -154,17 +172,7 @@ export function MiniAppRunner(props: {
   }, [events, run?.progress, status]);
 
   const visibleEvents = events.reduce<string[]>((labels, event) => {
-    const known = [
-      "queued",
-      "running",
-      "waiting_for_input",
-      "waiting_for_confirmation",
-      "succeeded",
-      "failed",
-      "cancelled",
-      "interrupted",
-    ];
-    if (!event.status || !known.includes(event.status)) return labels;
+    if (!isKnownRunStatus(event.status)) return labels;
     const title = props.app.workflow?.find(
       (step) => step.id === event.step_id,
     )?.title;
@@ -303,9 +311,9 @@ export function MiniAppRunner(props: {
               aria-hidden="true"
             />
             <strong>
-              {status
+              {isKnownRunStatus(status)
                 ? t(`miniapps.status.${status}`)
-                : t("miniapps.status.pending")}
+                : status || t("miniapps.status.pending")}
             </strong>
             <span className="miniapps-muted">{run?.message || ""}</span>
           </div>

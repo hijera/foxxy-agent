@@ -1614,7 +1614,6 @@ export const messagesRu: Record<string, string> = {
   "miniapps.approve": "Разрешить",
   "miniapps.result": "Результат",
   "miniapps.events": "События запуска",
-  "miniapps.stepUpdate": "Обновление шага",
   "miniapps.cancelRun": "Отменить запуск",
   "miniapps.rerun": "Запустить снова",
   "miniapps.runHistory": "История запусков",

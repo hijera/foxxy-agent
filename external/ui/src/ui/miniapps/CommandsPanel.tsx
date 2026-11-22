@@ -61,10 +61,21 @@ export function CommandsPanel(props: { appId: string }) {
       return;
     }
     const jobId = started.data.id ?? "";
+    if (!jobId) {
+      if (!cancelled.current) {
+        setError(t("miniapps.commands.installFailed"));
+        setBusy("");
+      }
+      return;
+    }
+    // A job endpoint that never answers must not hold the panel busy
+    // forever: give up after several consecutive failures.
+    let failures = 0;
     for (;;) {
       if (cancelled.current) return;
       const job = await getCommandInstallJob(jobId);
       if (job.ok) {
+        failures = 0;
         const tail = (job.data.result as { output_tail?: string } | undefined)
           ?.output_tail;
         if (tail) setInstallTail(tail);
@@ -77,6 +88,15 @@ export function CommandsPanel(props: { appId: string }) {
         ) {
           setError(job.data.error || t("miniapps.commands.installFailed"));
           break;
+        }
+      } else {
+        failures += 1;
+        if (failures >= 5) {
+          if (!cancelled.current) {
+            setError(job.message || t("miniapps.commands.installFailed"));
+            setBusy("");
+          }
+          return;
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 800));

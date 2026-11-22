@@ -3,6 +3,10 @@ import { useT } from "../i18n/I18nProvider";
 import { fetchMiniAppFile } from "./api";
 import type { MiniAppDocument, MiniAppFile, MiniAppRun } from "./types";
 
+// Preview buffers the whole media file in memory before createObjectURL, so
+// it is bounded: a larger result keeps its download action instead.
+const MAX_PREVIEW_BYTES = 64 * 1024 * 1024;
+
 function ResultFile(props: { runId: string; file: MiniAppFile }) {
   const { t } = useT();
   const [url, setUrl] = useState<string | null>(null);
@@ -12,7 +16,8 @@ function ResultFile(props: { runId: string; file: MiniAppFile }) {
   const preview =
     (file.renderer ?? "auto") !== "download" &&
     /^(audio|video|image)\//.test(file.media_type) &&
-    file.media_type !== "image/svg+xml";
+    file.media_type !== "image/svg+xml" &&
+    file.size_bytes <= MAX_PREVIEW_BYTES;
   useEffect(() => {
     if (!preview) return;
     let cancelled = false;

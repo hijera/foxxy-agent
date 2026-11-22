@@ -2842,7 +2842,9 @@ export function App() {
       }
       try {
         const catalog = await fetch("/foxxycode/miniapps");
-        if (!cancelled) setMiniAppsHttpLinked(catalog.status !== 404);
+        // Only a real 200 means the surface is reachable; a 401/403/500 must
+        // not show the rail item just to open it into an error list.
+        if (!cancelled) setMiniAppsHttpLinked(catalog.ok);
       } catch {
         if (!cancelled) setMiniAppsHttpLinked(false);
       }

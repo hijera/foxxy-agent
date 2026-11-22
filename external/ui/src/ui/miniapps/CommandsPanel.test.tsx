@@ -83,6 +83,54 @@ test("a missing binary offers the detected package managers with the exact comma
   ).toBeNull();
 });
 
+
+test("an install job endpoint that never answers gives up and clears the busy state", async () => {
+  let polls = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.endsWith("/foxxycode/miniapps/demo-app/commands")) {
+      return json({
+        items: [
+          {
+            ...untrustedRow,
+            resolved_path: undefined,
+            installed: false,
+            managers: [
+              {
+                id: "winget",
+                package: "Fake.Enc",
+                command: "winget install --id Fake.Enc -e",
+              },
+            ],
+          },
+        ],
+      });
+    }
+    if (url.endsWith("/install")) {
+      return json({ id: "job-dead", kind: "command_install", status: "running" });
+    }
+    if (url.includes("/foxxycode/miniapp-command-installs/")) {
+      polls += 1;
+      return new Response(
+        JSON.stringify({ error: { code: "not_found", message: "gone" } }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return json({});
+  });
+
+  render(<CommandsPanel appId="demo-app" />);
+  const install = await screen.findByTestId(
+    "miniapps-command-install-fakeenc_convert-winget",
+  );
+  fireEvent.click(install);
+  await waitFor(() => expect(polls).toBeGreaterThanOrEqual(5), { timeout: 20000 });
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(
+    screen.getByTestId("miniapps-command-install-fakeenc_convert-winget"),
+  ).toBeEnabled();
+});
+
 test("the panel renders nothing for an app without command profiles", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(json({ items: [] }));
   const { container } = render(<CommandsPanel appId="demo-app" />);

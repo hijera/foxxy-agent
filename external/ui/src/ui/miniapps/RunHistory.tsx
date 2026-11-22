@@ -1,4 +1,5 @@
 import { useT } from "../i18n/I18nProvider";
+import { isKnownRunStatus } from "./types";
 import type { MiniAppRun } from "./types";
 
 export function RunHistory(props: {
@@ -32,7 +33,9 @@ export function RunHistory(props: {
               />
               <span>
                 <strong>
-                  {t(`miniapps.status.${run.status || "pending"}`)}
+                  {isKnownRunStatus(run.status)
+                    ? t(`miniapps.status.${run.status}`)
+                    : run.status || t("miniapps.status.pending")}
                 </strong>
                 <small>
                   {run.version

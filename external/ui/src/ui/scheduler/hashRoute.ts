@@ -137,7 +137,7 @@ export function parseAppHash(): ParsedAppHash {
   }
   const miniApp = /^miniapps\/(.+)$/.exec(h);
   if (miniApp && miniApp[1]) {
-    return { branch: "miniapps", appId: decodeURIComponent(miniApp[1]) };
+    return { branch: "miniapps", appId: decodeLoosely(miniApp[1]) };
   }
   if (h === "settings") {
     return { branch: "settings", historyOpen, section: null, item: null };
@@ -171,18 +171,18 @@ export function parseAppHash(): ParsedAppHash {
   if (schedJobRun && schedJobRun[1] && schedJobRun[2]) {
     return {
       branch: "scheduler",
-      jobId: decodeURIComponent(schedJobRun[1]),
+      jobId: decodeLoosely(schedJobRun[1]),
       createOpen: false,
       historyOpen,
       runsOpen: true,
-      runTaskId: decodeURIComponent(schedJobRun[2]),
+      runTaskId: decodeLoosely(schedJobRun[2]),
     };
   }
   const schedJobRuns = /^scheduler\/jobs\/([^/]+)\/runs$/.exec(h);
   if (schedJobRuns && schedJobRuns[1]) {
     return {
       branch: "scheduler",
-      jobId: decodeURIComponent(schedJobRuns[1]),
+      jobId: decodeLoosely(schedJobRuns[1]),
       createOpen: false,
       historyOpen,
       runsOpen: true,
@@ -193,7 +193,7 @@ export function parseAppHash(): ParsedAppHash {
   if (schedJob && schedJob[1]) {
     return {
       branch: "scheduler",
-      jobId: decodeURIComponent(schedJob[1]),
+      jobId: decodeLoosely(schedJob[1]),
       createOpen: false,
       historyOpen,
       runsOpen: false,
@@ -224,17 +224,17 @@ export function parseAppHash(): ParsedAppHash {
   if (sessTask && sessTask[1] && sessTask[2]) {
     return {
       branch: "session",
-      sessionId: decodeURIComponent(sessTask[1]),
+      sessionId: decodeLoosely(sessTask[1]),
       historyOpen,
       tasksOpen: true,
-      taskId: decodeURIComponent(sessTask[2]),
+      taskId: decodeLoosely(sessTask[2]),
     };
   }
   const sessTasks = /^s\/([^/]+)\/tasks$/.exec(h);
   if (sessTasks && sessTasks[1]) {
     return {
       branch: "session",
-      sessionId: decodeURIComponent(sessTasks[1]),
+      sessionId: decodeLoosely(sessTasks[1]),
       historyOpen,
       tasksOpen: true,
       taskId: null,
@@ -244,7 +244,7 @@ export function parseAppHash(): ParsedAppHash {
   if (sess && sess[1]) {
     return {
       branch: "session",
-      sessionId: decodeURIComponent(sess[1]),
+      sessionId: decodeLoosely(sess[1]),
       historyOpen,
       tasksOpen: false,
       taskId: null,
@@ -254,7 +254,7 @@ export function parseAppHash(): ParsedAppHash {
   if (draft && draft[1]) {
     return {
       branch: "draft",
-      draftId: decodeURIComponent(draft[1]),
+      draftId: decodeLoosely(draft[1]),
       historyOpen,
     };
   }
