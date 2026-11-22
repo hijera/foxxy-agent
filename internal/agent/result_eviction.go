@@ -91,16 +91,20 @@ func (a *Agent) prunedForLLM(msgs []llm.Message) []llm.Message {
 	return collapseLoopDuplicates(out, a.loopQuarantineSnapshot(), opt.MinResultBytes)
 }
 
-// prunedForSummary follows Coddy's eviction gate for the summarizer. It uses
-// the configured window and evicts from the start when that window is unset.
-// The compaction split is an index into the transcript, so this projection
-// can shorten a result but must preserve every row.
+// prunedForSummary is the projection a compaction summarizes: read/grep result
+// eviction with the start_percent gate lifted. The gate exists to keep the
+// provider's cached prefix alive, and a compaction rewrites that prefix anyway,
+// so there is nothing to protect - while a read made stale by a later write,
+// left in the head, would be summarized as if it were still true.
+//
+// fork(compaction-summary-gate): the summarizer head evicts whenever result
+// eviction is enabled; Coddy gates the same projection with start_percent.
+//
+// The compaction split is an index into the transcript, so this projection can
+// shorten a result but must preserve every row: the repairs that may drop rows
+// (dropUnansweredToolCalls, collapseLoopDuplicates) stay out of it.
 func (a *Agent) prunedForSummary(msgs []llm.Message) []llm.Message {
-	window := 0
-	if ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg)); ent != nil {
-		window = ent.MaxContextTokens
-	}
-	if !a.evictionDueForWindow(msgs, window) {
+	if !a.cfg.Compaction.ResultEviction.IsEnabled() {
 		return msgs
 	}
 	return pruneToolResults(msgs, a.evictionOptions())
