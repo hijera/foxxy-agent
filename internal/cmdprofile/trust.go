@@ -1,11 +1,16 @@
 package cmdprofile
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,7 +21,8 @@ import (
 const TrustFileName = "command-trust.json"
 
 // trustFile is the on-disk shape. Entries are keyed by the profile's canonical
-// hash; the approval binds to the exact binary path the operator saw.
+// hash; the approval binds to the exact binary path the operator saw and to the
+// SHA-256 of the bytes that path held at approval time.
 type trustFile struct {
 	Version int                   `json:"version"`
 	Entries map[string]trustEntry `json:"entries"`
@@ -24,6 +30,7 @@ type trustFile struct {
 
 type trustEntry struct {
 	Binary     string    `json:"binary"`
+	Digest     string    `json:"digest,omitempty"`
 	ApprovedAt time.Time `json:"approved_at"`
 }
 
@@ -43,25 +50,62 @@ func NewTrustStore(home string) *TrustStore {
 	return &TrustStore{path: filepath.Join(home, TrustFileName)}
 }
 
+// BinaryDigest returns the SHA-256 of the file at path. The second half of the
+// approval binding: an approval follows the profile content and the exact bytes
+// the resolved binary held when the operator saw it, so replacing the file at
+// an approved path re-prompts even though the path itself is unchanged.
+func BinaryDigest(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
 // Trusted reports whether this exact profile content, resolved to this exact
-// binary path, was approved on this machine. Either changing invalidates the
-// approval: an edited profile has a new hash, a moved binary a new path.
+// binary path with these exact bytes, was approved on this machine. Any of the
+// three changing invalidates the approval: an edited profile has a new hash, a
+// moved binary a new path, a replaced binary a new digest.
 func (s *TrustStore) Trusted(hash, binaryPath string) bool {
-	if s == nil || s.path == "" || hash == "" {
+	if s == nil || s.path == "" || hash == "" || binaryPath == "" {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	entries := s.readLocked()
-	entry, ok := entries[hash]
+	entry, ok := s.readLocked()[hash]
 	if !ok {
 		return false
 	}
-	return canonicalPath(entry.Binary) == canonicalPath(binaryPath)
+	if entry.Digest != "" {
+		digest, err := BinaryDigest(binaryPath)
+		if err != nil || digest != entry.Digest {
+			return false
+		}
+	}
+	// Entries recorded before digest pinning carried no digest and fall back
+	// to the resolved path alone.
+	return sameBinaryPath(canonicalPath(entry.Binary), canonicalPath(binaryPath))
 }
 
-// Record persists an approval for the (profile hash, binary path) pair,
-// replacing any previous approval for the same hash.
+// sameBinaryPath compares two resolved binary paths. Windows paths differ in
+// case by spelling, not by file, so the same binary spelled differently must
+// not re-prompt; case is significant everywhere else.
+func sameBinaryPath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return runtime.GOOS == "windows" && strings.EqualFold(a, b)
+}
+
+// Record persists an approval for the (profile hash, binary path, binary
+// digest) triple, replacing any previous approval for the same hash. The
+// binary must still be readable at binaryPath: an approval without its digest
+// would degrade to path-only binding.
 func (s *TrustStore) Record(hash, binaryPath string) error {
 	if s == nil || s.path == "" {
 		return errors.New("command trust store has no home directory")
@@ -69,10 +113,14 @@ func (s *TrustStore) Record(hash, binaryPath string) error {
 	if hash == "" || binaryPath == "" {
 		return errors.New("a profile hash and a binary path are required")
 	}
+	digest, err := BinaryDigest(binaryPath)
+	if err != nil {
+		return fmt.Errorf("bind approval to binary %q: %w", filepath.Clean(binaryPath), err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries := s.readLocked()
-	entries[hash] = trustEntry{Binary: filepath.Clean(binaryPath), ApprovedAt: time.Now().UTC()}
+	entries[hash] = trustEntry{Binary: filepath.Clean(binaryPath), Digest: digest, ApprovedAt: time.Now().UTC()}
 	raw, err := json.MarshalIndent(trustFile{Version: 1, Entries: entries}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode command trust file: %w", err)

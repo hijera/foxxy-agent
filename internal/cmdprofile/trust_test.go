@@ -3,6 +3,7 @@ package cmdprofile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -14,6 +15,12 @@ func TestTrustStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(home, "bin", "ffmpeg.exe")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(binary, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
 
 	if store.Trusted(hash, binary) {
 		t.Fatal("empty store trusted a profile")
@@ -40,6 +47,9 @@ func TestTrustStoreRequiresBothHashAndPath(t *testing.T) {
 	store := NewTrustStore(home)
 	hash, _ := CanonicalHash(ffmpegSpec())
 	binary := filepath.Join(home, "ffmpeg")
+	if err := writeFile(binary, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Record(hash, binary); err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +59,19 @@ func TestTrustStoreRequiresBothHashAndPath(t *testing.T) {
 	if store.Trusted(otherHash, binary) {
 		t.Fatal("an edited profile stayed trusted")
 	}
-	if store.Trusted(hash, filepath.Join(home, "elsewhere", "ffmpeg")) {
+	// Same bytes at a new path is still a moved binary: the approval binds the
+	// path the operator resolved too, not only the content.
+	moved := filepath.Join(home, "elsewhere", "ffmpeg")
+	if err := os.MkdirAll(filepath.Dir(moved), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(moved, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Trusted(hash, moved) {
 		t.Fatal("a moved binary stayed trusted")
 	}
 	// Recording again after a move updates the pair.
-	moved := filepath.Join(home, "elsewhere", "ffmpeg")
 	if err := store.Record(hash, moved); err != nil {
 		t.Fatal(err)
 	}
@@ -62,20 +80,103 @@ func TestTrustStoreRequiresBothHashAndPath(t *testing.T) {
 	}
 }
 
+// The approval binds the digest of the binary bytes: replacing the file at the
+// approved path (same path, different content) must re-prompt.
+func TestTrustStoreRejectsAReplacedBinary(t *testing.T) {
+	home := t.TempDir()
+	store := NewTrustStore(home)
+	hash, _ := CanonicalHash(ffmpegSpec())
+	binary := filepath.Join(home, "ffmpeg")
+	if err := writeFile(binary, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(hash, binary); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Trusted(hash, binary) {
+		t.Fatal("the recorded approval was not honored")
+	}
+	if err := writeFile(binary, "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Trusted(hash, binary) {
+		t.Fatal("a replaced binary stayed trusted")
+	}
+	// Recording again over the new bytes restores the approval.
+	if err := store.Record(hash, binary); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Trusted(hash, binary) {
+		t.Fatal("re-approval over the new bytes was not honored")
+	}
+}
+
+// A vanished or unreadable binary cannot be trusted: the digest cannot be
+// verified, so the store fails closed rather than falling back to the path.
+func TestTrustStoreRejectsAnUnreadableBinary(t *testing.T) {
+	home := t.TempDir()
+	store := NewTrustStore(home)
+	hash, _ := CanonicalHash(ffmpegSpec())
+	binary := filepath.Join(home, "ffmpeg")
+	if err := writeFile(binary, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(hash, binary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
+	if store.Trusted(hash, binary) {
+		t.Fatal("a vanished binary stayed trusted")
+	}
+	if err := store.Record(hash, binary); err == nil {
+		t.Fatal("Record approved a binary that is no longer on disk")
+	}
+}
+
+// Windows spells the same path in different cases; the store must not re-prompt
+// for case alone.
+func TestTrustStoreComparesPathsCaseInsensitivelyOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-insensitive path comparison is a Windows filesystem property")
+	}
+	home := t.TempDir()
+	store := NewTrustStore(home)
+	hash, _ := CanonicalHash(ffmpegSpec())
+	binary := filepath.Join(home, "FFMPEG.EXE")
+	if err := writeFile(binary, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(hash, binary); err != nil {
+		t.Fatal(err)
+	}
+	// TempDir may return a mixed-case root; exercise the case difference on the
+	// file name, which this test fully controls.
+	lower := filepath.Join(filepath.Dir(binary), "ffmpeg.exe")
+	if !store.Trusted(hash, lower) {
+		t.Fatal("the same binary with a different case spelling re-prompted")
+	}
+}
+
 func TestTrustStoreSurvivesACorruptFile(t *testing.T) {
 	home := t.TempDir()
 	if err := writeFile(filepath.Join(home, TrustFileName), "{not json"); err != nil {
 		t.Fatal(err)
 	}
+	binary := filepath.Join(home, "ffmpeg")
+	if err := writeFile(binary, "fake binary"); err != nil {
+		t.Fatal(err)
+	}
 	store := NewTrustStore(home)
 	hash, _ := CanonicalHash(ffmpegSpec())
-	if store.Trusted(hash, "/usr/bin/ffmpeg") {
+	if store.Trusted(hash, binary) {
 		t.Fatal("a corrupt store trusted a profile")
 	}
-	if err := store.Record(hash, "/usr/bin/ffmpeg"); err != nil {
+	if err := store.Record(hash, binary); err != nil {
 		t.Fatalf("Record() over a corrupt file = %v", err)
 	}
-	if !store.Trusted(hash, "/usr/bin/ffmpeg") {
+	if !store.Trusted(hash, binary) {
 		t.Fatal("recovery write was not honored")
 	}
 }
