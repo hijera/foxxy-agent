@@ -179,4 +179,4 @@ tool and result evidence.
 
 See [Web UI](../surfaces/web-ui.md#mini-apps), the
 [HTTP API](../reference/http-api.md#mini-apps-rest--tagshttpminiapps), and the
-[original design record](../plans/mini-apps-implementation-plan.md).
+original design record, `docs/plans/mini-apps-implementation-plan.md`.

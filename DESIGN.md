@@ -1011,8 +1011,8 @@ an immutable semantic version. Progress is driven by persisted async jobs, so
 reload and SSE reconnect converge through polling rather than optimistic local
 completion.
 
-File inputs use a chooser and a drop target, with upload progress and removable
-filename rows. The form follows declared field order and groups; display metadata
+File inputs use a chooser and a drop target, with an uploading indicator and
+removable filename rows. The form follows declared field order and groups; display metadata
 controls the heading, description and launch label. Generated file outputs use
 native audio/video controls, image previews and download actions. All media loads
 through authenticated fetches; blob URLs are released when the result unmounts.

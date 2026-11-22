@@ -12,7 +12,7 @@ Screenshots taken as evidence for a pull request do not belong here: push them t
 
 ## Capture recipes
 
-**Web UI.** `make build TAGS="http ui scheduler memory cli browser gateway swarm"`, then `foxxycode http` (or `foxxycode serve`) on a disposable `FOXXYCODE_HOME` at a presentable path, and a headless Chrome driven by chromedp or Playwright: 1280 wide in the Dark theme as the default, 390 wide and Light when the page discusses them, browser locale `en-US`. Hash navigation does not reload the bundle, so reload after switching routes. Never capture the provider detail pane: it renders `api_key` values in full; the provider list (names only) is safe. Issue and pull request numbers do not belong in file names; name the surface and the state.
+**Web UI.** `make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`, then `foxxycode http` (or `foxxycode serve`) on a disposable `FOXXYCODE_HOME` at a presentable path, and a headless Chrome driven by chromedp or Playwright: 1280 wide in the Dark theme as the default, 390 wide and Light when the page discusses them, browser locale `en-US`. Hash navigation does not reload the bundle, so reload after switching routes. Never capture the provider detail pane: it renders `api_key` values in full; the provider list (names only) is safe. Issue and pull request numbers do not belong in file names; name the surface and the state.
 
 **Console.** The pty capture scripts under `examples/cli/` drive `foxxycode cli`, emulate the screen with pyte and render PNGs through headless Chromium without a provider (`examples/cli/capture_usage.py` for the usage footer); run them on Linux or in WSL. See [Console](../surfaces/console.md).
 

@@ -237,7 +237,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/operate/scheduler.md](../operate/scheduler.md)**).
 - **`memory`** - long-term memory subagent and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
-- **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/surfaces/gateway.md](../surfaces/gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
+- **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/surfaces/gateway.md](../surfaces/gateway.md)**); reachable by overriding the container command.
 - **`browser`** - interactive browser tools (**[docs/features/browser-tool.md](../features/browser-tool.md)**), off until **`browser.enable`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 - **`miniapps`** - reviewed, versioned workflows and their HTTP/UI surface (see [Mini Apps](../features/mini-apps.md)).
 

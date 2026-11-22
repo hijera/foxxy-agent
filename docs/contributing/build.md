@@ -63,7 +63,8 @@ python scripts/build.py --target all --preset full
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
 **Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory miniapps cli browser gateway` - the
-set the release CLI archives ship, matching the **`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
+wizard's full-feature set; the release CLI archives ship it with **`swarm`** added, the
+**`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
 (like full, but only the Telegram adapter via **`gateway.telegram`**), **`desktop`** (swaps in **`desktop`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
 requires **`http`**).
 
@@ -85,7 +86,8 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway \n  -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
+go build -tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway \
+  -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
 ```
@@ -199,7 +201,7 @@ Order does not matter for these tags.
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm"   # build/foxxycode-android-arm64, -amd64
+make android TAGS="http ui scheduler memory miniapps cli browser gateway swarm"   # build/foxxycode-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -407,7 +409,7 @@ the connection survives cancellation of the reload context.
 For a fresh Go run without reusing test results, use:
 
 ```bash
-go test -count=1 "-tags=http,ui,scheduler,memory,cli,browser,gateway,swarm" ./...
+go test -count=1 "-tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway,swarm" ./...
 ```
 
 Build the embedded SPA first (`make ui-build`); `make test` also runs the UI suite.

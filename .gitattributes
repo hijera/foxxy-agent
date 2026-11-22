@@ -10,3 +10,8 @@
 # and command names, and the man page and the Homebrew templates are read by
 # groff and brew the same way.
 packaging/** text eol=lf
+
+# The committed SPA build output must keep LF endings: a rebuild on Windows with
+# core.autocrlf=true would otherwise rewrite the whole file, and every rebuild
+# would show up as a full-file diff instead of the change that was made.
+external/ui/index.html text eol=lf
