@@ -322,8 +322,9 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 
 **Тесты:** upstream-овские BDD-шаги (ACP/HTTP/stats) + юнит-тесты, плюс два фичефайла форка,
 которых в upstream нет: `features/context_compaction_engines.feature` (ACP-usage совпадает с
-LLM-окном на **обоих** движках) и `features/context_compaction_restore.feature` (usage
-выживает перезапуск сервера на обоих движках; `/compact` рекламируется только на `coddy`).
+LLM-окном на **обоих** движках; файл удалён вместе с движком opencode — #166) и
+`features/context_compaction_restore.feature` (usage выживает перезапуск сервера на обоих
+движках; `/compact` рекламируется только на `coddy`).
 Оба проверены «наоборот»: без форковых правок сценарии падают.
 
 ### Коммит 2 — Tool-approval previews (upstream `2d5f2e7` + 6 follow-up)
