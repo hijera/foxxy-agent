@@ -1059,10 +1059,11 @@ function stubSessionChanges(n: number, vcs = "git") {
   return fetchMock;
 }
 
-test("the workspace change count opens Edits by default", async () => {
-  stubSessionChanges(2);
+test.each(["git", "svn"])("the %s workspace change count opens Edits by default", async (vcs) => {
+  stubSessionChanges(2, vcs);
   const onOpenEdits = vi.fn();
-  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), onOpenEdits })}</ConfirmProvider>);
+  const workspaceCtx = { ...repoCtx, is_git_repo: vcs === "git", is_svn_repo: vcs === "svn" };
+  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), workspaceCtx, onOpenEdits })}</ConfirmProvider>);
   const bar = screen.getByTestId("workspace-bar");
   const edits = await within(bar).findByTestId("workspace-bar-edits");
   expect(edits.textContent).toBe("+2−0");

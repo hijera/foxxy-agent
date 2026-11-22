@@ -74,9 +74,16 @@ func Available(o Options) bool {
 
 // run executes the svn client in dir and returns its stdout. Every invocation is
 // non-interactive so a missing credential fails fast instead of blocking a turn.
+// On Windows the plain-text client output can use the system ANSI code page.
 func run(ctx context.Context, o Options, dir string, args ...string) (string, error) {
+	out, err := runBytes(ctx, o, dir, args...)
+	return strings.TrimRight(platform.DecodeANSIOutput(out), "\r\n"), err
+}
+
+// runBytes preserves svn cat's file bytes, including encodings and final newlines.
+func runBytes(ctx context.Context, o Options, dir string, args ...string) ([]byte, error) {
 	if !Available(o) {
-		return "", fmt.Errorf("svn client not found (%s); install Subversion or set vcs.svn.binary", o.binary())
+		return nil, fmt.Errorf("svn client not found (%s); install Subversion or set vcs.svn.binary", o.binary())
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.timeout())
 	defer cancel()
@@ -90,19 +97,11 @@ func run(ctx context.Context, o Options, dir string, args ...string) (string, er
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	// The client writes in the system ANSI code page, so the captured bytes are
-	// not UTF-8 on a legacy Windows install and the model would read mojibake.
-	// SanitizeOutput is deliberately left out, unlike the shell tool: svn runs
-	// non-interactive and emits neither escape sequences nor carriage-return
-	// redraws, while collapsing carriage returns would drop content from a diff
-	// of a file that contains them.
-	stdoutText := platform.DecodeANSIOutput(stdout.Bytes())
-	stderrText := platform.DecodeANSIOutput(stderr.Bytes())
-	out := strings.TrimRight(stdoutText, "\r\n")
+	out := stdout.Bytes()
 	if err != nil {
-		detail := strings.TrimSpace(stderrText)
+		detail := strings.TrimSpace(platform.DecodeANSIOutput(stderr.Bytes()))
 		if detail == "" {
-			detail = strings.TrimSpace(stdoutText)
+			detail = strings.TrimSpace(platform.DecodeANSIOutput(out))
 		}
 		if ctx.Err() != nil {
 			return out, fmt.Errorf("svn %s timed out after %s: %s",
@@ -116,6 +115,7 @@ func run(ctx context.Context, o Options, dir string, args ...string) (string, er
 // infoXML mirrors the parts of `svn info --xml` this package consumes.
 type infoXML struct {
 	Entries []struct {
+		Kind        string `xml:"kind,attr"`
 		Revision    string `xml:"revision,attr"`
 		URL         string `xml:"url"`
 		RelativeURL string `xml:"relative-url"`

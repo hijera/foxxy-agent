@@ -586,7 +586,8 @@ export function ChatScreen(props: {
   ) : null;
 
   // Every finished tool call may have changed the working copy.
-  const canReviewChanges = !readOnlyNotice && !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false;
+  const canReviewChanges = !readOnlyNotice && !!props.onOpenEdits &&
+    (props.workspaceCtx?.is_git_repo !== false || props.workspaceCtx?.is_svn_repo === true);
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
     enabled: canReviewChanges,
     toolActivity: finishedToolCalls(props.items),

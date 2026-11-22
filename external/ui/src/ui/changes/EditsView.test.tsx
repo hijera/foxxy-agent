@@ -105,6 +105,16 @@ function open(onClose: () => void = () => {}) {
   );
 }
 
+test("an SVN working copy shows the same file and patch as a Git working copy", async () => {
+  fetchMock.mockImplementation(async (input: unknown) =>
+    jsonResponse(String(input).includes("/changes/file") ? { patch: PATCH } : { ...SESSION, vcs: "svn" }),
+  );
+  open();
+  const diff = await screen.findByTestId("dv-file-src/a.ts");
+  expect(await within(diff).findByText("new")).toBeVisible();
+  expect(screen.queryByText(t("changes.viewer.noVcs"))).toBeNull();
+});
+
 test("a card file opens just its diff in the drawer", async () => {
   render(
     <ConfirmProvider>

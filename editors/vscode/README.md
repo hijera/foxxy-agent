@@ -12,7 +12,7 @@ The Go source is the **repo root** (this extension lives at `editors/vscode/`); 
 copy. Functionally it is the full peer of the [IntelliJ plugin](../intellij), including native
 inline diffs (Accept / Reject / Revert / Show diff) driven by the foxxycode IDE event stream.
 
-In a local chat, open Edits from the Git counts above the composer and select a text file to review it in the source editor. **Settings → Appearance → Show changes** can put a card of changed files below the transcript.
+In a local chat, open Edits from the Git or Subversion counts above the composer and select a text file to review it in the source editor. **Settings → Appearance → Show changes** can put a card of changed files below the transcript.
 
 
 ## How it works

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,9 @@ type changedFileRow struct {
 	Deletions int    `json:"deletions"`
 	Binary    bool   `json:"binary"`
 	Patch     string `json:"patch"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
+	Revision  string `json:"revision"`
 }
 
 type sessionChangesState struct {
@@ -139,6 +143,46 @@ func (s *sessionChangesState) startGitServer() error {
 		return err
 	}
 	return s.startServer()
+}
+
+func (s *sessionChangesState) svnCommand(dir, binary string, args ...string) error {
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s %v: %w\n%s", binary, args, err, out)
+	}
+	return nil
+}
+
+func (s *sessionChangesState) startSVNServer() error {
+	for _, name := range []string{"svn", "svnadmin"} {
+		if _, err := exec.LookPath(name); err != nil {
+			return godog.ErrSkip
+		}
+	}
+	repository := filepath.Join(s.root, "repository")
+	if err := s.svnCommand(s.root, "svnadmin", "create", repository); err != nil {
+		return err
+	}
+	path := filepath.ToSlash(repository)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	repoURL := (&url.URL{Scheme: "file", Path: path}).String()
+	if err := s.svnCommand(s.root, "svn", "checkout", "--non-interactive", repoURL, s.workspace); err != nil {
+		return err
+	}
+	return s.startServer()
+}
+
+func (s *sessionChangesState) svnCommitted(name, content string) error {
+	if err := s.workspaceContains(name, content); err != nil {
+		return err
+	}
+	if err := s.svnCommand(s.workspace, "svn", "add", "--no-auto-props", "--", name+"@"); err != nil {
+		return err
+	}
+	return s.svnCommand(s.workspace, "svn", "commit", "--non-interactive", "-m", "fixture")
 }
 
 func (s *sessionChangesState) startServer() error {
@@ -289,15 +333,15 @@ func (s *sessionChangesState) askWhatChanged() error {
 	return nil
 }
 
-func (s *sessionChangesState) gitIsNamed() error {
-	if s.vcs != "git" {
-		return fmt.Errorf("vcs = %q, want git", s.vcs)
+func (s *sessionChangesState) vcsIsNamed(want string) error {
+	if s.vcs != want {
+		return fmt.Errorf("vcs = %q, want %s", s.vcs, want)
 	}
 	return nil
 }
 
 func (s *sessionChangesState) openDiff(name string) error {
-	res, err := http.Get(s.ts.URL + "/foxxycode/sessions/" + s.sessionID + "/changes/file?path=" + name)
+	res, err := http.Get(s.ts.URL + "/foxxycode/sessions/" + s.sessionID + "/changes/file?path=" + url.QueryEscape(name))
 	if err != nil {
 		return err
 	}
@@ -306,6 +350,34 @@ func (s *sessionChangesState) openDiff(name string) error {
 		return fmt.Errorf("GET changes/file returned %d", res.StatusCode)
 	}
 	return json.NewDecoder(res.Body).Decode(&s.one)
+}
+
+func (s *sessionChangesState) nativeReview() error {
+	events := ideEvents.Subscribe()
+	defer ideEvents.Unsubscribe(events)
+	body, err := json.Marshal(map[string]string{"path": s.one.Path})
+	if err != nil {
+		return err
+	}
+	res, err := s.ts.Client().Post(s.ts.URL+"/foxxycode/sessions/"+s.sessionID+"/changes/open-in-ide",
+		"application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("POST open-in-ide returned %d", res.StatusCode)
+	}
+	select {
+	case event := <-events:
+		if event.Type != "open_diff" || event.Path != filepath.Join(s.workspace, s.one.Path) ||
+			event.Before != s.one.Before || event.After != s.one.After || event.ToolCallID != s.one.Revision {
+			return fmt.Errorf("wrong editor event: %+v", event)
+		}
+		return nil
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("no editor event")
+	}
 }
 
 // discard asks the server to put the working copy back at HEAD: the body
@@ -402,19 +474,29 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a running foxxycode HTTP server whose workspace is a git repository$`, s.startGitServer)
+	sc.Step(`^a running foxxycode HTTP server whose workspace is an SVN working copy$`, s.startSVNServer)
 	sc.Step(`^the repository has "([^"]+)" committed as "([^"]*)"$`, s.committed)
+	sc.Step(`^SVN has "([^"]+)" committed as "([^"]*)"$`, s.svnCommitted)
 	sc.Step(`^"([^"]+)" is changed on disk to "([^"]*)"$`, s.changedOnDisk)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)
 	sc.Step(`^a client listening for server events$`, s.listenForServerEvents)
 	sc.Step(`^the client hears that the session's working copy changed$`, s.hearWorkingCopyMoved)
 	sc.Step(`^I ask what the working copy changed$`, s.askWhatChanged)
 	sc.Step(`^I open the diff for "([^"]+)"$`, s.openDiff)
+	sc.Step(`^the local editor receives the reviewed snapshots$`, s.nativeReview)
+	sc.Step(`^I discard the reviewed revision of "([^"]+)"$`, func(name string) error {
+		body, err := json.Marshal(map[string]interface{}{"paths": []string{name}, "revision": s.one.Revision})
+		if err != nil {
+			return err
+		}
+		return s.discard(string(body))
+	})
 	sc.Step(`^I discard the changes of "([^"]+)"$`, func(name string) error {
 		return s.discard(`{"paths":["` + name + `"]}`)
 	})
 	sc.Step(`^I discard every change$`, func() error { return s.discard(`{"all":true}`) })
 
-	sc.Step(`^git is named as the version control$`, s.gitIsNamed)
+	sc.Step(`^(git|svn) is named as the version control$`, s.vcsIsNamed)
 	sc.Step(`^no files are reported as changed$`, s.noFilesChanged)
 	sc.Step(`^(\d+) files? (?:is|are) reported as changed with (\d+) additions? and (\d+) deletions?$`, s.countAndStats)
 	sc.Step(`^"([^"]+)" is reported as "([^"]+)"$`, s.reportedAs)
@@ -429,7 +511,7 @@ func TestSessionChangesFeature(t *testing.T) {
 		ScenarioInitializer: initializeSessionChangesScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/session_changes.feature"},
+			Paths:    []string{"../../features/session_changes.feature", "../../features/svn_session_changes.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

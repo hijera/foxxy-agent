@@ -45,6 +45,24 @@ func GitAvailable() bool {
 	return err == nil
 }
 
+// CheckoutRoot reports the root of the working copy containing dir, including
+// a linked worktree's own root.
+func CheckoutRoot(dir string) string {
+	if GitAvailable() {
+		root, _ := runGit(dir, "rev-parse", "--show-toplevel")
+		return root
+	}
+	repo, err := openRepo(dir)
+	if err != nil {
+		return ""
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return ""
+	}
+	return wt.Filesystem.Root()
+}
+
 // gitTimeout bounds one git invocation. Remote operations (clone, fetch) run
 // while the caller may hold a lock, so a stalled host must not hold it forever.
 const gitTimeout = 3 * time.Minute

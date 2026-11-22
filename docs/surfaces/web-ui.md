@@ -45,11 +45,11 @@ Short commands and their output form one continuous card without an extra surrou
 
 ## Chat layout
 
-The chat places the environment menu in the rail, **Background tasks** in the chat header, and the workspace bar above the composer. In the browser, the header also has **Files**. Before the first prompt, the workspace bar lets you pick the folder, branch, or worktree. During a chat, it names the workspace and branch and opens **Edits** from the Git line counts.
+The chat places the environment menu in the rail, **Background tasks** in the chat header, and the workspace bar above the composer. In the browser, the header also has **Files**. Before the first prompt, the workspace bar lets you pick the folder, branch, or worktree. During a chat, it names the workspace and branch and opens **Edits** from the working copy's line counts.
 
 ![The chat header and workspace bar](../assets/chat-layout-modern-dark-1280.png)
 
-*The Git line counts on the workspace bar open Edits.*
+*The line counts on the workspace bar open Edits.*
 
 ## Workspace files
 
@@ -61,7 +61,7 @@ In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd
 
 ## The edits window
 
-Open **Edits** by clicking the Git additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. The browser or editor panel remembers this choice. Both presentations show the Git working copy, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request.
+Open **Edits** by clicking the additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. The browser or editor panel remembers this choice. Both presentations show uncommitted changes from Git or Subversion, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request. Git uses HEAD and Subversion uses the working copy's local BASE revision. The nearest checkout takes precedence, with Git used when both share a root. Subversion review uses the configured client and covers file changes reported by local status. Directory operations, files inside entirely unversioned directories, replacements, conflicts, and externals stay outside the review and bulk discard scope.
 
 In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
 
@@ -69,7 +69,11 @@ In the **Edits** window, the checkmark (**Accept**) marks the current version as
 
 ![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
 
-*The Edits window shows the Git diff and review actions for each file.*
+*The Edits window shows the diff and review actions for each file.*
+
+![Edits showing a Subversion working copy](../assets/session-changes-svn-dark-1280.png)
+
+*An SVN working copy uses the same per-file review controls.*
 
 ## Settings sections: General & Appearance
 
@@ -565,7 +569,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *The Open folder dialog on a phone, opened where History opens*
 
-- A workspace bar renders above the composer card (**`WorkspaceBar.tsx`**). Before the first prompt its picks (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**) offer the **folder** (workspace basename, full path in tooltip), **branch** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN branch** plus its **branch-folder checkbox**. Once the chat starts, the bar names the folder and branch instead, and its Git line counts open **Edits**.
+- A workspace bar renders above the composer card (**`WorkspaceBar.tsx`**). Before the first prompt its picks (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**) offer the **folder** (workspace basename, full path in tooltip), **branch** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN branch** plus its **branch-folder checkbox**. Once the chat starts, the bar names the folder and branch instead, and its line counts open **Edits**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/foxxycode/slash-commands`**, **`/foxxycode/mentions`**, **`POST /foxxycode/mentions/check`**, **`/foxxycode/workspace/file`**) carries **`cwd=<folder>`** next to **`X-FoxxyCode-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.foxxycode/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder; Skills also sends it with marketplace sync, install and update, so those actions never fall back to the server default after a folder was picked.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the picks give way to read-only folder and branch labels, and the server answers **409** to **`POST .../workspace`**; a turn already in flight answers **409** as well.

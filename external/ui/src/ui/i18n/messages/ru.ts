@@ -1732,7 +1732,7 @@ export const messagesRu: Record<string, string> = {
   "changes.discardAll": "Отменить все",
   "changes.discardAllTitle": "Вернуть все незакоммиченные правки к последнему коммиту",
   "changes.discardAllConfirm": "Отменить все незакоммиченные правки?",
-  "changes.discardAllMessage": "Все изменённые файлы вернутся к содержимому последнего коммита, новые файлы будут удалены, а файлы из .gitignore останутся. Это нельзя отменить.",
+  "changes.discardAllMessage": "Изменённые файлы вернутся к базовой версии, а новые файлы будут удалены. Игнорируемые файлы останутся. Это нельзя отменить.",
   "changes.discardYes": "Отменить правки",
   "changes.discardFailed": "Не удалось отменить правки: {message}",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
@@ -1802,7 +1802,7 @@ export const messagesRu: Record<string, string> = {
   "changes.viewer.copied": "Путь скопирован",
   "changes.viewer.loadingFile": "Загрузка различий...",
   "changes.viewer.noMatches": "Нет подходящих файлов",
-  "changes.viewer.noVcs": "Эта папка не в git-репозитории, показывать нечего.",
+  "changes.viewer.noVcs": "Для просмотра правок нужна рабочая копия Git или Subversion.",
 
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "агент",

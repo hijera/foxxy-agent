@@ -10,7 +10,7 @@
 
 ## Unreleased — 2026-11-22
 
-**Workspace files and edit review.** Open files from the chat, review Git changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The Git counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
+**Workspace files and edit review.** Open files from the chat, review Git and Subversion changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The working copy counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
 
 ## 0.3.53 — 2026-11-21
 

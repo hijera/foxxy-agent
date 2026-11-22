@@ -1678,7 +1678,7 @@ export const messagesEn: Record<string, string> = {
   "changes.discardAll": "Discard all",
   "changes.discardAllTitle": "Put every uncommitted change back as it is in the last commit",
   "changes.discardAllConfirm": "Discard every uncommitted change?",
-  "changes.discardAllMessage": "Every changed file goes back to its last committed content and new files are deleted. Files git ignores stay. This cannot be undone.",
+  "changes.discardAllMessage": "Changed files go back to their base version and new files are deleted. Ignored files stay. This cannot be undone.",
   "changes.discardYes": "Discard",
   "changes.discardFailed": "Could not discard: {message}",
   "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
@@ -1744,7 +1744,7 @@ export const messagesEn: Record<string, string> = {
   "changes.viewer.copied": "Path copied",
   "changes.viewer.loadingFile": "Loading the diff...",
   "changes.viewer.noMatches": "No file matches",
-  "changes.viewer.noVcs": "This folder is not in a git repository, so there are no edits to show.",
+  "changes.viewer.noVcs": "Edits requires a Git or Subversion working copy.",
 
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "agent",

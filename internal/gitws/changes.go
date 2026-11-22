@@ -10,19 +10,11 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/platform"
+	"github.com/hijera/foxxycode-agent/internal/workcopy"
 )
 
-// WorkChange is one tracked file that differs between HEAD and the working
-// copy. It deliberately mirrors the shape the session change set uses, so the
-// HTTP layer can render every scope of the diff viewer through one DTO, but it
-// stays a gitws type: nothing below this package may depend on internal/session.
-type WorkChange struct {
-	Path   string // workspace-relative, OS separators
-	Status string // "added" | "modified" | "deleted"
-	Before []byte // nil when the file is new since HEAD
-	After  []byte // nil when the file is gone from the working copy
-	Binary bool   // a binary file or a gitlink, which has no text patch
-}
+// WorkChange describes a file that differs between HEAD and the working copy.
+type WorkChange = workcopy.Change
 
 // runGitRaw returns a command's stdout verbatim.
 //
@@ -74,10 +66,10 @@ const (
 	// reads. A workspace that just produced hundreds of them is not something
 	// anyone reviews file by file, so past this the scope reports how much it
 	// left out instead of reading the lot.
-	maxUntrackedFiles = 500
+	maxUntrackedFiles = workcopy.MaxNewFiles
 
 	// maxUntrackedBytes skips a single new file too large to diff usefully.
-	maxUntrackedBytes = 2 << 20
+	maxUntrackedBytes = workcopy.MaxNewBytes
 )
 
 // WorktreeChanges reports everything the working copy holds that HEAD does not:

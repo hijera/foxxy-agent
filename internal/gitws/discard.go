@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/workcopy"
 )
 
 var (
@@ -15,7 +17,7 @@ var (
 	ErrNotRepository = errors.New("not a git repository")
 	// ErrNotChanged refuses a path that is not part of the folder's change
 	// set: unchanged, ignored, outside the folder or missing.
-	ErrNotChanged = errors.New("path is not among the working copy changes")
+	ErrNotChanged = workcopy.ErrNotChanged
 	// ErrNeedsGitBinary answers an operation the built-in implementation does
 	// not have, such as opening a linked worktree.
 	ErrNeedsGitBinary = errors.New("this operation needs the git binary on PATH")

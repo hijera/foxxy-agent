@@ -2178,14 +2178,15 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/sessions/{id}/changes": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "List what git reports for the session's folder",
-					"description": "The working copy changes of the session's folder, as git reports them: every tracked file that differs from **`HEAD`** (staged or not) and every new file git does not ignore, whoever made the change - the agent, a shell command or an editor next to it. Nothing is recorded per turn. " +
+					"summary": "List working copy changes for the session's folder",
+					"description": "List changes whoever made them: the agent, a shell command or an editor next to it. Git uses **`HEAD`** (including staged changes) and SVN uses the working copy's local **`BASE`** revision. The closest checkout takes precedence, with Git winning a tie. " +
 						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
+						"SVN uses the configured client, lists file entries reported by local status, and excludes directory operations, replacements, conflicts, and externals. Both backends honor ignored paths. " +
 						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
 						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
-						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
-						"This is what the SPA's edits window and git's count on the plate over the composer read.",
+						"Unversioned files are read up to 500 of them and 2 MB each. **`skipped`** counts unversioned entries omitted by the backend's review limits. In a Git repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, **`svn`**, or empty when the list has no VCS. " +
+						"This is what the SPA's edits window and the count above the composer read.",
 					"operationId": "foxxycodeSessionChangesList",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2211,12 +2212,12 @@ func openAPISpec() map[string]interface{} {
 											"sessionId": map[string]string{"type": "string"},
 											"vcs": map[string]interface{}{
 												"type":        "string",
-												"enum":        []interface{}{"git", ""},
-												"description": "`git` when the folder is inside a repository, empty otherwise.",
+												"enum":        []interface{}{"git", "svn", ""},
+												"description": "Version control for the working copy, empty for a plain folder.",
 											},
 											"skipped": map[string]interface{}{
 												"type":        "integer",
-												"description": "New files not listed: past the cap of 500, larger than 2 MB, or not a regular file (a symbolic link, a nested repository).",
+												"description": "Unversioned entries omitted by the backend's review limits.",
 											},
 											"files": map[string]interface{}{
 												"type":  "array",
@@ -2245,7 +2246,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Read one changed file of the session's folder",
 					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
-						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file.",
+						"**`path`** is matched against the working copy change set. An unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file on Windows.",
 					"operationId": "foxxycodeSessionChangeFile",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2277,7 +2278,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/changes/open-in-ide": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Open a working-copy diff in the local editor",
-					"description": "Broadcasts an open_diff event with both text snapshots through the local IDE stream. The path must be in the session's Git changes.",
+					"description": "Broadcasts an open_diff event with both text snapshots through the local IDE stream. The path must be in the session's working copy changes.",
 					"operationId": "foxxycodeSessionChangeOpenInIDE",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -2304,9 +2305,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/changes/revert": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Discard uncommitted changes of the session's folder",
-					"description": "Puts the named files, or all of them, back at **`HEAD`** through git: a tracked file gets its content and index entry from **`HEAD`** back, a file **`HEAD`** does not hold (new, or only added to the index) is deleted, and a folder left empty by that goes with it. Files git ignores are never touched. " +
+					"description": "Restores the selected files or all reviewable files. Git restores tracked content and index entries from **`HEAD`** and cleans up empty folders left by deleted additions. SVN restores tracked files through a file-scoped revert to **`BASE`**. Both delete selected additions and leave ignored paths in place. " +
 						"The body says what it means: **`{\"paths\":[...]}`** with at least one path as **GET .../changes** lists them, or **`{\"all\":true}`**; an empty, malformed or ambiguous body (both keys, an empty or null list, an unknown key, anything after the object) is **400** and nothing is discarded. **`all`** also clears index entries that differ from **`HEAD`** where the disk does not. " +
-						"For one path, pass its **revision** to reject only the reviewed contents. A different revision or a path git does not report any more yields **409** and nothing of the request is applied. A folder in no repository is **400**. " +
+						"For one path, pass its **revision** to reject only the reviewed contents. A different revision or a path outside the current review set yields **409** and nothing of the request is applied. A folder with no supported working copy is **400**. " +
 						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the discard holds the session turn lock. " +
 						"A **`session_changes`** event is published on **`GET /foxxycode/events`** so every watcher of the session reads its working copy again.",
 					"operationId": "foxxycodeSessionChangesRevert",

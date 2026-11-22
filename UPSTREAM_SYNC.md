@@ -13,7 +13,7 @@
 The checkpoint `d81d6cca0c12716035a0539130cab8ac66fe2a27` follows `b9f75122ff13706b8716b162b88a2bfb36a6203b`. The port is in `2823fa12839a85ac46deb3e3120ad01d83135464` and `227df070b478932160436bdd6c59902f3cccb66f`. The ledger covers 15 adapted commits and one redundant integration merge.
 
 - Ported the workspace Files window, Git Edits, the revised chat views and composer, workspace preferences, conditional and range requests, signed media across Swarm, and the built-in Git backend.
-- Preserved FoxxyCode output and authentication contracts, the SVN workspace controls, and the Chromium 104 baseline. The Git counts open the Coddy Edits window by default. Appearance can enable the changed-files card below the transcript.
+- Preserved FoxxyCode output and authentication contracts, the SVN workspace controls, and the Chromium 104 baseline. Git and Subversion working copy counts open the Coddy Edits window by default. Appearance can enable the changed-files card below the transcript.
 - Connected Edits to IntelliJ and VS Code through the existing IDE event stream. Text changes can be reviewed block by block in the source editor. Accept keeps the block and clears its review marker. Reject restores that block through the editor's normal undoable edit flow. The full native comparison is available for context and for changes that cannot be reviewed in the source editor.
 - The [web UI guide](docs/surfaces/web-ui.md#chat-layout) includes captures from the running offline stand. The workspace, changes and IDE routes are documented in the [HTTP reference](docs/reference/http-api.md#workspace-files-and-edits).
 

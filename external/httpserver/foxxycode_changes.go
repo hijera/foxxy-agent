@@ -19,6 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/linediff"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/textenc"
+	"github.com/hijera/foxxycode-agent/internal/workcopy"
 )
 
 // changedFileDTO is one file of the session's working copy changes. Patch,
@@ -38,8 +39,7 @@ type changedFileDTO struct {
 	After     *string `json:"after,omitempty"`
 }
 
-// registerChangesRoutes adds the routes behind a chat's Edits view: what git
-// reports for the session's folder, one file of it, and discarding it.
+// registerChangesRoutes adds the Edits routes for Git and SVN working copies.
 func (s *Server) registerChangesRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/changes", s.foxxycodeSessionChangesList)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/changes/file", s.foxxycodeSessionChangeFile)
@@ -65,7 +65,7 @@ func decodeSide(data []byte) (text string, binary bool) {
 }
 
 // buildChangedFile renders one working copy change into its wire form.
-func buildChangedFile(change gitws.WorkChange, withPatch, withContent bool) changedFileDTO {
+func buildChangedFile(change workcopy.Change, withPatch, withContent bool) changedFileDTO {
 	before, beforeBinary := decodeSide(change.Before)
 	after, afterBinary := decodeSide(change.After)
 	binary := change.Binary || beforeBinary || afterBinary
@@ -128,9 +128,8 @@ func parseChangeIncludes(raw string) (withPatch, withContent bool) {
 //	  "totals": { "files": 1, "additions": 2, "deletions": 1 },
 //	  "skipped": 0 }
 //
-// The set is git's report of the session's folder: tracked files that differ
-// from HEAD and new files git does not ignore. `vcs` is empty when the folder
-// is not inside a repository, and the set is then empty. `skipped` counts new
+// The set comes from Git HEAD or the working copy's SVN BASE revision.
+// `vcs` is empty for a plain folder, and the set is then empty. `skipped` counts new
 // files left out (past the cap, or too large to read). `?include=patch,content`
 // adds the unified patch and the decoded file sides.
 func (s *Server) foxxycodeSessionChangesList(w http.ResponseWriter, r *http.Request) {
@@ -139,18 +138,12 @@ func (s *Server) foxxycodeSessionChangesList(w http.ResponseWriter, r *http.Requ
 	if cwd == "" {
 		return
 	}
-	vcs := ""
-	var work []gitws.WorkChange
-	skipped := 0
-	if gitws.Describe(cwd).IsGitRepo {
-		vcs = "git"
-		var err error
-		work, skipped, err = gitws.WorktreeChanges(cwd)
-		if err != nil {
-			s.log.Error("read working copy changes", "session", id, "error", err)
-			writeSubagentsError(w, http.StatusInternalServerError, "read failed")
-			return
-		}
+	wc := s.changesFor(r.Context(), cwd)
+	work, skipped, err := wc.list(r.Context())
+	if err != nil {
+		s.log.Error("read working copy changes", "session", id, "error", err)
+		writeSubagentsError(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 
 	withPatch, withContent := parseChangeIncludes(r.URL.Query().Get("include"))
@@ -166,7 +159,7 @@ func (s *Server) foxxycodeSessionChangesList(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "foxxycode.session_changes",
 		"sessionId": id,
-		"vcs":       vcs,
+		"vcs":       wc.vcs,
 		"files":     files,
 		"totals": map[string]int{
 			"files":     len(files),
@@ -179,10 +172,7 @@ func (s *Server) foxxycodeSessionChangesList(w http.ResponseWriter, r *http.Requ
 
 // foxxycodeSessionChangeFile handles GET /foxxycode/sessions/{id}/changes/file?path=...
 //
-// The path is matched against what git reports rather than resolved on disk,
-// so this route cannot be pointed at a file outside the change set. Only the
-// wanted file is read: the review window asks a file at a time, and reading
-// every changed blob per request would be a git process per file on each one.
+// The path must be in the version control report. Only the requested file is read.
 func (s *Server) foxxycodeSessionChangeFile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	path := r.URL.Query().Get("path")
@@ -194,7 +184,7 @@ func (s *Server) foxxycodeSessionChangeFile(w http.ResponseWriter, r *http.Reque
 	if cwd == "" {
 		return
 	}
-	change, err := readWorkspaceChange(cwd, path)
+	change, err := s.changesFor(r.Context(), cwd).read(r.Context(), path)
 	if err != nil {
 		s.log.Error("read working copy change", "session", id, "error", err)
 		writeSubagentsError(w, http.StatusInternalServerError, "read failed")
@@ -222,20 +212,8 @@ func (s *Server) foxxycodeSessionChangeFile(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func readWorkspaceChange(cwd, path string) (*gitws.WorkChange, error) {
-	// The exact name git listed first: on a POSIX system a backslash is a
-	// character of a file name. Then the other separator, since the list is
-	// OS-shaped and a caller may send either form of a Windows path.
-	change, err := gitws.WorktreeChangeFor(cwd, path)
-	other := filepath.FromSlash(strings.ReplaceAll(path, `\`, "/"))
-	if err == nil && change == nil && other != path {
-		return gitws.WorktreeChangeFor(cwd, other)
-	}
-	return change, err
-}
-
 // changeRevision binds a decision to the exact raw contents on both sides.
-func changeRevision(change gitws.WorkChange) string {
+func changeRevision(change workcopy.Change) string {
 	h := sha256.New()
 	for _, field := range [][]byte{[]byte(change.Path), []byte(change.Status), change.Before, change.After} {
 		var size [8]byte
@@ -270,7 +248,7 @@ func (s *Server) foxxycodeSessionChangeOpenInIDE(w http.ResponseWriter, r *http.
 	if cwd == "" {
 		return
 	}
-	change, err := readWorkspaceChange(cwd, req.Path)
+	change, err := s.changesFor(r.Context(), cwd).read(r.Context(), req.Path)
 	if err != nil {
 		s.log.Error("read native diff", "session", id, "error", err)
 		writeSubagentsError(w, http.StatusInternalServerError, "read failed")
@@ -286,7 +264,7 @@ func (s *Server) foxxycodeSessionChangeOpenInIDE(w http.ResponseWriter, r *http.
 	}
 	before, beforeBinary := decodeSide(change.Before)
 	after, afterBinary := decodeSide(change.After)
-	if beforeBinary || afterBinary {
+	if change.Binary || beforeBinary || afterBinary {
 		writeSubagentsError(w, http.StatusUnprocessableEntity, "native diff requires a text file")
 		return
 	}
@@ -301,7 +279,7 @@ func (s *Server) foxxycodeSessionChangeOpenInIDE(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// discardRequest is the body of a discard: the files to put back at HEAD, or
+// discardRequest is the body of a discard: the files to put back, or
 // all of them. It never defaults to everything - an empty body, both keys, an
 // empty list or an unknown key is refused - because the call deletes the new
 // files it covers.
@@ -315,9 +293,8 @@ type discardRequest struct {
 
 // foxxycodeSessionChangesRevert handles POST /foxxycode/sessions/{id}/changes/revert.
 //
-// It discards uncommitted changes of the session's folder through git: a
-// tracked file gets HEAD's content and index entry back, a file HEAD does not
-// hold is deleted. Files git ignores are never touched.
+// The version control backend restores selected files to HEAD or BASE and
+// deletes selected new files. Ignored files stay in place.
 func (s *Server) foxxycodeSessionChangesRevert(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	// Exactly one JSON object: whatever follows it would make a destructive
@@ -370,8 +347,9 @@ func (s *Server) foxxycodeSessionChangesRevert(w http.ResponseWriter, r *http.Re
 	}
 	defer unlock()
 
+	wc := s.changesFor(r.Context(), cwd)
 	if req.Revision != "" {
-		current, err := readWorkspaceChange(cwd, paths[0])
+		current, err := wc.read(r.Context(), paths[0])
 		if err != nil {
 			s.log.Error("read change before rejection", "session", id, "error", err)
 			writeSubagentsError(w, http.StatusInternalServerError, "read failed")
@@ -384,12 +362,12 @@ func (s *Server) foxxycodeSessionChangesRevert(w http.ResponseWriter, r *http.Re
 		paths[0] = current.Path
 	}
 
-	if err := gitws.Discard(cwd, paths); err != nil {
+	if err := wc.discard(r.Context(), paths); err != nil {
 		switch {
 		case errors.Is(err, gitws.ErrNotRepository):
-			writeSubagentsError(w, http.StatusBadRequest, "the session's folder is not a git repository")
-		case errors.Is(err, gitws.ErrNotChanged):
-			// The client asked for a file its list showed and git no longer
+			writeSubagentsError(w, http.StatusBadRequest, "the session's folder is not a Git or SVN working copy")
+		case errors.Is(err, workcopy.ErrNotChanged):
+			// The client asked for a file its list showed and version control no longer
 			// reports: committed, or put back, since it last read.
 			writeSubagentsError(w, http.StatusConflict, err.Error())
 		default:

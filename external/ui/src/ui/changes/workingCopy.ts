@@ -110,10 +110,10 @@ export function readWorkingCopy(sessionId: string): WorkingCopy {
 }
 
 /** Whether the chat's folder is a repository with uncommitted changes, the
- *  new files git reports but the server did not read included. */
+ *  new files the server could not list included. */
 export function hasEdits(wc: WorkingCopy): boolean {
   return (
-    wc.changes.vcs === "git" &&
+    !!wc.changes.vcs &&
     (wc.changes.totals.files > 0 || (wc.changes.skipped ?? 0) > 0)
   );
 }

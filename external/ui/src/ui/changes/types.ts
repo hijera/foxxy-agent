@@ -2,7 +2,7 @@
 
 export type ChangeStatus = "added" | "modified" | "deleted";
 
-/** One file of the working copy that differs from HEAD, as git reports it. */
+/** One file that differs from the working copy's Git HEAD or SVN BASE. */
 export interface ChangedFile {
   path: string;
   status: ChangeStatus;
@@ -28,8 +28,8 @@ export interface SessionChanges {
   sessionId: string;
   files: ChangedFile[];
   totals: SessionChangeTotals;
-  /** "git" when the folder is inside a repository, "" when it is in none. */
-  vcs?: string;
+  /** Version control for the changes, or "" for a plain folder. */
+  vcs?: "git" | "svn" | "";
   /** New files not listed: past the server's cap, or too large to read. */
   skipped?: number;
 }

@@ -337,9 +337,9 @@ All paths below are relative to the selected session's workspace.
 | GET | `/foxxycode/sessions/{id}/workspace/text` | A page of decoded text with line offsets. |
 | GET or HEAD | `/foxxycode/sessions/{id}/workspace/raw` | File bytes with range and conditional request support. |
 | POST | `/foxxycode/sessions/{id}/workspace/media-token` | Issues a time-limited raw URL bound to this session, workspace and file. |
-| GET | `/foxxycode/sessions/{id}/changes` | Git changes with stats and a per-file `revision`. Use `include=patch,content` to request the patch and text snapshots as well. |
+| GET | `/foxxycode/sessions/{id}/changes` | Git or SVN changes with stats and a per-file `revision`. The `vcs` field identifies the backend. Use `include=patch,content` to request the patch and text snapshots as well. |
 | GET | `/foxxycode/sessions/{id}/changes/file?path=...` | One changed file, with its revision, patch and text snapshots. |
-| POST | `/foxxycode/sessions/{id}/changes/revert` | Reverts `{"paths":[...]}` or `{"all":true}` to HEAD. With a single path, send `revision` to reject a stale decision with `409`. Active turns in the workspace also return `409`. The global event stream publishes `session_changes` after a discard. |
+| POST | `/foxxycode/sessions/{id}/changes/revert` | Reverts `{"paths":[...]}` or `{"all":true}` to Git HEAD or SVN BASE. With a single path, send `revision` to reject a stale decision with `409`. Active turns in the workspace also return `409`. The global event stream publishes `session_changes` after a discard. |
 | POST | `/foxxycode/sessions/{id}/changes/open-in-ide` | Local-only JSON request `{"path":"src/main.go"}`. Sends `open_diff` with both text snapshots on `GET /foxxycode/ide/events` and returns `204`. An editor disconnect returns `409`. Binary or oversized files return `422`. |
 
 ## Stop and queue control snapshots

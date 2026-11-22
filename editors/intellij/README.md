@@ -11,7 +11,7 @@ foxxycode SPA, so nothing is re-implemented natively.
 The `foxxycode` binary is **built from source and bundled with the plugin** — no download step. The Go
 source is the **repo root** (this plugin lives at `editors/intellij/`); there is no nested copy.
 
-In a local chat, open Edits from the Git counts above the composer and select a text file to review it in the source editor. **Settings → Appearance → Show changes** can put a card of changed files below the transcript.
+In a local chat, open Edits from the Git or Subversion counts above the composer and select a text file to review it in the source editor. **Settings → Appearance → Show changes** can put a card of changed files below the transcript.
 
 
 ## How it works

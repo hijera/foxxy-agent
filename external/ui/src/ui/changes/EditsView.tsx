@@ -377,8 +377,8 @@ export function EditsView(props: {
   };
 
   const skipped = changes.skipped ?? 0;
-  const unversioned = wc.loaded && changes.vcs !== "git";
-  // Discard all reaches the new files git reports but the server did not
+  const unversioned = wc.loaded && !changes.vcs;
+  // Discard all reaches the new files version control reports but the server did not
   // read, too.
   const discardable = changes.files.length > 0 || skipped > 0;
   const workspaceName = workspacePath ? folderName(workspacePath) : "";
