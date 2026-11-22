@@ -1062,7 +1062,7 @@ function stubSessionChanges(n: number, vcs = "git") {
 for (const [vcs, name] of [
   ["git", "the workspace change count opens Edits by default"],
   ["svn", "the SVN workspace change count opens Edits by default"],
-]) {
+] as const) {
   test(name, async () => {
     stubSessionChanges(2, vcs);
     const onOpenEdits = vi.fn();
