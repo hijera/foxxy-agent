@@ -476,6 +476,21 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running foxxycode HTTP server whose workspace is a git repository$`, s.startGitServer)
 	sc.Step(`^a running foxxycode HTTP server whose workspace is an SVN working copy$`, s.startSVNServer)
 	sc.Step(`^the repository has "([^"]+)" committed as "([^"]*)"$`, s.committed)
+	sc.Step(`^a committed binary file with a CRLF byte pair$`, func() error {
+		return s.committed("data.bin", "\x00\x01\r\n\x02")
+	})
+	sc.Step(`^the CR byte is removed from the binary file$`, func() error {
+		return s.changedOnDisk("data.bin", "\x00\x01\n\x02")
+	})
+	sc.Step(`^the binary change has no text patch$`, func() error {
+		if err := s.openDiff("data.bin"); err != nil {
+			return err
+		}
+		if !s.one.Binary || s.one.Patch != "" || s.one.Additions != 0 || s.one.Deletions != 0 {
+			return fmt.Errorf("unexpected binary diff: %+v", s.one)
+		}
+		return nil
+	})
 	sc.Step(`^SVN has "([^"]+)" committed as "([^"]*)"$`, s.svnCommitted)
 	sc.Step(`^"([^"]+)" is changed on disk to "([^"]*)"$`, s.changedOnDisk)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)

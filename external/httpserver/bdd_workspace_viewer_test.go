@@ -13,8 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cucumber/godog"
+
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 )
 
 func TestWorkspaceViewerFeature(t *testing.T) {
@@ -49,6 +52,29 @@ func TestWorkspaceViewerFeature(t *testing.T) {
 				return err
 			}
 			sc.Step(`^a file viewer server with a workspace$`, s.startServer)
+			sc.Step(`^a short legacy text file ending in non-ASCII bytes$`, func() error {
+				legacy := append([]byte(strings.Repeat("name = value\n", 20)), 0xcf, 0xf0)
+				return os.WriteFile(filepath.Join(s.workspace, "legacy.txt"), legacy, 0o644)
+			})
+			sc.Step(`^I preview the short legacy text file$`, func() error {
+				return request("GET", "text?path_rel=legacy.txt", "", nil)
+			})
+			sc.Step(`^the preview retains its final two legacy characters$`, func() error {
+				var page struct {
+					Lines   []string `json:"lines"`
+					Charset string   `json:"charset"`
+				}
+				if err := json.Unmarshal(data, &page); err != nil {
+					return err
+				}
+				text := strings.Join(page.Lines, "\n")
+				prefix := strings.Repeat("name = value\n", 20)
+				tail := strings.TrimPrefix(text, prefix)
+				if status != 200 || !strings.HasPrefix(text, prefix) || utf8.RuneCountInString(tail) != 2 || strings.ContainsRune(tail, utf8.RuneError) || page.Charset == textenc.CharsetUTF8 {
+					return fmt.Errorf("preview changed legacy text: status=%d charset=%s tail=%q", status, page.Charset, tail)
+				}
+				return nil
+			})
 			sc.Step(`^a workspace file "([^"]+)" containing "([^"]*)"$`, func(path, content string) error {
 				if err := os.MkdirAll(filepath.Dir(filepath.Join(s.workspace, path)), 0o755); err != nil {
 					return err

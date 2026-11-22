@@ -20,16 +20,27 @@ func NewReader(src io.Reader) (io.Reader, string, error) {
 		return nil, "", err
 	}
 	sample = sample[:n]
-	probe := sample
-	// A sample may end halfway through a UTF-8 rune. Keep those bytes in the
-	// input stream, but do not let the incomplete rune change its detection.
-	for cut := 0; cut < 4 && len(probe) > 0 && !utf8.Valid(probe); cut++ {
-		probe = sample[:len(sample)-cut-1]
+	// Complete a UTF-8 rune split by a full sample, reading at most three
+	// extra bytes. Keep invalid or EOF-truncated bytes in the detection input:
+	// they may be legacy text rather than a partial UTF-8 sequence.
+	if err == nil && !utf8.Valid(sample) {
+		start := len(sample) - 1
+		for start > 0 && !utf8.RuneStart(sample[start]) {
+			start--
+		}
+		if utf8.Valid(sample[:start]) {
+			for !utf8.FullRune(sample[start:]) {
+				var next [1]byte
+				if _, err := io.ReadFull(src, next[:]); err == io.EOF {
+					break
+				} else if err != nil {
+					return nil, "", err
+				}
+				sample = append(sample, next[0])
+			}
+		}
 	}
-	if !utf8.Valid(probe) {
-		probe = sample
-	}
-	_, charset, err := DecodeToUTF8(probe)
+	_, charset, err := DecodeToUTF8(sample)
 	if err != nil {
 		return nil, "", err
 	}

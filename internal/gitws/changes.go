@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/platform"
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 	"github.com/hijera/foxxycode-agent/internal/workcopy"
 )
 
@@ -165,7 +166,7 @@ func readUntracked(dir, rel string) (WorkChange, bool) {
 	return WorkChange{
 		Path:   filepath.FromSlash(rel),
 		Status: "added",
-		After:  normalizeEOL(content),
+		After:  content,
 	}, true
 }
 
@@ -320,9 +321,19 @@ func assembleChanges(dir string, records []changedRecord, head headBlobReader) (
 // rename or copy keeps its record even with unchanged content - the move
 // itself is the change.
 func isLineEndingChurn(code byte, change WorkChange) bool {
-	return code == 'M' &&
-		change.Before != nil && change.After != nil &&
-		bytes.Equal(change.Before, change.After)
+	if code != 'M' || change.Before == nil || change.After == nil || change.Binary {
+		return false
+	}
+	if bytes.Equal(change.Before, change.After) {
+		return true
+	}
+	if textenc.LooksBinary(change.Before) || textenc.LooksBinary(change.After) {
+		return false
+	}
+	before, beforeEncoding, beforeErr := textenc.Decode(change.Before)
+	after, afterEncoding, afterErr := textenc.Decode(change.After)
+	return beforeErr == nil && afterErr == nil && beforeEncoding == afterEncoding &&
+		strings.ReplaceAll(before, "\r\n", "\n") == strings.ReplaceAll(after, "\r\n", "\n")
 }
 
 // changedRecords lists what changed without reading any file content.
@@ -392,13 +403,13 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBl
 				change.Binary = true
 			}
 		} else {
-			change.Before = normalizeEOL(before)
+			change.Before = before
 		}
 	}
 	if code != 'D' {
 		after, err := readWorktreeFile(dir, filepath.FromSlash(newPath))
 		if err == nil {
-			change.After = normalizeEOL(after)
+			change.After = after
 		} else if info, statErr := os.Lstat(filepath.Join(dir, filepath.FromSlash(newPath))); statErr == nil && info.IsDir() {
 			// A submodule is a directory in the working copy but a commit id in
 			// HEAD. It has no file patch; the two ids still bind its revision.
@@ -459,26 +470,6 @@ func readWorktreeFile(dir, rel string) ([]byte, error) {
 	}
 	return root.ReadFile(rel)
 }
-
-// normalizeEOL strips CR from CRLF pairs.
-//
-// The two sides come from different places: HEAD's blob is whatever git stores
-// (LF, under the usual autocrlf setup) while the working file is what the OS
-// wrote (CRLF on Windows). git applies its line-ending filter when it diffs, so
-// it reports the one line that really changed; comparing the raw bytes does not,
-// and a one-line edit would render as a whole-file rewrite. Both sides are
-// levelled here so the diff describes content rather than platform.
-func normalizeEOL(b []byte) []byte {
-	if !bytes.Contains(b, crlf) {
-		return b
-	}
-	return bytes.ReplaceAll(b, crlf, lf)
-}
-
-var (
-	crlf = []byte("\r\n")
-	lf   = []byte("\n")
-)
 
 func statusForCode(code byte) string {
 	switch code {

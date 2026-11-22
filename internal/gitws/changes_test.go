@@ -1,12 +1,33 @@
 package gitws
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
+
+func TestWorktreeChangesPreservesBinaryBytes(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		before, after := "\x00\x01\r\n\x02", "\x00\x01\n\x02"
+		dir := commitRepo(t, map[string]string{"data.bin": before})
+		writeFile(t, dir, "data.bin", after)
+		writeFile(t, dir, "new.bin", before)
+		changes, _, err := WorktreeChanges(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := byPath(changes)
+		if len(got) != 2 || !bytes.Equal(got["data.bin"].Before, []byte(before)) || !bytes.Equal(got["data.bin"].After, []byte(after)) || !bytes.Equal(got["new.bin"].After, []byte(before)) {
+			t.Fatalf("binary snapshots changed: %+v", got)
+		}
+		detail, err := WorktreeChangeFor(dir, "data.bin")
+		if err != nil || detail == nil || !bytes.Equal(detail.Before, []byte(before)) || !bytes.Equal(detail.After, []byte(after)) {
+			t.Fatalf("binary detail = %+v, %v", detail, err)
+		}
+	})
+}
 
 // commitRepo creates a repo whose HEAD holds the given files.
 func commitRepo(t *testing.T, files map[string]string) string {
@@ -165,11 +186,9 @@ func TestUncommittedChangesOutsideARepo(t *testing.T) {
 	})
 }
 
-// A repository storing LF blobs next to a CRLF working copy (git's autocrlf, the
-// normal setup on Windows) must not read as "every line changed": git applies
-// its line-ending filter when it diffs, and reading the blob straight past that
-// filter would report a whole-file rewrite for a one-line edit.
-func TestUncommittedChangesIgnoresLineEndingOnlyDifferences(t *testing.T) {
+// Keep HEAD and working-copy bytes intact even when their line endings differ.
+// The HTTP projection normalizes decoded text when displaying the diff.
+func TestUncommittedChangesPreservesTextLineEndings(t *testing.T) {
 	eachBackend(t, func(t *testing.T) {
 		dir := commitRepo(t, map[string]string{"crlf.txt": "alpha\nbeta\ngamma\n"})
 		// Same text, Windows endings, with exactly one real edit.
@@ -183,13 +202,10 @@ func TestUncommittedChangesIgnoresLineEndingOnlyDifferences(t *testing.T) {
 			t.Fatalf("want 1 change, got %+v", changes)
 		}
 		before, after := string(changes[0].Before), string(changes[0].After)
-		if strings.Contains(before, "\r") || strings.Contains(after, "\r") {
-			t.Fatalf("sides must be normalised: before=%q after=%q", before, after)
-		}
 		if before != "alpha\nbeta\ngamma\n" {
 			t.Fatalf("before wrong: %q", before)
 		}
-		if after != "alpha\nBETA\ngamma\n" {
+		if after != "alpha\r\nBETA\r\ngamma\r\n" {
 			t.Fatalf("after wrong: %q", after)
 		}
 	})

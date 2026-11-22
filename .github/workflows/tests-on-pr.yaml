@@ -397,7 +397,7 @@ jobs:
 
       # These tests cover file handles, CRLF and Windows path expectations.
       - name: Run file and path tests
-        run: go test ./cmd/foxxycode/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/...
+        run: go test ./cmd/foxxycode/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/... ./internal/textenc/... ./internal/gitws/...
 
   # Nothing gated formatting before: `gofmt -l` is unusable on a Windows checkout
   # (core.autocrlf=true rewrites .go files to CRLF, which gofmt reports as

@@ -61,7 +61,9 @@ func decodeSide(data []byte) (text string, binary bool) {
 	if err != nil {
 		return "", true
 	}
-	return decoded, false
+	// Normalize only decoded display text. Snapshots and revisions retain the
+	// original bytes, including CRLF sequences inside binary files.
+	return strings.ReplaceAll(decoded, "\r\n", "\n"), false
 }
 
 // buildChangedFile renders one working copy change into its wire form.

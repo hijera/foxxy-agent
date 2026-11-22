@@ -55,6 +55,8 @@ The chat places the environment menu in the rail, **Background tasks** in the ch
 
 In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
 
+Text previews use the shared file-encoding detector. A short legacy-encoded file keeps its final non-ASCII characters; a UTF-8 character crossing the streaming sample boundary is read completely before detection.
+
 ![Workspace tree and file previews in tabs](../assets/workspace-files-window-dark-1280.png)
 
 *Files shows the workspace tree beside the selected preview.*
@@ -64,6 +66,8 @@ In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd
 Open **Edits** by clicking the additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. The browser or editor panel remembers this choice. Both presentations show uncommitted changes from Git or Subversion, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request. Git uses HEAD and Subversion uses the working copy's local BASE revision. The nearest checkout takes precedence, with Git used when both share a root. Subversion review uses the configured client and covers file changes reported by local status. Directory operations, files inside entirely unversioned directories, replacements, conflicts, and externals stay outside the review and bulk discard scope.
 
 In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
+
+Text diffs normalize CRLF after decoding, so Windows line endings do not turn a one-line edit into a whole-file replacement. Binary snapshots and review revisions retain the original bytes: a changed CRLF byte pair inside a binary file remains a change, without a text patch.
 
 ![Changed-files card below the transcript](../assets/session-changes-card-dark-1280.png)
 

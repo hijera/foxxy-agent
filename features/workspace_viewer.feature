@@ -22,6 +22,12 @@ Feature: Preview a session workspace through the HTTP surface
     When I read the large file from line offset 99998
     Then the next line offset is 99999 and more lines remain
 
+  Scenario: A short legacy text preview keeps its final non-ASCII characters
+    Given a file viewer server with a workspace
+    And a short legacy text file ending in non-ASCII bytes
+    When I preview the short legacy text file
+    Then the preview retains its final two legacy characters
+
   Scenario: Stream a range using a scoped URL
     Given a file viewer server with a workspace
     And a workspace file "clip.txt" containing "hello world"

@@ -13,6 +13,13 @@ Feature: Reviewing and discarding the edits of a session's working copy
     Then no files are reported as changed
     And git is named as the version control
 
+  Scenario: A CR byte removed from binary content remains a reviewable change
+    Given a committed binary file with a CRLF byte pair
+    When the CR byte is removed from the binary file
+    And I ask what the working copy changed
+    Then "data.bin" is reported as "modified"
+    And the binary change has no text patch
+
   Scenario: An edited file is reported with its line counts
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And I ask what the working copy changed

@@ -19,7 +19,20 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/workcopy"
 )
+
+func TestChangeReviewNormalizesTextWithoutNormalizingRevision(t *testing.T) {
+	change := workcopy.Change{Path: "file.txt", Status: "modified", Before: []byte("one\ntwo\n"), After: []byte("one\r\nTWO\r\n")}
+	dto := buildChangedFile(change, true, true)
+	if dto.Binary || dto.Additions != 1 || dto.Deletions != 1 || dto.After == nil || *dto.After != "one\nTWO\n" {
+		t.Fatalf("CRLF diff = %+v", dto)
+	}
+	change.After = []byte("one\nTWO\n")
+	if changeRevision(change) == dto.Revision {
+		t.Fatal("different file bytes must have different review revisions")
+	}
+}
 
 type changesEnv struct {
 	srv *Server
