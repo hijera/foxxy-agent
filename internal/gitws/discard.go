@@ -127,7 +127,10 @@ func selectDiscard(records []changedRecord, untracked []string, paths []string) 
 		}
 		if !matched {
 			for _, u := range untracked {
-				if filepath.FromSlash(u) == rel {
+				// An untracked entry may be a folder marker ("nested/" for a
+				// nested repository); match on the cleaned path but keep the
+				// raw entry, whose trailing slash deleteWorktreeFiles reads.
+				if filepath.Clean(filepath.FromSlash(u)) == rel {
 					sel.untracked = append(sel.untracked, u)
 					matched = true
 					break
