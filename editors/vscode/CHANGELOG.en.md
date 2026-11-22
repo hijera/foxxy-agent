@@ -8,13 +8,15 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-21
+## Unreleased — 2026-11-22
+
+**Workspace files and edit review.** Open files from the chat, review Git changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The Git counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
+
+## 0.3.53 — 2026-11-21
 
 **Panel restart.** Restart keeps control of the replacement process even when the previous backend exits later. The editor tab and sidebar reconnect to the new server together; closing a tab during restart does not leave the remaining panel disconnected.
 
 ## 0.3.52 — 2026-11-20
-
-**Workspace files and edit review.** Open files from the chat, review Git changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The Git counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
 
 **Guidance for DeepSeek models.**
 DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
