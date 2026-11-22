@@ -292,6 +292,9 @@ func TestSubagentUsesItsParentsSharedServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(child.CloseAll)
+	if err := child.WaitMCPReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	if got := clientNames(child); len(got) != 1 || got[0] != "shared" {
 		t.Fatalf("the child holds %v, want [shared]", got)
 	}
@@ -345,6 +348,10 @@ func TestSubagentSharesItsParentsClientServer(t *testing.T) {
 		Tools: []string{"read"}, ConnectMCP: true, ClientMCPServers: parent.SessionMCPDeclarations(),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(child.CloseAll)
+	if err := child.WaitMCPReady(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if got := clientNames(child); len(got) != 1 || got[0] != "editor" {

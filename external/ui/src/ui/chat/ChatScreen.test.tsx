@@ -1059,18 +1059,23 @@ function stubSessionChanges(n: number, vcs = "git") {
   return fetchMock;
 }
 
-test.each(["git", "svn"])("the %s workspace change count opens Edits by default", async (vcs) => {
-  stubSessionChanges(2, vcs);
-  const onOpenEdits = vi.fn();
-  const workspaceCtx = { ...repoCtx, is_git_repo: vcs === "git", is_svn_repo: vcs === "svn" };
-  render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), workspaceCtx, onOpenEdits })}</ConfirmProvider>);
-  const bar = screen.getByTestId("workspace-bar");
-  const edits = await within(bar).findByTestId("workspace-bar-edits");
-  expect(edits.textContent).toBe("+2−0");
-  expect(screen.queryByTestId("session-changes-card")).toBeNull();
-  fireEvent.click(edits);
-  expect(onOpenEdits).toHaveBeenCalledWith();
-});
+for (const [vcs, name] of [
+  ["git", "the workspace change count opens Edits by default"],
+  ["svn", "the SVN workspace change count opens Edits by default"],
+]) {
+  test(name, async () => {
+    stubSessionChanges(2, vcs);
+    const onOpenEdits = vi.fn();
+    const workspaceCtx = { ...repoCtx, is_git_repo: vcs === "git", is_svn_repo: vcs === "svn" };
+    render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), workspaceCtx, onOpenEdits })}</ConfirmProvider>);
+    const bar = screen.getByTestId("workspace-bar");
+    const edits = await within(bar).findByTestId("workspace-bar-edits");
+    expect(edits.textContent).toBe("+2−0");
+    expect(screen.queryByTestId("session-changes-card")).toBeNull();
+    fireEvent.click(edits);
+    expect(onOpenEdits).toHaveBeenCalledWith();
+  });
+}
 
 test.each(["vscode", "intellij"])("the %s chat hides the Files button", (host) => {
   document.documentElement.dataset.embed = host;

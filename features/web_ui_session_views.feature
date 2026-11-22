@@ -16,6 +16,7 @@ Feature: The views of a chat
   Scenario: The header shows the views as buttons
     Then the header shows files and background tasks as buttons in a row
     And the workspace change count opens Edits by default
+    And the SVN workspace change count opens Edits by default
     And the VS Code chat hides the Files button
     And the IntelliJ chat hides the Files button
     And a button opens its view

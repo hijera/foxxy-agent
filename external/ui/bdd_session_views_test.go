@@ -18,6 +18,7 @@ func TestWebUISessionViewsFeature(t *testing.T) {
 			"src/ui/chat/ChatHeader.test.tsx",
 			"the header shows files and background tasks as buttons in a row"},
 		{`^the workspace change count opens Edits by default$`, "src/ui/chat/ChatScreen.test.tsx", "the workspace change count opens Edits by default"},
+		{`^the SVN workspace change count opens Edits by default$`, "src/ui/chat/ChatScreen.test.tsx", "the SVN workspace change count opens Edits by default"},
 		{`^the VS Code chat hides the Files button$`, "src/ui/chat/ChatScreen.test.tsx", "the vscode chat hides the Files button"},
 		{`^the IntelliJ chat hides the Files button$`, "src/ui/chat/ChatScreen.test.tsx", "the intellij chat hides the Files button"},
 		{`^the changes card is shown when Git reports edits and Ctrl\+S toggles it$`,
