@@ -13,28 +13,33 @@ import (
 
 // globalExcludes reads the ignore patterns git applies besides a
 // repository's own .gitignore files and info/exclude: the file
-// core.excludesFile names in the user's and the system's configuration, or,
-// when none names one, git's default $XDG_CONFIG_HOME/git/ignore.
+// core.excludesFile names in the highest-priority configuration that sets
+// one - the system's, then the user's two, last one winning - or, when none
+// names one, git's default $XDG_CONFIG_HOME/git/ignore.
 //
 // go-git's status reads only the repository's own files, so without these a
 // file the user's global ignore covers - an IDE's settings, say - would be
 // listed as a new file and deleted by a discard of everything, which the git
 // binary would never do.
 func globalExcludes() []gitignore.Pattern {
-	var files []string
-	for _, cfg := range gitConfigFiles() {
+	return globalExcludesFrom(gitConfigFiles())
+}
+
+// globalExcludesFrom applies the ignore file of the last configuration file
+// that names core.excludesFile: git resolves the key like any other, one
+// value from the highest-priority level that defines it, never a union of
+// every level - the two backends must agree on what counts as untracked.
+func globalExcludesFrom(configFiles []string) []gitignore.Pattern {
+	var file string
+	for _, cfg := range configFiles {
 		if f := excludesFileOf(cfg); f != "" {
-			files = append(files, f)
+			file = f
 		}
 	}
-	if len(files) == 0 {
-		files = append(files, filepath.Join(xdgConfigHome(), "git", "ignore"))
+	if file == "" {
+		file = filepath.Join(xdgConfigHome(), "git", "ignore")
 	}
-	var patterns []gitignore.Pattern
-	for _, f := range files {
-		patterns = append(patterns, readPatterns(f)...)
-	}
-	return patterns
+	return readPatterns(file)
 }
 
 // gitConfigFiles lists the configuration files git reads core.excludesFile
@@ -59,7 +64,8 @@ func xdgConfigHome() string {
 }
 
 // excludesFileOf returns the core.excludesFile a git configuration file
-// names, with a leading ~ expanded, or "".
+// names, with `~` and `~/...` expanded to the home directory, or "". A
+// `~user/...` prefix names another user's home and is left as written.
 func excludesFileOf(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -73,9 +79,10 @@ func excludesFileOf(path string) string {
 	if value == "" {
 		return ""
 	}
-	if rest, ok := strings.CutPrefix(value, "~"); ok {
+	if rest, ok := strings.CutPrefix(value, "~"); ok &&
+		(rest == "" || rest[0] == '/' || rest[0] == '\\') {
 		if home, err := os.UserHomeDir(); err == nil {
-			value = filepath.Join(home, rest)
+			value = filepath.Join(home, filepath.FromSlash(rest))
 		}
 	}
 	return filepath.FromSlash(value)

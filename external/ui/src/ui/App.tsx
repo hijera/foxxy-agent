@@ -3706,10 +3706,15 @@ export function App() {
         turnActivity.get(key) === undefined
       )
         return;
+      // A new admission: a Stop of the previous turn no longer fences this
+      // one, neither by generation (upstream) nor by the fork's user-stopped
+      // flag - or a later stream drop of this turn is never re-attached.
       stoppedTurnBySidRef.current.delete(key);
+      userStoppedSidRef.current.delete(key);
       const pendingStop = stopPendingBySidRef.current.get(key);
       if (pendingStop) pendingStop.superseded = true;
       turnActivity.observe(key, true);
+      noteViewedTurnActive(key, true);
       void attachViewedComposer(key);
     },
     turnEnded: (sid: string) => {
@@ -8348,6 +8353,9 @@ export function App() {
                 void clearFinishedTasks();
               }}
               onOpenSession={openSessionInPlace}
+              onRefresh={() => {
+                void refreshBackgroundTasks({ silent: true });
+              }}
             />
         ) : null}
 

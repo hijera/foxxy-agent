@@ -10,7 +10,13 @@ import { expect, test } from "vitest";
  * takes it, in any theme.
  */
 
-const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+// The markers below span line breaks ("\n  .workspace-bar {"): a CRLF working
+// tree on Windows has "{\r\n" and would find none of them, so the source is
+// read with line endings normalized.
+const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8").replace(
+  /\r\n/g,
+  "\n",
+);
 
 /** The body of the last rule whose selector list ends with `selector {`. */
 function ruleBody(selector: string): string {
