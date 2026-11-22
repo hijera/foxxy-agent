@@ -585,7 +585,18 @@ func collectRunArtifacts(workspace string) ([]RunArtifact, error) {
 	var total int64
 	err := filepath.WalkDir(workspace, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// One unreadable entry (a transient lock, a vanished scratch file)
+			// must not fail an otherwise successful run: skip it and record
+			// nothing for it — a missing artifact means missing evidence,
+			// which verification handles downstream. Only an unreadable
+			// workspace root is fatal.
+			if path == workspace {
+				return walkErr
+			}
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if entry.IsDir() {
@@ -598,23 +609,22 @@ func collectRunArtifacts(workspace string) ([]RunArtifact, error) {
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return err
+			return nil
 		}
 		if !info.Mode().IsRegular() || info.Size() > maxRunArtifactBytes || total+info.Size() > maxRunArtifactsSize {
 			return nil
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return err
+			return nil
 		}
 		hash := sha256.New()
 		size, err := io.Copy(hash, io.LimitReader(file, maxRunArtifactBytes+1))
 		_ = file.Close()
-		if err != nil {
-			return err
-		}
-		if size != info.Size() {
-			return errors.New("artifact changed while collecting it")
+		if err != nil || size != info.Size() {
+			// A file that changed or stayed unreadable mid-walk is not
+			// evidence worth recording.
+			return nil
 		}
 		relative, err := filepath.Rel(workspace, path)
 		if err != nil {
@@ -665,9 +675,9 @@ func (e *runExecution) finish(err error) (Run, error) {
 	e.run.Error = redactString(err.Error(), e.secretVals)
 	e.run.FinishedAt = time.Now().UTC()
 	_ = e.emit(e.ctx, RunEvent{Type: runEventType(status), Status: status, Message: e.run.Error})
-	if e.persistErr != nil && err == nil {
-		err = e.persistErr
-	}
+	// finish is only called with err != nil, so a stored persistErr cannot
+	// shadow the run error here; the terminal SaveRun below still records the
+	// failed state, and persistResult surfaces a persist failure to the caller.
 	return *e.run, err
 }
 
@@ -737,13 +747,32 @@ func (e *runExecution) emit(ctx context.Context, event RunEvent) error {
 				_ = file.Close()
 			}
 		}
+		// A failed append stays silent on purpose: the events file is the
+		// replay source for late subscribers, not the authoritative record,
+		// and observability must not fail the run (same rule as the sinks
+		// above). Live subscribers already received the event in memory.
 	}
-	if e.runner.store != nil {
+	// The stored run only changes on status transitions and step completions;
+	// progress notifications (step.started, step.attempt) persist nothing and
+	// keep the per-event I/O off the hot path.
+	if e.runner.store != nil && eventCarriesState(event.Type) {
 		if err := e.runner.store.SaveRun(*e.run); err != nil && e.persistErr == nil {
 			e.persistErr = err
 		}
 	}
 	return nil
+}
+
+// eventCarriesState reports whether an event type can change the stored run:
+// status transitions and step completions do, progress notifications do not.
+func eventCarriesState(eventType string) bool {
+	switch eventType {
+	case "run.started", "run.resumed", "run.succeeded", "run.failed",
+		"run.cancelled", "run.waiting_for_confirmation", "run.interrupted",
+		"step.succeeded", "step.failed":
+		return true
+	}
+	return false
 }
 
 func (e *runExecution) executeSteps(steps []Step) error {

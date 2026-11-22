@@ -72,6 +72,22 @@ func TestUploadRejectsWrongInputAndChangedRevision(t *testing.T) {
 	}
 }
 
+// Windows device names and trailing dot/space spellings round-trip through
+// manifests and download headers, where Win32 re-interprets them; uploads
+// reject them outright.
+func TestUploadRejectsWindowsReservedNames(t *testing.T) {
+	store := NewStore(t.TempDir())
+	app := coreValidApp()
+	for _, name := range []string{"CON", "con.txt", "NUL", "com1", "lpt9.TXT", "report.txt.", "report.txt ", "aux"} {
+		if _, err := store.PutUpload(app, "source", name, bytes.NewBufferString("a")); err == nil {
+			t.Fatalf("reserved Windows name %q accepted", name)
+		}
+	}
+	if _, err := store.PutUpload(app, "source", "console.log", bytes.NewBufferString("a")); err != nil {
+		t.Fatalf("an ordinary name containing a reserved word was rejected: %v", err)
+	}
+}
+
 func TestUploadEnforcesContentAndSizeAndResultRejectsTampering(t *testing.T) {
 	store := NewStore(t.TempDir())
 	app := coreValidApp()

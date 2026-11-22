@@ -651,6 +651,11 @@ func writeJSONAtomic(path string, value any, mode os.FileMode) error {
 	return renameErr
 }
 
+// readJSON decodes one persisted JSON file. Unknown fields are tolerated on
+// purpose: the app documents, manifests and run records are portable across
+// releases, so a file written by a newer build must still load here instead
+// of surfacing as a raw decode error before schema_version can say anything
+// useful. Known fields keep their type checks; corruption still fails.
 func readJSON(path string, value any) error {
 	jsonPersistenceMu.RLock()
 	defer jsonPersistenceMu.RUnlock()
@@ -659,6 +664,5 @@ func readJSON(path string, value any) error {
 		return err
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
 	return decoder.Decode(value)
 }

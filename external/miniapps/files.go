@@ -69,12 +69,40 @@ func (s *Store) uploadDir(appID, id string) (string, error) {
 	return filepath.Join(dir, "uploads", id), nil
 }
 
+// windowsReservedNames are device names Win32 maps to devices regardless of
+// the extension. Uploads live behind \\?\ paths where the names are literal,
+// but they round-trip through manifests, download headers and ordinary file
+// tooling, so accepting them invites surprising re-interpretation later.
+var windowsReservedNames = func() map[string]bool {
+	names := map[string]bool{"con": true, "prn": true, "aux": true, "nul": true}
+	for index := 1; index <= 9; index++ {
+		names[fmt.Sprintf("com%d", index)] = true
+		names[fmt.Sprintf("lpt%d", index)] = true
+	}
+	return names
+}()
+
+func validUploadName(name string) bool {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00\r\n:") || len(name) > 240 {
+		return false
+	}
+	// Win32 strips trailing dots and spaces, so a stored name would not match
+	// what other tooling sees on disk.
+	if name != strings.TrimRight(name, ". ") {
+		return false
+	}
+	// The device-name reservation applies before the first extension dot:
+	// con.txt names the console just like con does.
+	base, _, _ := strings.Cut(name, ".")
+	return !windowsReservedNames[strings.ToLower(base)]
+}
+
 func (s *Store) PutUpload(app MiniApp, inputID, name string, source io.Reader) (Upload, error) {
 	input, err := fileInput(app, inputID)
 	if err != nil {
 		return Upload{}, err
 	}
-	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00\r\n:") || len(name) > 240 {
+	if !validUploadName(name) {
 		return Upload{}, fmt.Errorf("%w: invalid upload filename", ErrInvalid)
 	}
 	s.mu.Lock()

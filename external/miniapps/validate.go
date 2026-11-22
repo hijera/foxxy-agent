@@ -623,7 +623,12 @@ func validateReference(path, issuePath string, add func(string, string), context
 			add(issuePath, "references unknown input "+parts[1])
 		}
 	case "secrets":
-		if !context.secretIDs[parts[1]] {
+		// There is no secrets root at runtime: secret inputs resolve through
+		// the inputs root, so a secrets.* reference would pass validation and
+		// then fail mid-run, after trust and install side effects have run.
+		if context.secretIDs[parts[1]] {
+			add(issuePath, "secrets.* references have no runtime resolver; reference the secret input as inputs."+parts[1])
+		} else {
 			add(issuePath, "references unknown secret "+parts[1])
 		}
 	case "steps":

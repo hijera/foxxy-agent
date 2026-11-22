@@ -429,11 +429,10 @@ func GenerateRepairProposals(app MiniApp, report VerificationReport) []RepairPro
 			Reason: "update the enforced expectation to the accepted replay result",
 		}},
 	}
-	proposals := []RepairProposal{proposal}
-	if len(proposals) > MaxRepairProposals {
-		proposals = proposals[:MaxRepairProposals]
-	}
-	return proposals
+	// Exactly one proposal per verification: the expected_result repair. The
+	// store caps how many proposals a revision may accumulate over repeated
+	// runs (MaxRepairProposals).
+	return []RepairProposal{proposal}
 }
 
 // AcceptRepair records explicit operator consent. Applying an unaccepted
@@ -495,17 +494,14 @@ func applyRepairOperation(app *MiniApp, operation RepairOperation) error {
 	if path != "/success/expected_result" {
 		return fmt.Errorf("repair path %q is not allowed", path)
 	}
-	switch path {
-	case "/success/expected_result":
-		if text, ok := operation.Value.(string); ok {
-			app.Success.ExpectedResult = text
-		} else {
-			raw, err := json.Marshal(operation.Value)
-			if err != nil {
-				return fmt.Errorf("expected result repair value: %w", err)
-			}
-			app.Success.ExpectedResult = string(raw)
+	if text, ok := operation.Value.(string); ok {
+		app.Success.ExpectedResult = text
+	} else {
+		raw, err := json.Marshal(operation.Value)
+		if err != nil {
+			return fmt.Errorf("expected result repair value: %w", err)
 		}
+		app.Success.ExpectedResult = string(raw)
 	}
 	return nil
 }

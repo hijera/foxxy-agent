@@ -25,6 +25,30 @@ func TestValidateMinimalWorkflowAndReferences(t *testing.T) {
 	}
 }
 
+// A secrets.* reference would pass shape checks and then fail mid-run: the
+// runtime resolves secret inputs through the inputs root, so validation must
+// reject the root outright and name the working spelling.
+func TestValidateRejectsUnresolvableSecretsReference(t *testing.T) {
+	app := coreValidApp()
+	app.Inputs = append(app.Inputs, Input{ID: "token", Type: "secret"})
+	app.Workflow[0].Arguments = map[string]any{
+		"path": Ref{Ref: "secrets.token"},
+	}
+	report := Validate(app)
+	if report.Valid || !hasIssueText(report, "reference the secret input as inputs.token") {
+		t.Fatalf("secrets.* reference accepted: %+v", report.Issues)
+	}
+
+	unknown := coreValidApp()
+	unknown.Workflow[0].Arguments = map[string]any{
+		"path": Ref{Ref: "secrets.nope"},
+	}
+	report = Validate(unknown)
+	if report.Valid || !hasIssueText(report, "unknown secret") {
+		t.Fatalf("unknown secret reference accepted: %+v", report.Issues)
+	}
+}
+
 func TestValidateRejectsDeferredAndMalformedStepKinds(t *testing.T) {
 	deferred := coreValidApp()
 	deferred.Workflow[0].Kind = "script"

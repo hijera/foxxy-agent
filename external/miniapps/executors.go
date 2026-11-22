@@ -39,9 +39,12 @@ func (source ConfigSource) resolve() *config.Config {
 }
 
 // BuiltinToolExecutor adapts the registered FoxxyCode tools to deterministic
-// Mini App steps. The allowlist is always enforced, including when a caller
-// accidentally constructs it with a nil slice. Permission-bearing tools are
-// rejected because a background Mini App run has no interactive ACP approval.
+// Mini App steps. Permission-bearing tools are rejected because a background
+// Mini App run has no interactive ACP approval. The restricted constructors
+// enforce an explicit allowlist even when a caller accidentally passes a nil
+// slice; the live variant carries no separate allowlist on purpose — the live
+// registry, the interactive-permission refusal and the app's reviewed
+// Permissions.Tools are its gates.
 type BuiltinToolExecutor struct {
 	// registry pins one prebuilt registry; it stays nil for the live variant,
 	// which rebuilds from source on every call.
@@ -410,7 +413,7 @@ func canonicalPathForContainment(path string) (string, error) {
 func isFilesystemPathKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	switch key {
-	case "path", "paths", "file", "files", "directory", "dir", "destination", "target", "cwd", "working_directory", "src", "dst", "source":
+	case "path", "paths", "file", "files", "filename", "filepath", "pathname", "directory", "dir", "destination", "target", "cwd", "working_directory", "src", "dst", "source":
 		return true
 	}
 	// Command-profile file params are named *_path/_file/_dir by construction,
