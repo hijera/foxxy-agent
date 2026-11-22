@@ -1,6 +1,7 @@
 package gitws
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -308,6 +309,8 @@ func builtinClone(url, ref, dest string) error {
 		}
 	}
 	installFileTransport()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
 	opts := git.CloneOptions{URL: url, Depth: 1}
 	// The in-process file transport does not speak the shallow capability, so
 	// a local path or file:// URL is cloned in full.
@@ -315,7 +318,7 @@ func builtinClone(url, ref, dest string) error {
 		opts.Depth = 0
 	}
 	if ref == "" {
-		_, err := git.PlainClone(dest, false, &opts)
+		_, err := git.PlainCloneContext(ctx, dest, false, &opts)
 		if err != nil {
 			cleanup()
 			return err
@@ -330,7 +333,7 @@ func builtinClone(url, ref, dest string) error {
 		attempt := opts
 		attempt.ReferenceName = name
 		attempt.SingleBranch = true
-		if _, err := git.PlainClone(dest, false, &attempt); err != nil {
+		if _, err := git.PlainCloneContext(ctx, dest, false, &attempt); err != nil {
 			// A failed clone leaves a partial directory behind; the next
 			// attempt needs it gone, and so does the caller on a failure.
 			cleanup()
@@ -353,7 +356,9 @@ func builtinPull(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := wt.Pull(&git.PullOptions{RemoteName: "origin"}); err != nil &&
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	if err := wt.PullContext(ctx, &git.PullOptions{RemoteName: "origin"}); err != nil &&
 		!errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return err
 	}

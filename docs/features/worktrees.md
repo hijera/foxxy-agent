@@ -53,7 +53,7 @@ can move its own session during a turn.
 `GET /foxxycode/workspace/context` reports `repo_root` (the main checkout) and
 `base_branch` (from `origin/HEAD`) alongside the current `path` and `branch`.
 Session list rows carry `repoRoot` for grouping. See the
-[Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn-chips)
+[Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn)
 and [HTTP API](../reference/http-api.md) for those surfaces.
 
 If a managed worktree is later removed with `git worktree remove`, a saved

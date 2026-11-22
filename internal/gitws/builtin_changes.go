@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -152,12 +154,16 @@ func (bw *builtinWorkspace) changeSet() (records []changedRecord, untracked []st
 		// go-git's status codes do not line up with name-status codes, so the
 		// kind is decided against HEAD's tree and the disk instead. Without a
 		// commit yet, nothing is in HEAD and everything is an addition.
-		inHead := false
+		var headEntry *object.TreeEntry
 		if bw.head != nil {
-			_, err := bw.head.File(path)
-			inHead = err == nil
+			headEntry, _ = bw.head.FindEntry(path)
 		}
+		inHead := headEntry != nil
 		onDisk := bw.onDiskFile(path)
+		if headEntry != nil && headEntry.Mode == filemode.Submodule {
+			info, err := os.Lstat(filepath.Join(bw.root, filepath.FromSlash(path)))
+			onDisk = err == nil && info.IsDir()
+		}
 		var code byte
 		switch {
 		case inHead && onDisk:
@@ -193,6 +199,36 @@ func (bw *builtinWorkspace) headBlob(rel string) ([]byte, error) {
 	}
 	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
+}
+
+func builtinHeadGitlink(dir, rel string) ([]byte, error) {
+	bw, err := openBuiltinWorkspace(dir)
+	if err != nil {
+		return nil, err
+	}
+	if bw.head == nil {
+		return nil, fmt.Errorf("HEAD has no tree")
+	}
+	entry, err := bw.head.FindEntry(bw.prefix + filepath.ToSlash(rel))
+	if err != nil {
+		return nil, err
+	}
+	if entry.Mode != filemode.Submodule {
+		return nil, fmt.Errorf("%s is not a submodule", rel)
+	}
+	return []byte(entry.Hash.String()), nil
+}
+
+func builtinCheckoutGitlink(dir, rel, target string) error {
+	repo, err := openRepo(filepath.Join(dir, filepath.FromSlash(rel)))
+	if err != nil {
+		return err
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+	return wt.Checkout(&git.CheckoutOptions{Hash: plumbing.NewHash(target)})
 }
 
 // builtinUncommittedChanges is UncommittedChanges without the git binary.

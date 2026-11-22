@@ -57,7 +57,35 @@ func Discard(dir string, paths []string) error {
 	} else if err := builtinDiscard(dir, restore, drop); err != nil {
 		return err
 	}
+	if err := restoreGitlinks(dir, restore); err != nil {
+		return err
+	}
 	return deleteWorktreeFiles(dir, append(drop, sel.untracked...))
+}
+
+func restoreGitlinks(dir string, rels []string) error {
+	for _, rel := range rels {
+		info, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		target, err := headGitlink(dir, rel)
+		if err != nil {
+			continue
+		}
+		current, err := worktreeGitlink(dir, rel)
+		if err != nil || string(target) == string(current) {
+			continue
+		}
+		if GitAvailable() {
+			if _, err := runGit(dir, "-C", filepath.FromSlash(rel), "checkout", "-q", "--detach", string(target)); err != nil {
+				return err
+			}
+		} else if err := builtinCheckoutGitlink(dir, rel, string(target)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // discardChangeSet is the change set a discard can pick from: the tracked

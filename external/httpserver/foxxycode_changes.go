@@ -68,7 +68,7 @@ func decodeSide(data []byte) (text string, binary bool) {
 func buildChangedFile(change gitws.WorkChange, withPatch, withContent bool) changedFileDTO {
 	before, beforeBinary := decodeSide(change.Before)
 	after, afterBinary := decodeSide(change.After)
-	binary := beforeBinary || afterBinary
+	binary := change.Binary || beforeBinary || afterBinary
 
 	dto := changedFileDTO{Path: filepath.ToSlash(change.Path), Status: change.Status, Binary: binary, Revision: changeRevision(change)}
 	if !binary {

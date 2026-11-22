@@ -21,6 +21,7 @@ type WorkChange struct {
 	Status string // "added" | "modified" | "deleted"
 	Before []byte // nil when the file is new since HEAD
 	After  []byte // nil when the file is gone from the working copy
+	Binary bool   // a binary file or a gitlink, which has no text patch
 }
 
 // runGitRaw returns a command's stdout verbatim.
@@ -389,9 +390,15 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBl
 	if code != 'A' && code != 'C' {
 		before, err := head(oldPath)
 		if err != nil {
-			// The blob is unreadable (a submodule entry, say). Treat the file as
-			// new rather than failing the whole scope.
-			change.Status = "added"
+			before, err = headGitlink(dir, oldPath)
+			if err != nil {
+				// The blob is unreadable. Treat the file as new rather than failing
+				// the whole scope.
+				change.Status = "added"
+			} else {
+				change.Before = before
+				change.Binary = true
+			}
 		} else {
 			change.Before = normalizeEOL(before)
 		}
@@ -400,6 +407,14 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBl
 		after, err := readWorktreeFile(dir, filepath.FromSlash(newPath))
 		if err == nil {
 			change.After = normalizeEOL(after)
+		} else if info, statErr := os.Lstat(filepath.Join(dir, filepath.FromSlash(newPath))); statErr == nil && info.IsDir() {
+			// A submodule is a directory in the working copy but a commit id in
+			// HEAD. It has no file patch; the two ids still bind its revision.
+			change.Binary = true
+			after, err = worktreeGitlink(dir, newPath)
+			if err == nil {
+				change.After = after
+			}
 		} else if !os.IsNotExist(err) {
 			return change, err
 		} else {
@@ -408,6 +423,30 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBl
 		}
 	}
 	return change, nil
+}
+
+func headGitlink(dir, rel string) ([]byte, error) {
+	if !GitAvailable() {
+		return builtinHeadGitlink(dir, rel)
+	}
+	rev, err := runGit(dir, "rev-parse", "HEAD:./"+rel)
+	return []byte(rev), err
+}
+
+func worktreeGitlink(dir, rel string) ([]byte, error) {
+	if GitAvailable() {
+		rev, err := runGit(dir, "-C", filepath.FromSlash(rel), "rev-parse", "--verify", "HEAD")
+		return []byte(rev), err
+	}
+	repo, err := openRepo(filepath.Join(dir, filepath.FromSlash(rel)))
+	if err != nil {
+		return nil, err
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return nil, err
+	}
+	return []byte(head.Hash().String()), nil
 }
 
 // A tracked symlink is its link text, like git's blob, rather than the content

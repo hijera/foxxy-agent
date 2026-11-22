@@ -378,3 +378,48 @@ func TestWorktreeChangeForRefusesFilesGitDoesNotList(t *testing.T) {
 		}
 	})
 }
+
+func TestUncommittedChangesReportsChangedSubmodule(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := commitRepo(t, map[string]string{"a.txt": "a\n"})
+		nested := filepath.Join(dir, "nested")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(t, nested, "init", "-b", "main")
+		writeFile(t, nested, "inner.txt", "one\n")
+		mustGit(t, nested, "add", "inner.txt")
+		mustGit(t, nested, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "one")
+		before := mustGit(t, nested, "rev-parse", "HEAD")
+		mustGit(t, dir, "add", "nested")
+		mustGit(t, dir, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "add nested")
+
+		writeFile(t, nested, "inner.txt", "two\n")
+		mustGit(t, nested, "add", "inner.txt")
+		mustGit(t, nested, "-c", "user.email=foxxycode@test", "-c", "user.name=foxxycode", "commit", "-m", "two")
+		after := mustGit(t, nested, "rev-parse", "HEAD")
+
+		changes, _, err := UncommittedChanges(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(changes) != 1 {
+			t.Fatalf("want one submodule change, got %+v", changes)
+		}
+		change := changes[0]
+		if change.Path != "nested" || change.Status != "modified" || !change.Binary ||
+			string(change.Before) != before || string(change.After) != after {
+			t.Fatalf("submodule change = %+v, before %q after %q", change, before, after)
+		}
+		detail, err := WorktreeChangeFor(dir, "nested")
+		if err != nil || detail == nil || string(detail.After) != after {
+			t.Fatalf("submodule detail = %+v, %v", detail, err)
+		}
+		if err := Discard(dir, []string{"nested"}); err != nil {
+			t.Fatalf("discard submodule: %v", err)
+		}
+		if got := mustGit(t, nested, "rev-parse", "HEAD"); got != before {
+			t.Fatalf("submodule HEAD after discard = %q, want %q", got, before)
+		}
+	})
+}
