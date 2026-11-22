@@ -71,5 +71,26 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
     companion object {
         fun getInstance(): FoxxyCodeSettings =
             ApplicationManager.getApplication().getService(FoxxyCodeSettings::class.java)
+
+        /**
+         * The `?handles=` value of the plugin's IDE event stream: every tool the
+         * switches currently let the plugin execute, in the order the feature docs
+         * list them. Empty when execution is off entirely, so the subscription
+         * declares no tools and the agent offers nothing. The executor re-checks
+         * the switches per call, so a mid-session toggle costs a round trip at
+         * most until the stream reconnects.
+         */
+        fun delegatedHandles(state: State): String {
+            if (!state.ideToolExecution) return ""
+            val on = mutableListOf("write", "edit", "apply_patch")
+            if (state.ideExecTerminal) on.add("run_command")
+            if (state.ideExecRead) on.add("read")
+            if (state.ideExecPlanWrite) on.add("plan_write")
+            if (state.ideExecMkdir) on.add("mkdir")
+            if (state.ideExecRm) on.add("rm")
+            if (state.ideExecMv) on.add("mv")
+            if (state.ideExecTouch) on.add("touch")
+            return on.joinToString(",")
+        }
     }
 }

@@ -19,7 +19,10 @@ import java.awt.Container
  * Completion and output are read from the terminal screen: a `FOXXYCODE_DONE` marker is
  * queued after the command (plus a `FOXXYCODE_EXIT_$?` line that reports the exit code
  * in a shell family-dependent way). The visible screen is what the terminal holds, so
- * very long output is captured as its tail.
+ * very long output is captured as its tail. The run is complete only when the marker
+ * shows up as its own output line ([TerminalCommandOutput.completed]); the echoed
+ * `echo FOXXYCODE_DONE` command line also contains the marker text, and the terminal
+ * prints it while the command may still be running.
  */
 object FoxxyCodeTerminalCommandRunner {
     private val log = logger<FoxxyCodeTerminalCommandRunner>()
@@ -54,7 +57,7 @@ object FoxxyCodeTerminalCommandRunner {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val screen = readScreen(widget)
-            if (screen.contains(DONE_MARKER)) {
+            if (TerminalCommandOutput.completed(screen)) {
                 return Result(handled = true, output = TerminalCommandOutput.extract(screen, command))
             }
             Thread.sleep(POLL_MS)
@@ -96,6 +99,18 @@ object FoxxyCodeTerminalCommandRunner {
 
 /** Pure screen-scraping of a delegated terminal run; unit-tested without the platform. */
 object TerminalCommandOutput {
+
+    /**
+     * Reports the run complete only when `FOXXYCODE_DONE` appears as its own output
+     * line - a line that is exactly the marker once trimmed. The echoed command line
+     * (prompt + `echo FOXXYCODE_DONE`) also contains the marker text, and the terminal
+     * prints it while the command may still be running, so a substring search would
+     * report a slow command finished with empty output.
+     */
+    fun completed(screen: String): Boolean {
+        return screen.replace("\r\n", "\n").split('\n').any { it.trim() == "FOXXYCODE_DONE" }
+    }
+
     /**
      * Picks the command's own output out of the terminal screen: the text between the
      * echoed command line and the `FOXXYCODE_DONE` marker. The exit code line is

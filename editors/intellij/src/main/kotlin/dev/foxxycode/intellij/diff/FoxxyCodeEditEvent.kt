@@ -17,7 +17,9 @@ data class FoxxyCodeEditEvent(
     val tool: String = "",
     val args: String = "",
     val nonce: String = "",
-    // Coddy ToolExecute carries the session cwd instead of a backend-computed preview.
+    // The session workspace the call runs in: a Coddy ToolExecute payload carries
+    // it, and so does a native `tool_execute` event (the backend puts the
+    // session's cwd there). Relative paths resolve against it.
     val hook: Boolean = false,
     val cwd: String = "",
 ) {

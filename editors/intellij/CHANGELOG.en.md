@@ -9,6 +9,21 @@
 
 ## Unreleased — 2026-11-16
 
+**File edits go through the editor.**
+The agent no longer writes files behind the IDE: `write`/`edit`/`apply_patch` run through the editor's document model, so edits land in open (including unsaved) buffers, the undo stack and the native diff. A new setting, "Apply file edits through the editor", is on by default in Settings | Tools | FoxxyCode; turned off, everything works as before with the agent writing the file. When the editor holds unsaved changes or the buffer diverged from the file, the agent gets a conflict, re-reads the file and overwrites nothing.
+
+**Agent commands run in the IDE terminal.**
+A `run_command` call executes in an IntelliJ terminal tab - the command is visible in the Terminal tool window, and its output (plus the exit code where the shell expands it) returns to the agent as the tool result. Background commands and commands with a large timeout still run in the agent itself. Controlled by the same "Apply file edits through the editor" setting.
+
+**More tools run through the IDE.**
+`read` answers from the editor buffer (it sees unsaved changes), `plan_write` applies through the editor, and `mkdir`, `rm`, `mv` and `touch` run as IDE filesystem operations: the project tree updates at once and Local History is the undo. Each tool has its own checkbox in Settings | Tools | FoxxyCode.
+
+**IDE context before a send.**
+Right before a message goes out the plugin pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message.
+
+**Hooks for notifications.**
+New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
+
 **Coddy as the alternative binary.** The binary path can point to Coddy 1.4.16 or newer. The plugin connects tool execution through the editor and open-buffer context through the synchronous `ToolExecute` and `FirstPrompt` hooks without replacing the user's Coddy hooks.
 
 **External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
@@ -72,27 +87,6 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 **Workspaces and independent review.** MCP Settings follows the selected chat's workspace, connections start in the background when the chat opens, and sessions from removed worktrees recover to the main checkout. Folder and branch search, subagent cards and Tasks are improved. Crossreview 2.0 supports independent reviewers and trusted project rosters. Provider proxy authentication, Anthropic history and permission-resumed tool-call pairing are fixed.
 
 ## 0.3.39 — 2026-10-30
-
-**Hooks for notifications.**
-New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
-
-**IDE context before a send.**
-Right before a message goes out the plugin pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message.
-
-**More tools run through the IDE.**
-`read` answers from the editor buffer (it sees unsaved changes), `plan_write` applies through the editor, and `mkdir`, `rm`, `mv` and `touch` run as IDE filesystem operations: the project tree updates at once and Local History is the undo. Each tool has its own checkbox in Settings | Tools | FoxxyCode.
-
-**Agent commands now run in the IDE terminal.**
-A `run_command` call executes in an IntelliJ terminal tab - the command is visible in the Terminal tool window, and its output (plus the exit code where the shell expands it) returns to the agent as the tool result. Background commands and commands with a large timeout still run in the agent itself. Controlled by the same "Apply file edits through the editor" setting.
-
-**File edits now go through the editor.**
-The agent no longer writes files behind the IDE: `write`/`edit`/`apply_patch`
-run through the editor's document model, so edits land in open (including
-unsaved) buffers, the undo stack and the native diff. A new setting, "Apply
-file edits through the editor", is on by default in Settings | Tools |
-FoxxyCode; turned off, everything works as before with the agent writing the
-file. When the editor holds unsaved changes or the buffer diverged from the
-file, the agent gets a conflict, re-reads the file and overwrites nothing.
 
 - Centered the empty-chat title and composer; project links and the server version keep their own space below the input, including short editor panels.
 

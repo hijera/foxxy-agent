@@ -218,14 +218,18 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
             // JS→Kotlin channel for the pre-send context snapshot: the SPA calls
             // window.foxxycodeBeforeSend() before posting a message, the plugin
             // pushes an editor-state snapshot with buffer contents and answers.
-            val before = JBCefJSQuery.create(it as JBCefBrowserBase)
-            before.addHandler { _ ->
-                dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService.getInstance(project).pushWithBuffers()
-                notifyBeforeSendDone()
-                null
+            // Only a backend with the editor-state route can answer the push, so
+            // a Coddy panel installs no bridge and the SPA never waits.
+            if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                val before = JBCefJSQuery.create(it as JBCefBrowserBase)
+                before.addHandler { _ ->
+                    dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService.getInstance(project).pushWithBuffers()
+                    notifyBeforeSendDone()
+                    null
+                }
+                Disposer.register(it, before)
+                beforeSendQuery = before
             }
-            Disposer.register(it, before)
-            beforeSendQuery = before
             installBrowserDragHandler(it)
             // CEF drops every download nobody claims, which is why a plain
             // `<a download>` in the panel used to do nothing at all. Claiming it
@@ -263,7 +267,9 @@ class FoxxyCodeBrowserPanel(private val project: Project, toolWindow: ToolWindow
                         injectBootstrap()
                         injectLocaleBridge()
                         injectDropBridge()
-                        injectBeforeSendBridge()
+                        if (FoxxyCodeProcessManager.getInstance(project).backendKind.hasNativeIdeApi) {
+                            injectBeforeSendBridge()
+                        }
                         syncTheme()
                         syncLocale()
                         browserReady = true

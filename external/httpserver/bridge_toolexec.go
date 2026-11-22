@@ -26,6 +26,17 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 	if !ideEvents.HandlesTool(name) {
 		return notHandled, nil
 	}
+	// A session that switched to another workspace (a worktree) must not have a
+	// client attached to this checkout execute its calls: the paths would land in
+	// the wrong tree. The session's cwd travels with the request for exactly this
+	// comparison and for the client's own relative-path resolution.
+	s.mu.Lock()
+	cwd := s.cwd
+	sd := s.sessionDir
+	s.mu.Unlock()
+	if reqCwd := strings.TrimSpace(req.Cwd); reqCwd != "" && reqCwd != cwd {
+		return notHandled, nil
+	}
 	nonce, err := newIDENonce()
 	if err != nil {
 		return notHandled, err
@@ -42,14 +53,11 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 		ToolName:   name,
 		ArgsJSON:   req.ArgsJSON,
 		Nonce:      nonce,
+		Cwd:        cwd,
 	}
 	// Filesystem write tools carry the resolved diff, so the client applies
 	// exactly what the local write would have produced (and can refuse on a
 	// buffer that no longer matches `before`).
-	s.mu.Lock()
-	cwd := s.cwd
-	sd := s.sessionDir
-	s.mu.Unlock()
 	if absPath, before, after, ok, perr := toolfs.EditPreview(name, req.ArgsJSON, cwd, sd); ok && perr == nil {
 		ev.Path = absPath
 		ev.Before = string(before)

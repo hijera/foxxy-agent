@@ -10,6 +10,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VirtualFile
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
@@ -84,9 +85,15 @@ object ToolExecPlan {
 
 /** Pure line slicing of a delegated read, matching the agent's read tool. */
 object ReadSlice {
-    /** Mirrors the agent's sliceLines: 1-based offset, limit lines, trailing newline kept. */
+
+    /**
+     * Mirrors the agent's sliceLines: 1-based offset, limit lines, trailing newline
+     * kept. An offset past the end of the file throws the same message the agent's
+     * own reader reports, so the model learns the file is shorter than it assumed
+     * instead of reading an empty result as an empty file.
+     */
     fun apply(content: String, offset: Int, limit: Int): String {
-        if (content.isEmpty()) return ""
+        if (content.isEmpty()) throw IllegalArgumentException("offset ${maxOf(offset, 1)} is beyond end of file (0 lines)")
         val lines = content.split("\n").toMutableList()
         var hasTrailingNewline = false
         if (lines.last() == "") {
@@ -94,7 +101,9 @@ object ReadSlice {
             hasTrailingNewline = true
         }
         val start = if (offset < 1) 1 else offset
-        if (start > lines.size) return ""
+        if (start > lines.size) {
+            throw IllegalArgumentException("offset $start is beyond end of file (${lines.size} lines)")
+        }
         var end = if (limit > 0) start + limit - 1 else lines.size
         if (end < 1 || end > lines.size) end = lines.size
         val result = lines.subList(start - 1, end).joinToString("\n")
@@ -132,6 +141,19 @@ class FoxxyCodeToolExecutor(private val project: Project) {
 
     private val hookResponders = ConcurrentHashMap<String, (Outcome) -> Unit>()
     private val expiredHookCalls = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * The agent decodes workspace files through its own textenc (UTF-8 and legacy
+     * charmaps); the IDE document decodes with the file's charset. When that charset
+     * is not UTF-8 the two views of the same bytes diverge: the buffer would never
+     * match `before`, and a save could rewrite the file in the wrong encoding. Such
+     * a file stays with the agent's own tools, which decode and re-encode correctly.
+     */
+    private fun isUtf8Backed(vf: VirtualFile): Boolean =
+        vf.charset.name().equals("UTF-8", ignoreCase = true)
+
+    /** Thrown by [prepareHookPreview]; the call runs locally instead of failing. */
+    private class EncodingNotSupported : IllegalStateException("file is not UTF-8; the agent edits it locally")
 
     /** Executes one Coddy ToolExecute payload and returns the hook's JSON answer. */
     fun executeHook(payload: JsonObject): JsonObject {
@@ -189,6 +211,8 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             }
             try {
                 run(ev)
+            } catch (e: EncodingNotSupported) {
+                respond(ev, notHandled())
             } catch (e: Throwable) {
                 // Throwable, not Exception: an AssertionError from the platform
                 // (DocumentImpl rejects mixed line separators) must still answer
@@ -271,6 +295,11 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             }
             return
         }
+        if (!isUtf8Backed(vf)) {
+            log.debug("tool_execute declined $path: charset ${vf.charset.name()} is not UTF-8")
+            respond(ev, notHandled())
+            return
+        }
         val doc = FileDocumentManager.getInstance().getDocument(vf)
         if (doc == null) {
             log.warn("tool_execute: no document for $path (vf=${vf.path}, valid=${vf.isValid}, fileType=${vf.fileType.name})")
@@ -298,6 +327,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         val path = resolveInProject(rawPath, ev.cwd)
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
         if (vf != null && vf.isDirectory) throw IllegalArgumentException("${ev.tool}: $path is a directory")
+        if (vf != null && !isUtf8Backed(vf)) throw EncodingNotSupported()
         val document = vf?.let { FileDocumentManager.getInstance().getDocument(it) }
         if (vf != null && document == null) throw IllegalArgumentException("no text document for $path")
         val before = document?.immutableCharSequence?.toString().orEmpty()
@@ -354,21 +384,32 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             return
         }
         // The event carries no file preview for read, so the path is the tool's
-        // own - relative ones resolve against the session workspace, which the
-        // backend was started with as its cwd.
+        // own - relative ones resolve against the session cwd the event brings.
         val vf = try {
             LocalFileSystem.getInstance().refreshAndFindFileByNioFile(resolveInProject(path, ev.cwd))
         } catch (e: Exception) {
             null
         }
-        val doc = vf?.takeIf { it.isValid && !it.isDirectory }?.let { FileDocumentManager.getInstance().getDocument(it) }
-        if (doc == null) {
+        val docVf = vf?.takeIf { it.isValid && !it.isDirectory }
+        val doc = docVf?.let { FileDocumentManager.getInstance().getDocument(it) }
+        if (docVf == null || doc == null) {
+            respond(ev, notHandled())
+            return
+        }
+        if (!isUtf8Backed(docVf)) {
             respond(ev, notHandled())
             return
         }
         val offset = args.get("offset")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0
         val limit = args.get("limit")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0
-        respond(ev, handled(ReadSlice.apply(doc.immutableCharSequence.toString(), offset, limit)))
+        val body = try {
+            ReadSlice.apply(doc.immutableCharSequence.toString(), offset, limit)
+        } catch (e: IllegalArgumentException) {
+            // Same message the agent's own reader reports for a past-EOF offset.
+            respond(ev, failed(e.message ?: "read failed"))
+            return
+        }
+        respond(ev, handled(body))
     }
 
     /**
@@ -525,7 +566,10 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             outcome.output?.let { addProperty("output", it) }
             outcome.error?.let { addProperty("error", it) }
         }.toString()
-        // Fire-and-forget on a background thread; the response is a 204.
+        // Fire-and-forget on a background thread; the response is a 204 when the
+        // call resolved. A non-2xx means the answer never reached the agent (a
+        // stale nonce, the server stopped waiting) - the applied change is then
+        // lost on it, so the condition is worth a log line and a drained body.
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val conn = URI.create(url).toURL().openConnection() as HttpURLConnection
@@ -535,7 +579,15 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
                 OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(body) }
-                conn.responseCode // trigger the request
+                val code = conn.responseCode
+                if (code < 200 || code > 299) {
+                    val detail = try {
+                        conn.errorStream?.bufferedReader()?.readText()?.take(200)
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    log.warn("tool-result POST answered HTTP $code for call ${ev.toolCallId}: $detail")
+                }
                 conn.disconnect()
             } catch (e: Exception) {
                 log.warn("tool-result POST failed: ${e.message}")

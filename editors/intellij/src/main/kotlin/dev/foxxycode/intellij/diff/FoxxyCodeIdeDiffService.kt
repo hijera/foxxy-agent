@@ -61,7 +61,9 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
         if (client != null && clientBase == base) return
         stop()
-        val c = FoxxyCodeIdeEventClient(base) { ev -> onEvent(ev) }
+        // Declare exactly what the switches allow, so the agent never offers a
+        // call this client would answer not_handled after a round trip.
+        val c = FoxxyCodeIdeEventClient(base, FoxxyCodeSettings.delegatedHandles(FoxxyCodeSettings.getInstance().state)) { ev -> onEvent(ev) }
         client = c
         clientBase = base
         c.start()

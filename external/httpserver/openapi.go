@@ -2506,7 +2506,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Stream structured file-edit events for native editor clients",
-					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**. Also emits **`event: open_file`** (only **`path`** and **`sessionId`** set) when the user picks **Show in IDE** on a plan card via **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`**; that one is user-initiated and points outside the project, so clients must open it without their in-project / native-diff filters. **`event: tool_execute`** asks the client to execute a tool call itself — the plugin running **`write`**/**`edit`**/**`apply_patch`** through the editor's document model, for example — and answer on **`POST /foxxycode/ide/tool-result`**; it goes only to subscribers that declared the tool via **`?handles=`** and carries **`tool`** and **`args`** (the raw tool call), a **`nonce`** the result must echo, and the resolved **`path`**/**`before`**/**`after`** diff for filesystem write tools. A client ignores events for tools it did not declare.",
+					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**. Also emits **`event: open_file`** (only **`path`** and **`sessionId`** set) when the user picks **Show in IDE** on a plan card via **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`**; that one is user-initiated and points outside the project, so clients must open it without their in-project / native-diff filters. **`event: tool_execute`** asks the client to execute a tool call itself — the plugin running **`write`**/**`edit`**/**`apply_patch`** through the editor's document model, for example — and answer on **`POST /foxxycode/ide/tool-result`**; the agent offers the call only while some connected subscriber declared the tool via **`?handles=`**, but the event is broadcast to every connected client, so one that did not declare the tool answers **`not_handled`** and the call runs locally. It carries **`tool`** and **`args`** (the raw tool call), **`cwd`** (the session workspace relative paths resolve against), a **`nonce`** the result must echo, and the resolved **`path`**/**`before`**/**`after`** diff for filesystem write tools. A client ignores events for tools it did not declare.",
 					"parameters": []map[string]interface{}{
 						{
 							"name":        "handles",
@@ -2531,7 +2531,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/tool-result": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a tool_execute event",
-					"description": "The IDE client's outcome for a **`tool_execute`** it received on **`GET /foxxycode/ide/events`**. Body **`{toolCallId, nonce, status, output?, error?}`**: **`status`** is **`handled`** (the client executed the call — **`output`** is the tool result, or **`error`** its failure text) or **`not_handled`** (declined; the agent runs the call itself). The **`nonce`** must echo the one broadcast with the request, so a POST that never saw the request cannot forge a result for the agent's transcript. **`204`** when it resolved a pending call, **`400`** on invalid JSON or status, **`409`** when no call is pending under that id or the nonce does not match. Like the rest of **`/foxxycode/ide/*`**, open to a direct loopback client without a credential.",
+					"description": "The IDE client's outcome for a **`tool_execute`** it received on **`GET /foxxycode/ide/events`**. Body **`{toolCallId, nonce, status, output?, error?}`**: **`status`** is **`handled`** (the client executed the call — **`output`** is the tool result, or **`error`** its failure text) or **`not_handled`** (declined; the agent runs the call itself). The **`nonce`** must echo the one broadcast with the request, so a POST that never saw the request cannot forge a result for the agent's transcript. **`204`** when it resolved a pending call, **`400`** on invalid JSON, an unknown status, or a blank **`toolCallId`**/**`nonce`**, **`409`** when no call is pending under that id or the nonce does not match. Like the rest of **`/foxxycode/ide/*`**, open to a direct loopback client without a credential.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -2702,7 +2702,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/editor-state": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Report the IDE's open tabs and active file",
-					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs, the focused file, and optionally the current text selection here whenever the editor state changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** / **`selection`** may be omitted.",
+					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs, the focused file, and optionally the current text selection here whenever the editor state changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** / **`selection`** may be omitted. **`buffers`** is the pre-send snapshot an IDE plugin pushes before a message goes out: the document text of open editor buffers, unsaved edits included, each kept as its tail, capped at 8 KiB per buffer, 8 buffers and 32 KiB in total; rendered as the **`# Open Buffers`** section of the context block.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -2727,6 +2727,18 @@ func openAPISpec() map[string]interface{} {
 												"startLine": map[string]interface{}{"type": "integer", "description": "1-based first selected line."},
 												"endLine":   map[string]interface{}{"type": "integer", "description": "1-based last selected line (inclusive)."},
 												"text":      map[string]interface{}{"type": "string", "description": "Selected text (server caps at 16 KiB)."},
+											},
+										},
+										"buffers": map[string]interface{}{
+											"type":        "array",
+											"description": "Open editor buffers with their document text (unsaved edits included, tail kept; server caps at 8 KiB per buffer, 8 buffers and 32 KiB total; blank-text buffers are dropped). Rendered as the `# Open Buffers` section of the IDE context block.",
+											"items": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"path":  map[string]interface{}{"type": "string", "description": "Absolute path of the buffer's file."},
+													"text":  map[string]interface{}{"type": "string", "description": "The document text, as the editor holds it."},
+													"dirty": map[string]interface{}{"type": "boolean", "description": "True when the buffer has unsaved changes."},
+												},
 											},
 										},
 									},

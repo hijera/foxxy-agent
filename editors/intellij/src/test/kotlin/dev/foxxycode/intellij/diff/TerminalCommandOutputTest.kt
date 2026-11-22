@@ -51,4 +51,18 @@ class TerminalCommandOutputTest {
         val out = TerminalCommandOutput.extract("FOXXYCODE_EXIT_3\nFOXXYCODE_DONE", "true")
         assertTrue(out.contains("exit code 3"))
     }
+
+    @Test
+    fun `the echoed command line alone does not complete the run`() {
+        // The terminal shows the queued `echo FOXXYCODE_DONE` line as soon as the
+        // shell mirrors it, while a slow command is still running; the echoed line
+        // carries the prompt, so only the marker's own output line may complete.
+        val running = listOf(
+            "user@box:~/proj$ sleep 30",
+            "user@box:~/proj$ echo FOXXYCODE_EXIT_\$?",
+            "user@box:~/proj$ echo FOXXYCODE_DONE",
+        ).joinToString("\n")
+        assertTrue(!TerminalCommandOutput.completed(running))
+        assertTrue(TerminalCommandOutput.completed(screen))
+    }
 }

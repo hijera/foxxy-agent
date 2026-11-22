@@ -1,6 +1,7 @@
 package dev.foxxycode.intellij.diff
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,7 +75,20 @@ class ReadSliceTest {
     }
 
     @Test
-    fun `offset past the end reads nothing`() {
-        assertEquals("", ReadSlice.apply("one\ntwo", 5, 0))
+    fun `offset past the end reports the agent's error`() {
+        // The agent's own read tool fails with this message; a delegated read must
+        // surface the same text, not an empty result the model reads as an empty file.
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            ReadSlice.apply("one\ntwo", 5, 0)
+        }
+        assertEquals("offset 5 is beyond end of file (2 lines)", e.message)
+    }
+
+    @Test
+    fun `an empty file reports a past-eof error`() {
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            ReadSlice.apply("", 1, 0)
+        }
+        assertEquals("offset 1 is beyond end of file (0 lines)", e.message)
     }
 }

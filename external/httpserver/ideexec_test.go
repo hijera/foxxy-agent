@@ -38,6 +38,7 @@ func TestIdeExecuteToolCallRoundTrip(t *testing.T) {
 			ToolCallID: "call1",
 			ToolName:   "write",
 			ArgsJSON:   `{"path":"f.txt","content":"hello"}`,
+			Cwd:        dir,
 		})
 		done <- ideExecOutcome{res, err}
 	}()
@@ -51,6 +52,9 @@ func TestIdeExecuteToolCallRoundTrip(t *testing.T) {
 	}
 	if ev.ToolName != "write" {
 		t.Fatalf("tool = %q", ev.ToolName)
+	}
+	if ev.Cwd != dir {
+		t.Fatalf("cwd = %q, want the session workspace", ev.Cwd)
 	}
 	if !strings.Contains(ev.ArgsJSON, "hello") {
 		t.Fatalf("args = %q", ev.ArgsJSON)
@@ -132,6 +136,30 @@ func TestIdeExecuteToolCallTimeoutFallsBack(t *testing.T) {
 	ev := recvIdeEvent(t, ch)
 	if ev.Type != "tool_execute" || ev.Path != "" {
 		t.Fatalf("got %+v", ev)
+	}
+}
+
+func TestIdeExecuteToolCallDeclinesAnotherWorkspace(t *testing.T) {
+	ch := ideEvents.SubscribeHandled([]string{"write"})
+	defer ideEvents.Unsubscribe(ch)
+
+	dir := t.TempDir()
+	s := NewSender(&config.Config{}, nil, false, "m")
+	s.SetCWD(dir)
+	res, err := s.ExecuteToolCall(context.Background(), acp.ToolExecutionRequest{
+		SessionID: "sess1", ToolCallID: "call1", ToolName: "write", ArgsJSON: `{}`,
+		Cwd: t.TempDir(), // a session that moved to another checkout (a worktree)
+	})
+	if err != nil {
+		t.Fatalf("ExecuteToolCall: %v", err)
+	}
+	if res.Status != acp.ToolExecNotHandled {
+		t.Fatalf("status = %q, want not_handled for a foreign workspace", res.Status)
+	}
+	select {
+	case ev := <-ch:
+		t.Fatalf("a call from another workspace was offered: %+v", ev)
+	case <-time.After(150 * time.Millisecond):
 	}
 }
 

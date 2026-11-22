@@ -111,7 +111,14 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
             ?: throw IllegalStateException(FoxxyCodeBundle.message("process.error.binaryNotFound"))
         backendKind = FoxxyCodeBinaryResolver.detect(binary)
         if (backendKind == BackendKind.CODDY) {
-            FoxxyCodeHookService.getInstance(project).start(coddyHome(settings.foxxycodeHome))
+            try {
+                FoxxyCodeHookService.getInstance(project).start(coddyHome(settings.foxxycodeHome))
+            } catch (e: Exception) {
+                // A broken user hooks.json must not brick the panel: IDE-side
+                // execution degrades to the agent's own tools, the way every
+                // other hook failure here fails open.
+                log.warn("Coddy IDE hooks unavailable; continuing without them", e)
+            }
         }
 
         val host = settings.host.ifBlank { "127.0.0.1" }

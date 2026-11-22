@@ -21,10 +21,12 @@ type Event struct {
 	After      string `json:"after"`
 	// ToolName, ArgsJSON and Nonce are set on tool_execute only: which tool
 	// the model called (built-in or MCP name), the raw arguments the client
-	// executes, and the token its result must echo.
+	// executes, and the token its result must echo. Cwd is the session
+	// workspace the call runs in - relative paths resolve against it.
 	ToolName string `json:"tool,omitempty"`
 	ArgsJSON string `json:"args,omitempty"`
 	Nonce    string `json:"nonce,omitempty"`
+	Cwd      string `json:"cwd,omitempty"`
 }
 
 // Hub fans structured edit events out to every connected IDE client. It is a

@@ -87,9 +87,12 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
      * `window.foxxycodeBeforeSend` bridge. Runs off the EDT (a JCEF query
      * thread), hops to the Swing thread for the editor reads, and POSTs
      * synchronously so the caller can send its message on a fresh snapshot.
+     * The push carries paths and buffer contents, so it honours the same
+     * [FoxxyCodeSettings.State.trackOpenFiles] switch the periodic report does.
      */
     fun pushWithBuffers() {
         if (project.isDisposed) return
+        if (!FoxxyCodeSettings.getInstance().state.trackOpenFiles) return
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
         var payload: String? = null
         ApplicationManager.getApplication().invokeAndWait {

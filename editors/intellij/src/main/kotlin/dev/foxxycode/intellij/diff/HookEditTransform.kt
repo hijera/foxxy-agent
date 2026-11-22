@@ -208,7 +208,10 @@ object HookEditTransform {
                 trimmed.startsWith("*** Add File:") || trimmed.startsWith("*** Delete File:") ||
                     trimmed.startsWith("*** Update File:") || trimmed.startsWith("*** Move to:") ||
                     trimmed.startsWith("*** Environment ID:") -> continue
-                trimmed.startsWith("---") || trimmed.startsWith("+++") -> continue
+                // Unified-diff metadata headers carry a space ("--- <path>"); a v4A
+                // deletion of a line starting with "--" is "---..." with none, and
+                // must reach the hunk parser (the agent's own patch.go does the same).
+                trimmed.startsWith("--- ") || trimmed.startsWith("+++ ") -> continue
                 trimmed == "@@" || trimmed.startsWith("@@ ") -> {
                     flush()
                     current = Chunk(context = if (trimmed == "@@") "" else trimmed.removePrefix("@@").trim())

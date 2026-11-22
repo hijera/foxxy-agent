@@ -54,6 +54,7 @@ func (a *Agent) tryDelegateToolCall(ctx context.Context, tc llm.ToolCall, env *t
 		ToolCallID: strings.TrimSpace(tc.ID),
 		ToolName:   tc.Name,
 		ArgsJSON:   tc.InputJSON,
+		Cwd:        cwd,
 	})
 	if derr != nil {
 		if ctx.Err() != nil {

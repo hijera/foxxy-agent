@@ -383,6 +383,24 @@ fired on the agent side (`tools.NotifyPlanWrite`), and `mkdir`/`rm`/`mv`/
 Every delegated tool has a per-tool switch in the plugin settings. Still
 unbuilt: the VS Code port and the ACP `RequestToolExecution` parity of 8.2.
 
+The review pass before merge (2026-11-22) tightened four places the live check
+had not exercised: the terminal runner completes only on a `FOXXYCODE_DONE`
+**output line** (a substring search also matched the echoed
+`echo FOXXYCODE_DONE` command and reported a slow command finished with empty
+output), a session that moved to another workspace is not offered to a client
+attached to this checkout (`ToolExecutionRequest.Cwd`, echoed back on the event
+so a client resolves relative paths there), a file whose charset is not UTF-8
+stays with the agent's own tools (the IDE decodes with the file's charset, so
+its buffer would never match a textenc-computed `before`, and a save could
+rewrite the encoding), and the plugin's `handles` is built from the settings
+switches instead of a hardcoded list. Smaller fixes: a past-EOF delegated
+`read` reports the agent's own error text instead of an empty result, a lost
+`tool-result` answer (409, stale nonce) is logged with the body drained, a
+broken user `hooks.json` degrades the Coddy panel to no IDE hooks instead of
+failing the start, and an install prunes the hook handlers of instances that
+died without a dispose (probing their endpoint) so a crashed IDE leaves no
+hook process spawning against a dead port on every matching call.
+
 ## 11. Coddy interop (2026-11-16)
 
 Upstream PR coddy-project/coddy-agent#691 landed the generic route considered in section 9: synchronous `ToolExecute` after `PreToolUse` and the permission gate, `FirstPrompt` context in the turn-scoped block, and corrected `Question`/`TurnEnd` lifecycle semantics. FoxxyCode ports that contract and keeps its native IDE channel for FoxxyCode backends.

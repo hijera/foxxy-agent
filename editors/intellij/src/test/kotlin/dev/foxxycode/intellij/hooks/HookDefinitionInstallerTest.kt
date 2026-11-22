@@ -44,8 +44,31 @@ class HookDefinitionInstallerTest {
         assertFalse(File(home, "hooks.json").readText().contains("ToolExecute"))
     }
 
-    private fun install(home: File, id: String) =
-        HookDefinitionInstaller.install(home, id, File("java"), File("plugin.jar"), "http://127.0.0.1:1/$id", "token-$id")
+    @Test
+    fun `install prunes the handlers of instances that died without a dispose`() {
+        val home = createTempDir()
+        install(home, "one")
+        // A second window (or a restarted IDE) installs; "one" no longer serves.
+        install(home, "two") { url -> !url.endsWith("/one") }
+        val text = File(home, "hooks.json").readText()
+        // The marker text is escaped by the pretty printer ("=" is \u003d), so the
+        // assertions key on the endpoint url, which is what the prune probes too.
+        assertFalse(text.contains(":1/one"))
+        assertTrue(text, text.contains(":1/two"))
+    }
+
+    @Test
+    fun `install keeps the handlers of a live sibling instance`() {
+        val home = createTempDir()
+        install(home, "one")
+        install(home, "two") { _ -> true }
+        val text = File(home, "hooks.json").readText()
+        assertTrue(text, text.contains(":1/one"))
+        assertTrue(text, text.contains(":1/two"))
+    }
+
+    private fun install(home: File, id: String, isAlive: (String) -> Boolean = { true }) =
+        HookDefinitionInstaller.install(home, id, File("java"), File("plugin.jar"), "http://127.0.0.1:1/$id", "token-$id", isAlive)
 
     private fun createTempDir(): File = Files.createTempDirectory("foxxycode-hooks-test").toFile()
 }

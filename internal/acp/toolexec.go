@@ -22,6 +22,11 @@ type ToolExecutionRequest struct {
 	ToolCallID string
 	ToolName   string
 	ArgsJSON   string
+	// Cwd is the session workspace the call runs in. The IDE event carries it so
+	// a client resolves relative paths there, and the receiving surface compares
+	// it with its own workspace: a session that moved (a worktree switch) is not
+	// offered to a client attached to another checkout.
+	Cwd string
 }
 
 // ToolExecutionResult is the client's verdict on a ToolExecutionRequest.

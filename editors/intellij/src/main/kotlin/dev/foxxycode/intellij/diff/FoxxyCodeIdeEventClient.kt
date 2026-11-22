@@ -14,8 +14,9 @@ import java.nio.charset.StandardCharsets
  * [stop] is called. Pure `HttpURLConnection` (no extra deps), matching FoxxyCodeProcessManager.
  *
  * [handles] names the tools this client can execute through the IDE (the `?handles=` query
- * parameter, `*` for all): the agent sends `tool_execute` only to subscribers that declared
- * the tool, and each one answers on POST /foxxycode/ide/tool-result.
+ * parameter). The agent offers a call only while some subscriber declared it, but the
+ * `tool_execute` event itself is broadcast to every connected client - one that did not
+ * declare the tool answers `not_handled`, and the agent runs the call locally.
  */
 class FoxxyCodeIdeEventClient(
     private val baseUrl: String,
@@ -126,6 +127,7 @@ class FoxxyCodeIdeEventClient(
                 tool = str("tool"),
                 args = str("args"),
                 nonce = str("nonce"),
+                cwd = str("cwd"),
             )
         } catch (e: Exception) {
             log.warn("failed to parse ide event: ${e.message}")

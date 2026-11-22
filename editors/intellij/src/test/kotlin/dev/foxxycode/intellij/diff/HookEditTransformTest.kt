@@ -48,6 +48,21 @@ class HookEditTransformTest {
     }
 
     @Test
+    fun `a deletion of a line starting with dashes is not a unified header`() {
+        // The deletion line "- " + "--marker" is "---marker" without a space after
+        // the dashes; a guard that reads any "---..." line as a unified header
+        // would silently drop the deletion.
+        val patch = "@@\n---marker\n+kept\n"
+        assertEquals("kept\n", HookEditTransform.apply("apply_patch", """{"patch":${gsonString(patch)}}""", "--marker\n"))
+    }
+
+    @Test
+    fun `an addition of a line starting with pluses is not a unified header`() {
+        val patch = "@@\n-old\n+++added\n"
+        assertEquals("++added\n", HookEditTransform.apply("apply_patch", """{"patch":${gsonString(patch)}}""", "old\n"))
+    }
+
+    @Test
     fun `replace all uses literal text and the file line endings`() {
         val args = """{"oldString":"alpha\nbeta","newString":"alpha\nBETA","replaceAll":true}"""
         assertEquals(
