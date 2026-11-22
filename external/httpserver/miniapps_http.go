@@ -33,14 +33,21 @@ type miniAppRunRequest struct {
 	Inputs  map[string]any
 }
 
+// miniAppsTrackedJobsCap bounds the per-process tracking state for async jobs.
+// The tracking exists so confirmations and cancels can find the owning job;
+// terminal rows are only history, so the prune drops them once the maps
+// outgrow the cap instead of growing without bound on a long-lived server.
+const miniAppsTrackedJobsCap = 256
+
 type miniAppsHTTPState struct {
 	store     *miniapps.Store
 	service   *miniapps.Service
 	assistant *miniapps.ProviderModelExecutor
 
-	mu   sync.Mutex
-	runs map[string]miniAppRunRequest
-	jobs map[string]struct{}
+	mu      sync.Mutex
+	runs    map[string]miniAppRunRequest
+	jobs    map[string]struct{}
+	runJobs map[string]string
 }
 
 func (s *Server) miniAppsHTTPState() *miniAppsHTTPState {
@@ -78,7 +85,7 @@ func (s *Server) miniAppsHTTPState() *miniAppsHTTPState {
 	}).WithWorkspaceRoot(runRoot)
 	state := &miniAppsHTTPState{
 		store: store, service: miniapps.NewService(store, runner), assistant: modelExecutor,
-		runs: make(map[string]miniAppRunRequest), jobs: make(map[string]struct{}),
+		runs: make(map[string]miniAppRunRequest), jobs: make(map[string]struct{}), runJobs: make(map[string]string),
 	}
 	s.miniAppsState = state
 	return state
@@ -613,6 +620,10 @@ func (s *Server) trackMiniAppsRun(job miniapps.AsyncJob, req miniAppRunRequest) 
 	state.mu.Lock()
 	state.runs[job.ID] = req
 	state.jobs[job.ID] = struct{}{}
+	if job.RunID != "" {
+		state.runJobs[job.RunID] = job.ID
+	}
+	state.pruneMiniAppsStateLocked()
 	state.mu.Unlock()
 }
 
@@ -620,7 +631,30 @@ func (s *Server) trackMiniAppsJob(jobID string) {
 	state := s.miniAppsHTTPState()
 	state.mu.Lock()
 	state.jobs[jobID] = struct{}{}
+	state.pruneMiniAppsStateLocked()
 	state.mu.Unlock()
+}
+
+// pruneMiniAppsStateLocked drops tracking rows for terminal jobs once the
+// maps outgrow their cap. Active jobs are never evicted: their rows still
+// carry confirmations and cancel routing.
+func (state *miniAppsHTTPState) pruneMiniAppsStateLocked() {
+	if len(state.jobs) <= miniAppsTrackedJobsCap && len(state.runs) <= miniAppsTrackedJobsCap {
+		return
+	}
+	for jobID := range state.jobs {
+		job, err := state.service.GetJob(jobID)
+		if err != nil || !miniAppsJobTerminal(job.Status) {
+			continue
+		}
+		delete(state.jobs, jobID)
+		delete(state.runs, jobID)
+	}
+	for runID, trackedJobID := range state.runJobs {
+		if _, active := state.jobs[trackedJobID]; !active {
+			delete(state.runJobs, runID)
+		}
+	}
 }
 
 // miniAppsDrain propagates HTTP server shutdown to in-flight optional jobs.
@@ -659,14 +693,34 @@ func (s *Server) miniAppsRunGet(w http.ResponseWriter, r *http.Request) {
 func (s *Server) miniAppsJobForRun(runID string) (miniapps.AsyncJob, bool) {
 	state := s.miniAppsHTTPState()
 	state.mu.Lock()
+	jobID := state.runJobs[runID]
+	state.mu.Unlock()
+	if jobID != "" {
+		if job, err := state.service.GetJob(jobID); err == nil {
+			return job, true
+		}
+		// The tracked job is gone (pruned or discarded); drop the stale index
+		// entry and rescan below.
+		state.mu.Lock()
+		if state.runJobs[runID] == jobID {
+			delete(state.runJobs, runID)
+		}
+		state.mu.Unlock()
+	}
+	// The index only learns a run id once the async worker has recorded it on
+	// the job; until then, scan the tracked jobs for the owner.
+	state.mu.Lock()
 	jobIDs := make([]string, 0, len(state.runs))
-	for jobID := range state.runs {
-		jobIDs = append(jobIDs, jobID)
+	for id := range state.runs {
+		jobIDs = append(jobIDs, id)
 	}
 	state.mu.Unlock()
-	for _, jobID := range jobIDs {
-		job, err := state.service.GetJob(jobID)
+	for _, id := range jobIDs {
+		job, err := state.service.GetJob(id)
 		if err == nil && job.RunID == runID {
+			state.mu.Lock()
+			state.runJobs[runID] = id
+			state.mu.Unlock()
 			return job, true
 		}
 	}
@@ -901,7 +955,13 @@ func (s *Server) miniAppsRunEvents(w http.ResponseWriter, r *http.Request) {
 		if findErr != nil {
 			return nil, false, findErr
 		}
-		events := readMiniAppsRunEvents(current.EventsPath)
+		events, truncated := readMiniAppsRunEvents(current.EventsPath)
+		if truncated {
+			// The replay window cut the file short: say so in the stream
+			// instead of letting a subscriber believe it saw everything.
+			events = append(events, miniapps.RunEvent{Type: "run.truncated",
+				Message: "the events file exceeds the stream window; later events are not replayed"})
+		}
 		if after >= uint64(len(events)) {
 			events = nil
 		} else if after > 0 {
@@ -926,12 +986,22 @@ func streamMiniAppsSSE[T any](r *http.Request, w http.ResponseWriter, after uint
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	// nginx and most corporate HTTP proxies buffer an event-stream body by
+	// default, so the progress would only arrive once the stream closes; the
+	// composer stream carries the same header for the same reason.
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		events, terminal, err := next(after)
 		if err != nil {
+			// A silent close reads like a network drop: the client would
+			// reconnect and replay blindly. Name the failure, then close.
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", miniAppsSSEErrorJSON(err))
+			if flusher != nil {
+				flusher.Flush()
+			}
 			return
 		}
 		for _, event := range events {
@@ -960,24 +1030,50 @@ func streamMiniAppsSSE[T any](r *http.Request, w http.ResponseWriter, after uint
 	}
 }
 
-func readMiniAppsRunEvents(path string) []miniapps.RunEvent {
+// miniAppsRunEventsLimit bounds how much of a run's events file one stream
+// reads. Event lines are small JSON; 32 MiB covers any realistic run, and a
+// larger file still streams its window with an explicit truncated marker
+// instead of pretending the replay was complete.
+const miniAppsRunEventsLimit = 32 << 20
+
+func readMiniAppsRunEvents(path string) ([]miniapps.RunEvent, bool) {
 	if strings.TrimSpace(path) == "" {
-		return nil
+		return nil, false
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer func() { _ = file.Close() }()
 	var events []miniapps.RunEvent
-	scanner := bufio.NewScanner(io.LimitReader(file, 4<<20))
+	scanner := bufio.NewScanner(io.LimitReader(file, miniAppsRunEventsLimit))
+	scanner.Buffer(make([]byte, 0, 64*1024), 8<<20)
 	for scanner.Scan() {
 		var event miniapps.RunEvent
 		if json.Unmarshal(scanner.Bytes(), &event) == nil {
 			events = append(events, event)
 		}
 	}
-	return events
+	truncated := scanner.Err() != nil
+	if scanner.Err() == nil {
+		// The limit reader only stops early when the file outgrew the window;
+		// one more read tells that apart from a natural EOF.
+		var probe [1]byte
+		if n, _ := file.Read(probe[:]); n > 0 {
+			truncated = true
+		}
+	}
+	return events, truncated
+}
+
+// miniAppsSSEErrorJSON renders one JSON error payload for an in-stream
+// failure frame, with a fixed fallback when even that cannot be marshalled.
+func miniAppsSSEErrorJSON(err error) string {
+	raw, marshalErr := json.Marshal(map[string]string{"error": err.Error()})
+	if marshalErr != nil {
+		return `{"error":"event stream failed"}`
+	}
+	return string(raw)
 }
 
 func readMiniAppsTraceEvidence(dir string, messages []llm.Message) ([]miniapps.TraceCallEvidence, map[string][]byte) {

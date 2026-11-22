@@ -13,7 +13,9 @@ import (
 )
 
 // miniAppsCommandsHome resolves the home directory the trust store lives in —
-// the same derivation miniAppsHTTPState uses for the app store root.
+// the same rule the executor side applies: no home means an inert store
+// (nothing trusted, nothing recorded), never a trust file in an arbitrary
+// working directory.
 func (s *Server) miniAppsCommandsHome() string {
 	cfg := s.activeCfg()
 	if cfg != nil {
@@ -21,7 +23,7 @@ func (s *Server) miniAppsCommandsHome() string {
 			return home
 		}
 	}
-	return strings.TrimSpace(s.defaultCWD)
+	return ""
 }
 
 // miniAppCommandStatus is one row of the commands panel: what the profile

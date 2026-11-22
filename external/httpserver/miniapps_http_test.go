@@ -3,13 +3,16 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -544,5 +547,153 @@ func TestMiniAppsNewSessionArtifactsUseSuccessfulWriteEvidence(t *testing.T) {
 		if len(item.Artifacts) != 0 {
 			t.Fatalf("unexpected artifact: %+v", item)
 		}
+	}
+}
+
+// The miniapps routes sit behind the same authGate as the rest of /foxxycode:
+// one token-authenticated round trip pins that protection, which pattern
+// classification alone only implies.
+func TestMiniAppsRoutesRequireAuthentication(t *testing.T) {
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: t.TempDir(), CWD: t.TempDir()},
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model"}},
+		Agent:      config.Agent{Model: "fake/model"},
+		HTTPServer: config.HTTPServerConfig{AuthToken: "s3cret"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}, slog.Default(), cfg.Paths.CWD, &session.FileStore{Root: t.TempDir()})
+	srv := New(cfg, mgr, slog.Default(), cfg.Paths.CWD)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { ts.Close(); srv.Drain() })
+
+	if got := authGET(t, ts.URL+"/foxxycode/miniapps", ""); got != http.StatusUnauthorized {
+		t.Fatalf("catalog without a token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/foxxycode/miniapps", "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("catalog with a wrong token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/foxxycode/miniapps", "s3cret"); got != http.StatusOK {
+		t.Fatalf("catalog with the token: %d want 200", got)
+	}
+}
+
+// Cancelling a terminal job is the normal flow after a finished run; the
+// service answers idempotently with the unchanged terminal job.
+func TestMiniAppsCancellingATerminalJobIsIdempotent(t *testing.T) {
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	state := srv.miniAppsHTTPState()
+	app := miniapps.MiniApp{
+		SchemaVersion: miniapps.SchemaVersion, Kind: miniapps.KindMiniApp, ID: "cancel-terminal-app", State: miniapps.StateDraft,
+		Metadata:    miniapps.Metadata{Name: "Cancel", Goal: "Finish fast"},
+		Permissions: miniapps.Permissions{Tools: []string{"write"}},
+		Workflow:    []miniapps.Step{{ID: "write", Kind: "tool", Title: "Write", Tool: "write", Arguments: map[string]any{"path": "x.txt", "content": "x"}}},
+		Success:     miniapps.SuccessSpec{Mode: "all", Checks: []miniapps.SuccessCheck{{Kind: "step", Step: "write", Status: string(miniapps.TraceActionSucceeded)}}},
+		Runtime:     miniapps.RuntimePolicy{LogScope: "global", OperatorEventLevel: "status", DiagnosticToolEvents: "sanitized"},
+	}
+	if err := state.store.CreateDraft(app, &miniapps.SourceEvidence{AcceptedResult: "ignored"}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Post(ts.URL+"/foxxycode/miniapps/cancel-terminal-app/test-runs", "application/json", strings.NewReader(`{"inputs":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if started.ID == "" {
+		t.Fatal("start run did not return async job id")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, err := state.service.GetJob(started.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if miniAppsJobTerminal(job.Status) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never reached a terminal state: %+v", job)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancelled, err := http.Post(ts.URL+"/foxxycode/miniapp-runs/"+started.ID+"/cancel", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelBody, _ := io.ReadAll(cancelled.Body)
+	_ = cancelled.Body.Close()
+	if cancelled.StatusCode != http.StatusOK {
+		t.Fatalf("cancel of a terminal job status %d: %s", cancelled.StatusCode, cancelBody)
+	}
+	var job struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(cancelBody, &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != string(miniapps.JobFailed) {
+		t.Fatalf("cancel changed the terminal status: %+v", job)
+	}
+}
+
+// The per-input byte limit returns 413 through the HTTP layer too: the store
+// enforces it and the handler maps it onto the documented payload-too-large
+// response.
+func TestMiniAppsUploadRejectsInputOverItsByteLimit(t *testing.T) {
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	state := srv.miniAppsHTTPState()
+	limit := int64(3)
+	app := miniapps.MiniApp{
+		SchemaVersion: miniapps.SchemaVersion, Kind: miniapps.KindMiniApp, ID: "upload-limit-app", State: miniapps.StateDraft,
+		Metadata: miniapps.Metadata{Name: "Upload limit", Goal: "Bound uploads"},
+		Inputs:   []miniapps.Input{{ID: "source", Type: "file", Title: "Source", Required: true, UI: miniapps.InputUI{Control: "file"}, Validation: miniapps.Validation{MaxTotalBytes: &limit}}},
+		Permissions: miniapps.Permissions{Tools: []string{"read", "write"}},
+		Workflow: []miniapps.Step{
+			{ID: "read-source", Kind: "tool", Title: "Read", Tool: "read", Arguments: map[string]any{"path": miniapps.Ref{Ref: "inputs.source"}}},
+			{ID: "write-result", Kind: "tool", Title: "Write", Tool: "write", Arguments: map[string]any{"path": "result.txt", "content": miniapps.Ref{Ref: "steps.read-source.outputs.result"}}},
+		},
+		Outputs: []miniapps.Output{{ID: "download", Type: "file", Value: "result.txt", Renderer: "download"}},
+		Success: miniapps.SuccessSpec{Mode: "all", Checks: []miniapps.SuccessCheck{{Kind: "step", Step: "write-result", Status: "succeeded"}}},
+		Runtime: miniapps.RuntimePolicy{LogScope: "local", OperatorEventLevel: "status", DiagnosticToolEvents: "sanitized"},
+	}
+	if err := state.store.CreateDraft(app, &miniapps.SourceEvidence{AcceptedResult: "ignored"}); err != nil {
+		t.Fatal(err)
+	}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	part, err := writer.CreateFormFile("file", "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("1234")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	draft, err := state.store.GetDraft("upload-limit-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/miniapps/upload-limit-app/inputs/source/uploads?revision="+url.QueryEscape(draft.Revision), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized upload status %d: %s", response.StatusCode, responseBody)
 	}
 }
