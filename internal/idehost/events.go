@@ -22,11 +22,15 @@ type Event struct {
 	// ToolName, ArgsJSON and Nonce are set on tool_execute only: which tool
 	// the model called (built-in or MCP name), the raw arguments the client
 	// executes, and the token its result must echo. Cwd is the session
-	// workspace the call runs in - relative paths resolve against it.
+	// workspace the call runs in - relative paths resolve against it, and
+	// Deadline is the epoch-ms moment the agent stops waiting and runs the
+	// call itself (0 when the caller set no bound): a client that starts work
+	// past it races that local run, so an expired call must not run at all.
 	ToolName string `json:"tool,omitempty"`
 	ArgsJSON string `json:"args,omitempty"`
 	Nonce    string `json:"nonce,omitempty"`
 	Cwd      string `json:"cwd,omitempty"`
+	Deadline int64  `json:"deadline,omitempty"`
 }
 
 // Hub fans structured edit events out to every connected IDE client. It is a

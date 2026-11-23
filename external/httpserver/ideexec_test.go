@@ -187,7 +187,7 @@ func TestIdeToolResultRouteValidatesStatus(t *testing.T) {
 
 func TestIdeToolResultRouteResolvesPendingCall(t *testing.T) {
 	ch := registerToolExecWait("call2", "nonce2")
-	defer unregisterToolExecWait("call2")
+	defer unregisterToolExecWait("call2", ch)
 
 	body, _ := json.Marshal(map[string]string{
 		"toolCallId": "call2", "nonce": "nonce2", "status": "handled", "output": "done in editor",
@@ -204,5 +204,117 @@ func TestIdeToolResultRouteResolvesPendingCall(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the route did not resolve the pending call")
+	}
+}
+
+func TestIdeExecuteToolCallCarriesTheDeadline(t *testing.T) {
+	ch := ideEvents.SubscribeHandled([]string{"write"})
+	defer ideEvents.Unsubscribe(ch)
+
+	s := NewSender(&config.Config{}, nil, false, "m")
+	s.SetCWD(t.TempDir())
+	want := time.Now().Add(500 * time.Millisecond).Truncate(time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), want)
+	defer cancel()
+	go func() {
+		_, _ = s.ExecuteToolCall(ctx, acp.ToolExecutionRequest{
+			SessionID: "sess1", ToolCallID: "call1", ToolName: "write", ArgsJSON: `{}`,
+		})
+	}()
+	ev := recvIdeEvent(t, ch)
+	if ev.Deadline != want.UnixMilli() {
+		t.Fatalf("deadline = %d, want the context deadline %d", ev.Deadline, want.UnixMilli())
+	}
+}
+
+func TestIdeExecuteToolCallAcceptsAnotherSpellingOfTheSameWorkspace(t *testing.T) {
+	ch := ideEvents.SubscribeHandled([]string{"write"})
+	defer ideEvents.Unsubscribe(ch)
+
+	dir := t.TempDir()
+	s := NewSender(&config.Config{}, nil, false, "m")
+	s.SetCWD(dir)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resc := make(chan acp.ToolExecutionResult, 1)
+	go func() {
+		res, _ := s.ExecuteToolCall(ctx, acp.ToolExecutionRequest{
+			SessionID: "sess1", ToolCallID: "call1", ToolName: "write", ArgsJSON: `{}`,
+			// Same folder, different spelling: the workspace identity rule compares
+			// canonical paths, not raw strings.
+			Cwd: dir + string(filepath.Separator),
+		})
+		resc <- res
+	}()
+	ev := recvIdeEvent(t, ch)
+	if ev.Type != "tool_execute" {
+		t.Fatalf("event = %+v", ev)
+	}
+	if !CompleteToolExecResult("call1", ev.Nonce, acp.ToolExecutionResult{Status: acp.ToolExecHandled, Output: "ok"}) {
+		t.Fatal("the offered call did not resolve")
+	}
+	select {
+	case res := <-resc:
+		if res.Status != acp.ToolExecHandled || res.Output != "ok" {
+			t.Fatalf("the same workspace under another spelling must still be offered, got %+v", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExecuteToolCall did not return")
+	}
+}
+
+func TestIdeToolCallsSharingAnIDResolveByNonce(t *testing.T) {
+	ch := ideEvents.SubscribeHandled([]string{"write"})
+	defer ideEvents.Unsubscribe(ch)
+
+	s := NewSender(&config.Config{}, nil, false, "m")
+	s.SetCWD(t.TempDir())
+	// Provider tool-call ids repeat across sessions ("call_0" per answer on
+	// several OpenAI-compatible backends), so two sessions delegating under one
+	// id must keep their own waits: each result goes to the call whose nonce it
+	// echoes, and neither answer is lost to the other's unregister.
+	type outcome struct {
+		res acp.ToolExecutionResult
+		err error
+	}
+	outc := make(chan outcome, 2)
+	call := func(sessionID string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, err := s.ExecuteToolCall(ctx, acp.ToolExecutionRequest{
+			SessionID: sessionID, ToolCallID: "call1", ToolName: "write", ArgsJSON: `{}`,
+		})
+		outc <- outcome{res, err}
+	}
+	go call("sess1")
+	ev1 := recvIdeEvent(t, ch)
+	go call("sess2")
+	ev2 := recvIdeEvent(t, ch)
+	if ev1.Nonce == ev2.Nonce {
+		t.Fatal("the two offers must carry different nonces")
+	}
+	if !CompleteToolExecResult("call1", ev2.Nonce, acp.ToolExecutionResult{Status: acp.ToolExecHandled, Output: "two"}) {
+		t.Fatal("the second offer did not resolve")
+	}
+	if !CompleteToolExecResult("call1", ev1.Nonce, acp.ToolExecutionResult{Status: acp.ToolExecHandled, Output: "one"}) {
+		t.Fatal("the first offer did not resolve")
+	}
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		select {
+		case o := <-outc:
+			if o.err != nil {
+				t.Fatalf("ExecuteToolCall: %v", o.err)
+			}
+			if o.res.Status != acp.ToolExecHandled {
+				t.Fatalf("result = %+v, want handled", o.res)
+			}
+			seen[o.res.Output] = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("only one of the two calls returned")
+		}
+	}
+	if !seen["one"] || !seen["two"] {
+		t.Fatalf("results = %v, want one and two to their own calls", seen)
 	}
 }

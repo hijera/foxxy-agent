@@ -7,7 +7,7 @@ The point of delegating the filesystem writes is what the editor gives: edits la
 ## How it works
 
 1. The plugin subscribes to **`GET /foxxycode/ide/events?handles=write,edit,apply_patch`** - the `handles` parameter names the tools it can execute (`*` means all of them; names match exactly as the model called the tool, so MCP names like `server__tool` work). A subscription without `handles` only watches events, as before.
-2. When the model calls one of those tools, the agent broadcasts **`event: tool_execute`** on the stream: `{type, toolCallId, sessionId, tool, args, nonce, cwd, path, before, after}`. `tool` and `args` are the raw tool call (name and arguments exactly as the model called them); `cwd` is the session workspace the call runs in, so relative paths resolve there; `path` / `before` / `after` carry the resolved diff for `write` / `edit` / `apply_patch`, computed with the same transforms the local write would apply. The call waits - nothing is written by the agent. The event reaches every connected client, but the agent offers the call only while some subscriber declared the tool; a client that did not declare it answers `not_handled`.
+2. When the model calls one of those tools, the agent broadcasts **`event: tool_execute`** on the stream: `{type, toolCallId, sessionId, tool, args, nonce, cwd, deadline, path, before, after}`. `tool` and `args` are the raw tool call (name and arguments exactly as the model called them); `cwd` is the session workspace the call runs in, so relative paths resolve there; `deadline` is the epoch-ms moment the agent stops waiting and runs the call itself; `path` / `before` / `after` carry the resolved diff for `write` / `edit` / `apply_patch`, computed with the same transforms the local write would apply. The call waits - nothing is written by the agent. The event reaches every connected client, but the agent offers the call only while some subscriber declared the tool; a client that did not declare it answers `not_handled`.
 3. The plugin executes the call and answers **`POST /foxxycode/ide/tool-result`** with `{toolCallId, nonce, status, output?, error?}`:
    - **`handled`** - the client ran the call; `output` (or `error`) is the tool result the model receives;
    - **`not_handled`** - the client declines this call; the agent runs it locally.
@@ -23,13 +23,14 @@ Delegation is best-effort by design:
 - **the file is not UTF-8** - the agent decodes workspace files through its own textenc while an editor document decodes with the file's charset, so a legacy-encoded file stays with the agent's own tools, which read and write the right bytes;
 - **the client declines or errors before taking the call** (`not_handled`) - local run;
 - **the client does not answer within 60 seconds** - local run;
+- **the client only starts the call after `deadline`** - the agent has already run it locally, so the client must not run it at all;
 - **a turn cancelled while the client was deciding** - the call ends cancelled; it is not replayed locally;
 - **subagent children never delegate** - their calls run in the agent, whatever the parent's surface can do.
 
 ## What a client must do
 
 - Declare only the tools it can really execute; a `handled` answer claims the work is done - the agent will not verify it.
-- For a delegated `write` / `edit` / `apply_patch`: compare the document text against `before`. Equal - apply `after` through the document model and answer `handled`. Different - answer `error` with a conflict message ("file changed in the editor since it was read"), so the model re-reads and retries; do not silently apply against a stale buffer.
+- For a delegated `write` / `edit` / `apply_patch`: compare the document text against `before`, ignoring a BOM and line-ending style (the preview carries the raw file bytes; a document does not). Equal - apply `after` through the document model and answer `handled`. Different - answer `error` with a conflict message ("file changed in the editor since it was read"), so the model re-reads and retries; do not silently apply against a stale buffer.
 - Echo the `nonce` from the event; a result without one is rejected with `400`, and one with a wrong nonce (or naming no pending call) with `409`.
 - Answer `not_handled` for anything it did not declare - it may still see `tool_execute` events for tools another subscriber declared.
 

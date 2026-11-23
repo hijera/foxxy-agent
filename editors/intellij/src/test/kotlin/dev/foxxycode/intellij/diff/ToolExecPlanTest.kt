@@ -38,6 +38,21 @@ class ToolExecPlanTest {
     }
 
     @Test
+    fun `a bom in the raw before is not a difference`() {
+        // The agent's preview keeps the file's raw bytes (BOM included), while an
+        // IDE document holds the decoded text; a BOM file must not read as
+        // diverged on every delegated edit.
+        val d = ToolExecPlan.decide("p/a.txt", "\uFEFFold\n", "new\n", "old\n", documentDirty = false)
+        assertEquals(ToolExecPlan.Action.APPLY, d.action)
+    }
+
+    @Test
+    fun `a bom file with a real divergence still conflicts`() {
+        val d = ToolExecPlan.decide("p/a.txt", "\uFEFFold\n", "new\n", "different\n", documentDirty = false)
+        assertEquals(ToolExecPlan.Action.CONFLICT, d.action)
+    }
+
+    @Test
     fun `missing file with empty before creates it`() {
         val d = ToolExecPlan.decide("p/new.txt", "", "body", null, documentDirty = false)
         assertEquals(ToolExecPlan.Action.CREATE, d.action)
@@ -85,10 +100,22 @@ class ReadSliceTest {
     }
 
     @Test
-    fun `an empty file reports a past-eof error`() {
+    fun `an empty file without a window reads as empty`() {
+        // The agent's read returns the content as-is when no window is asked for,
+        // so an empty file is an empty result, not a past-EOF error.
+        assertEquals("", ReadSlice.apply("", 0, 0))
+        assertEquals("", ReadSlice.apply("", 1, 0))
+    }
+
+    @Test
+    fun `an empty file with a window reports a past-eof error`() {
         val e = assertThrows(IllegalArgumentException::class.java) {
-            ReadSlice.apply("", 1, 0)
+            ReadSlice.apply("", 2, 0)
         }
-        assertEquals("offset 1 is beyond end of file (0 lines)", e.message)
+        assertEquals("offset 2 is beyond end of file (0 lines)", e.message)
+        val windowed = assertThrows(IllegalArgumentException::class.java) {
+            ReadSlice.apply("", 1, 5)
+        }
+        assertEquals("offset 1 is beyond end of file (0 lines)", windowed.message)
     }
 }

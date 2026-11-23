@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
 
@@ -34,7 +35,7 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 	cwd := s.cwd
 	sd := s.sessionDir
 	s.mu.Unlock()
-	if reqCwd := strings.TrimSpace(req.Cwd); reqCwd != "" && reqCwd != cwd {
+	if reqCwd := strings.TrimSpace(req.Cwd); reqCwd != "" && !session.SameWorkspacePath(reqCwd, cwd) {
 		return notHandled, nil
 	}
 	nonce, err := newIDENonce()
@@ -44,7 +45,7 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 	// Registered before the broadcast, so a result that arrives the instant a
 	// client learns of the request already has somewhere to land.
 	ch := registerToolExecWait(tcid, nonce)
-	defer unregisterToolExecWait(tcid)
+	defer unregisterToolExecWait(tcid, ch)
 
 	ev := ideEvent{
 		Type:       "tool_execute",
@@ -54,6 +55,11 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 		ArgsJSON:   req.ArgsJSON,
 		Nonce:      nonce,
 		Cwd:        cwd,
+	}
+	// The agent's answer window travels with the request: a client that starts
+	// work after it expired races the local fallback the agent already ran.
+	if dl, ok := ctx.Deadline(); ok {
+		ev.Deadline = dl.UnixMilli()
 	}
 	// Filesystem write tools carry the resolved diff, so the client applies
 	// exactly what the local write would have produced (and can refuse on a

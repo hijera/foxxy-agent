@@ -115,6 +115,8 @@ class FoxxyCodeIdeEventClient(
         return try {
             val o = JsonParser.parseString(payload).asJsonObject
             fun str(key: String) = if (o.has(key) && !o.get(key).isJsonNull) o.get(key).asString else ""
+            fun num(key: String) =
+                if (o.has(key) && o.get(key).isJsonPrimitive) o.get(key).asLong else 0L
             val type = str("type")
             if (type.isEmpty()) return null
             FoxxyCodeEditEvent(
@@ -127,6 +129,7 @@ class FoxxyCodeIdeEventClient(
                 tool = str("tool"),
                 args = str("args"),
                 nonce = str("nonce"),
+                deadline = num("deadline"),
                 cwd = str("cwd"),
             )
         } catch (e: Exception) {

@@ -55,6 +55,15 @@ object ToolExecPlan {
     fun normalizeEol(s: String): String = s.replace("\r\n", "\n").replace("\r", "\n")
 
     /**
+     * A BOM is not content either: the agent's preview carries the raw file
+     * bytes (`before` keeps the BOM), while an IDE document stores the decoded
+     * text and the platform re-applies the BOM on save. Strip it on both sides
+     * of every comparison and before text goes into a document, or a BOM file
+     * would report a conflict on every delegated edit.
+     */
+    fun stripBom(s: String): String = if (s.startsWith('\uFEFF')) s.substring(1) else s
+
+    /**
      * @param currentText the document text, or null when the file does not exist
      * @param documentDirty whether the user has unsaved changes in that document
      */
@@ -76,7 +85,7 @@ object ToolExecPlan {
         if (documentDirty) {
             return Decision(Action.CONFLICT, "unsaved changes in the editor; save or revert them and retry")
         }
-        if (normalizeEol(currentText) != normalizeEol(before)) {
+        if (normalizeEol(stripBom(currentText)) != normalizeEol(stripBom(before))) {
             return Decision(Action.CONFLICT, "file changed in the editor since it was read; re-read and retry")
         }
         return Decision(Action.APPLY)
@@ -90,17 +99,20 @@ object ReadSlice {
      * Mirrors the agent's sliceLines: 1-based offset, limit lines, trailing newline
      * kept. An offset past the end of the file throws the same message the agent's
      * own reader reports, so the model learns the file is shorter than it assumed
-     * instead of reading an empty result as an empty file.
+     * instead of reading an empty result as an empty file. With no window asked
+     * for (offset <= 1 and no limit) the text comes back untouched, an empty file
+     * included - exactly as the agent's read returns it.
      */
     fun apply(content: String, offset: Int, limit: Int): String {
-        if (content.isEmpty()) throw IllegalArgumentException("offset ${maxOf(offset, 1)} is beyond end of file (0 lines)")
+        val start = if (offset < 1) 1 else offset
+        val windowEnd = if (limit > 0) start + limit - 1 else 0
+        if (start <= 1 && windowEnd <= 0) return content
         val lines = content.split("\n").toMutableList()
         var hasTrailingNewline = false
-        if (lines.last() == "") {
+        if (lines.isNotEmpty() && lines.last() == "") {
             lines.removeAt(lines.size - 1)
             hasTrailingNewline = true
         }
-        val start = if (offset < 1) 1 else offset
         if (start > lines.size) {
             throw IllegalArgumentException("offset $start is beyond end of file (${lines.size} lines)")
         }
@@ -131,6 +143,9 @@ class FoxxyCodeToolExecutor(private val project: Project) {
     private companion object {
         /** The agent's delegate answer window is 60 s; a longer command falls back. */
         const val MAX_DELEGATED_COMMAND_SECONDS = 50
+
+        /** Shell startup, screen polling and the answer's own travel on top of the run. */
+        const val TERMINAL_WINDOW_SLACK_MS = 3000L
     }
 
     private data class Outcome(val status: String, val output: String? = null, val error: String? = null)
@@ -206,6 +221,13 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         ApplicationManager.getApplication().invokeLater {
             if (ev.hook && expiredHookCalls.remove(ev.nonce)) return@invokeLater
             if (project.isDisposed) {
+                respond(ev, notHandled())
+                return@invokeLater
+            }
+            // Past the agent's answer window it has already run the call itself;
+            // executing now would only race that local run (a command twice).
+            if (!ev.hook && ev.deadline > 0 && System.currentTimeMillis() >= ev.deadline) {
+                log.debug("tool_execute expired for ${ev.toolCallId}; the agent already fell back")
                 respond(ev, notHandled())
                 return@invokeLater
             }
@@ -356,6 +378,15 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             return
         }
         val waitMs = (if (timeoutSeconds > 0) timeoutSeconds else MAX_DELEGATED_COMMAND_SECONDS) * 1000L
+        // The command must fit the agent's answer window along with the shell
+        // startup and this answer's own travel: a terminal run that outlives the
+        // window would race the agent's local fallback and run the command twice.
+        if (!ev.hook && ev.deadline > 0 &&
+            System.currentTimeMillis() + waitMs + TERMINAL_WINDOW_SLACK_MS > ev.deadline
+        ) {
+            respond(ev, notHandled())
+            return
+        }
         ApplicationManager.getApplication().executeOnPooledThread {
             val r = try {
                 FoxxyCodeTerminalCommandRunner.run(project, command, ev.cwd.ifBlank { project.basePath }, waitMs)
@@ -520,9 +551,10 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         try {
             WriteCommandAction.runWriteCommandAction(project, FoxxyCodeBundle.message("toolexec.command.apply"), null, {
                 // The document stores \n internally and keeps the file's own line
-                // separators aside (re-applied on save), so the incoming text goes
-                // in normalized: DocumentImpl.setText rejects mixed separators.
-                doc.setText(ToolExecPlan.normalizeEol(ev.after))
+                // separators and BOM aside (re-applied on save), so the incoming
+                // text goes in normalized: DocumentImpl.setText rejects mixed
+                // separators, and a pasted BOM char would double with the saved one.
+                doc.setText(ToolExecPlan.normalizeEol(ToolExecPlan.stripBom(ev.after)))
                 // The document matched `before` and was clean, so saving brings the disk in
                 // line with what the agent expects its next read to see.
                 FileDocumentManager.getInstance().saveDocument(doc)
@@ -541,7 +573,7 @@ class FoxxyCodeToolExecutor(private val project: Project) {
                 val parent = VfsUtil.createDirectoryIfMissing(p.parent.toString())
                     ?: throw IllegalStateException("cannot create the parent directory")
                 val file = parent.createChildData(this, p.fileName.toString())
-                file.setBinaryContent(ev.after.toByteArray(StandardCharsets.UTF_8))
+                file.setBinaryContent(ToolExecPlan.stripBom(ev.after).toByteArray(StandardCharsets.UTF_8))
             })
             respond(ev, handled("created " + ev.path))
         } catch (e: Throwable) {

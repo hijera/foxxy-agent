@@ -17,6 +17,11 @@ data class FoxxyCodeEditEvent(
     val tool: String = "",
     val args: String = "",
     val nonce: String = "",
+    // Epoch ms when the agent stops waiting and runs the call itself (0 = no
+    // deadline, as in a Coddy hook payload whose window the hook enforces). A
+    // client that starts work after it races the agent's local fallback, so an
+    // expired call must not run at all.
+    val deadline: Long = 0,
     // The session workspace the call runs in: a Coddy ToolExecute payload carries
     // it, and so does a native `tool_execute` event (the backend puts the
     // session's cwd there). Relative paths resolve against it.

@@ -401,6 +401,23 @@ failing the start, and an install prunes the hook handlers of instances that
 died without a dispose (probing their endpoint) so a crashed IDE leaves no
 hook process spawning against a dead port on every matching call.
 
+A second review pass (2026-11-23) fixed what the first one missed: the buffer
+comparison now ignores a BOM (the preview carries raw file bytes, a document
+does not, so a BOM file conflicted on every delegated edit), a delegated `read`
+of an empty file without a window returns the agent's own empty result instead
+of a past-EOF error, the `tool_execute` event carries the agent's answer
+`deadline` so a client that only starts after it does not race the local
+fallback (a `run_command` would otherwise run twice), and the workspace
+comparison goes through `session.SameWorkspacePath` instead of raw strings.
+
+A third pass (2026-11-24) fixed the answer registry: tool call ids are only
+unique within one model answer ("call_0" repeats across sessions on several
+OpenAI-compatible backends), so the pending-call map now holds every wait
+under an id and a result singles one out by its `nonce` - under the old
+one-entry map a colliding second call overwrote the first, and the loser's
+timeout then deleted the winner's wait, so the winner's client answer was
+rejected and the call ran locally on top of what the IDE had already done.
+
 ## 11. Coddy interop (2026-11-16)
 
 Upstream PR coddy-project/coddy-agent#691 landed the generic route considered in section 9: synchronous `ToolExecute` after `PreToolUse` and the permission gate, `FirstPrompt` context in the turn-scoped block, and corrected `Question`/`TurnEnd` lifecycle semantics. FoxxyCode ports that contract and keeps its native IDE channel for FoxxyCode backends.
