@@ -168,11 +168,10 @@ reprocessed at full price to save a few thousand tokens the window was not short
 of yet. Below the mark the history therefore goes out exactly as the provider
 already has it; above it, the room matters more than the cache. Agent requests
 measure the threshold against the resolved context window. A compaction
-summarizer follows Coddy 1.2.72 and measures against the session model's
-configured `max_context_tokens`. If that value is unset, summarization applies
-result eviction from the first result. When eviction applies, it inspects the
-whole visible window for writes and pins before sending the older turns to the
-summarizer. See *The turn context block* in
+summarizer lifts the gate: eviction applies whenever it is enabled, even below
+`start_percent`, so a read made stale by a later write is not summarized as
+current. When eviction applies, it inspects the whole visible window for writes
+and pins before sending the older turns to the summarizer. See *The turn context block* in
 [react-agent.md](../contributing/react-agent.md) for the other half of the same
 story - what FoxxyCode stopped putting in the system prompt for the same reason.
 

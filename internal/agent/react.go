@@ -292,8 +292,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		typed := typedText(prompt)
 		// The built-in /compact command compacts history instead of running the ReAct
 		// loop. runCompactCommand persists the command text itself (so it shows in the
-		// transcript like any other message), and under the opencode engine returns a
-		// short notice instead of compacting.
+		// transcript like any other message).
 		if args, ok := parseCompactCommand(typed); ok {
 			return a.runCompactCommand(ctx, args, userText)
 		}
