@@ -8,6 +8,22 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.72 — 2026-11-19
+
+Checkpoint: `b9f75122ff13706b8716b162b88a2bfb36a6203b` (commit of annotated tag `1.2.72`), following `706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25` (`1.2.70`). Implementation: `ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b`, based on current `origin/main` `3e5b721c5ea71b8c732fa7c9d87b7251185c5dc1`. All eight commits are accounted for: seven adapted changes and one redundant integration merge. No remaining work in this range.
+
+- Ported visible message-edit state with draft and attachment recovery, plus undo of the last sent edit. Rewind keeps the cut messages, UI log and tool-call detail in a bundle-local snapshot; the new undo endpoint cancels the edited turn and restores the conversation without reverting workspace files. Swarm session deduplication now uses the topology's deterministic hop-by-hop tie-break, with the upstream ring, lease and warning tests included.
+- Preserved every registered fork divergence, including cross-process session refresh for both rewind and undo, queue and stop-notice behavior, paged transcripts, scheduler and child-session read-only rules, localization and the Chromium 104 baseline. The HTTP handler, OpenAPI, narrative guides, DESIGN and both editor changelog twins stay in step.
+- Validation: full shipped-tag `make test` with 3,499 SPA tests and the complete Go tree, focused backend and SPA tests, fork guards, rebranding, documentation checks, both editor changelog suites, embedded build and `make lint` pass. Layout, the full phone overflow grid and the complete 3,306-message transcript-window/two-browser/swarm scenario pass. Two documentation captures come from the real FoxxyCode offline stand, which also verified Undo end to end. Scope and adaptations: `docs/plans/upstream-1.2.72-port.md`.
+
+## Sync through upstream 1.2.70 — 2026-11-14
+
+Checkpoint: `706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25` (commit of annotated tag `1.2.70`), following `30fccb74140d42cc9b6a9e234d5eb831404fd3c5` (`1.2.60`). Implementation: `0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7`, based on PR #162 head `7173b71a434ee42b133f4b88a6efd2b2582b0048` with its review follow-ups. All 38 commits are accounted for: 36 adapted changes and two redundant integration merges. No remaining work in this range.
+
+- Ported Mermaid/SVG diagrams and KaTeX formulas with lazy content-hashed renderer chunks, project scheduler jobs with fixed roots and digest-bound trust, configurable character-capped memory notes, pinned-row dragging, correctly timed UI-log notices, the Memory settings regrouping, swarm file-transfer coverage and the contributor-rule updates. The queued-message alignment change and its revert cancel out.
+- Preserved every registered fork divergence, legacy `sched_` run history, `docs`/`debug` job modes, retry and continuation budgets, queue and stop-notice behavior, cross-process state, both compaction engines, Summary, IDE context, SVN, exports, localization and the Chromium 104 baseline. `ui.Handler()` serves the committed 137 renderer chunks immutable; `app.js` keeps the fork's 2.65 MB baseline budget and renderer-marker guard.
+- Validation: full shipped-tag `make test` with 3,452 SPA tests, `make lint`, `make check-windows`, `make lint-windows`, agent-rule adapters, focused backend and UI tests, all seven themes of `check:diagrams`, fork guards, documentation/schema checks and both editor changelog suites pass. Eleven screenshots come from the real FoxxyCode stand, not Coddy-branded media. Scope and adaptations: `docs/plans/upstream-1.2.70-port.md`.
+
 ## Sync through upstream 1.2.60 — 2026-11-12
 
 Checkpoint: `30fccb74140d42cc9b6a9e234d5eb831404fd3c5` (commit of annotated tag `1.2.60`), following `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (`1.2.56`). Implementation: `18d49d6fcf1fa57740d91694f680108d9f2fe359`. All 58 commits are accounted for: 52 adapted changes and six redundant integration merges. No remaining work in this range.

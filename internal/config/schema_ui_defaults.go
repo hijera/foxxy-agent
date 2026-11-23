@@ -146,6 +146,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
+			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
 		Compaction: CompactionJSON{
 			Engine:           CompactionEngineCoddy,
@@ -170,10 +171,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
-			Dir:            "${FOXXYCODE_HOME}/scheduler",
 			MaxQueue:       10,
 			Timeout:        "30m",
 			RetainSessions: 5,
+			ProjectTrust:   ProjectTrustAsk,
 		},
 		Gateways: GatewaysJSON{
 			Telegram: TelegramGatewayJSON{

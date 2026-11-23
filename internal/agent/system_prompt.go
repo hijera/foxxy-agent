@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -351,26 +352,14 @@ func languageDirective(locale string) string {
 // duplicate keys are dropped.
 func (a *Agent) promptVariants() []string {
 	modelID := a.state.EffectiveModelID(a.cfg)
-	modelSlug := prompts.ModelSlug(modelID)
-	apiModelSlug := ""
-	family := ""
+	candidates := []string{prompts.ModelSlug(modelID)}
 	if rm, err := a.cfg.ResolveLLM(modelID); err == nil {
-		apiModelSlug = prompts.ModelSlug(rm.Model)
-		family = prompts.Family(rm.ProviderType, rm.Model)
+		candidates = append(candidates, prompts.ModelSlug(rm.Model))
+		candidates = append(candidates, prompts.Families(rm.ProviderType, rm.Model)...)
 	}
 	var variants []string
-	for _, v := range []string{modelSlug, apiModelSlug, family} {
-		if v == "" {
-			continue
-		}
-		dup := false
-		for _, existing := range variants {
-			if existing == v {
-				dup = true
-				break
-			}
-		}
-		if !dup {
+	for _, v := range candidates {
+		if v != "" && !slices.Contains(variants, v) {
 			variants = append(variants, v)
 		}
 	}

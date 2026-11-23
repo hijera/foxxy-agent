@@ -11,6 +11,7 @@ import { resolveLocale } from "./localeState";
 export type Locale = "en" | "ru";
 
 const en = {
+  "download.errorSave": "Could not save the diagram: {0}",
   // Settings
   "settings.displayName": "FoxxyCode",
   "settings.label.binaryPath": "Binary path (optional):",
@@ -86,6 +87,7 @@ const en = {
 type MessageKey = keyof typeof en;
 
 const ru: Record<MessageKey, string> = {
+  "download.errorSave": "Не удалось сохранить диаграмму: {0}",
   "settings.displayName": "FoxxyCode",
   "settings.label.binaryPath": "Путь к бинарнику (необязательно):",
   "settings.hint.binaryPath": "Оставьте пустым, чтобы использовать foxxycode, встроенный в расширение.",

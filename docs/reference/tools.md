@@ -175,20 +175,20 @@ Staged edits to the live `config.yaml` ([config.yaml reference](../reference/con
 
 ## Scheduler
 
-Compiled in with the `scheduler` tag and registered only while the scheduler is enabled (`internal/tools/scheduler_hook.go`, `external/scheduler/tools/register.go`). `job_id` is the file basename under `scheduler.dir`; the job fields are those of the frontmatter ([Scheduler](../operate/scheduler.md#tools-when-scheduler-is-enabled)). Agent mode only.
+Compiled in with the `scheduler` tag and registered only while the scheduler is enabled (`internal/tools/scheduler_hook.go`, `external/scheduler/tools/register.go`). `job_id` is the file basename; every per-job tool takes `scope`, `user` (default, `${FOXXYCODE_HOME}/scheduler`) or `project` (`<session cwd>/.foxxycode/scheduler`, a job that runs only once the operator approved it; no tool approves one); the job fields are those of the frontmatter ([Scheduler](../operate/scheduler.md#tools-when-scheduler-is-enabled)). Agent mode only.
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `foxxycode_scheduler_jobs_list` | List every job file | `include_body` | none | agent, debug |
-| `foxxycode_scheduler_job_get` | Load one job | `job_id` | none | agent, debug |
-| `foxxycode_scheduler_job_runs` | List the persisted runs of a job with their session ids | `job_id`, `limit` | none | agent, debug |
-| `foxxycode_scheduler_job_create` | Create a job file | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent, debug |
-| `foxxycode_scheduler_job_replace` | Replace every field of a job | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent, debug |
-| `foxxycode_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent, debug |
-| `foxxycode_scheduler_job_pause`, `foxxycode_scheduler_job_resume` | Set or clear `paused` | `job_id` | always | agent, debug |
-| `foxxycode_scheduler_job_delete` | Delete a job and its `.state` and `.lock` sidecars when idle | `job_id` | always | agent, debug |
-| `foxxycode_scheduler_job_run` | Trigger one asynchronous run now | `job_id` | always | agent, debug |
-| `foxxycode_scheduler_job_cancel` | Cancel the active run of a job | `job_id` | always | agent, debug |
+| `foxxycode_scheduler_jobs_list` | List the user jobs and the project jobs of the session's workspace and of the workspaces the scheduler runs, each with its scope and trust | `include_body` | none | agent, debug |
+| `foxxycode_scheduler_job_get` | Load one job | `scope`, `job_id` | none | agent, debug |
+| `foxxycode_scheduler_job_runs` | List the runs of a job, newest first: the task under the job session, the run session that holds the transcript, trigger, status and timing | `scope`, `job_id`, `limit` | none | agent, debug |
+| `foxxycode_scheduler_job_create` | Create a job file | `scope`, `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent, debug |
+| `foxxycode_scheduler_job_replace` | Replace every field of a job | `scope`, `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent, debug |
+| `foxxycode_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `scope`, `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent, debug |
+| `foxxycode_scheduler_job_pause`, `foxxycode_scheduler_job_resume` | Set or clear `paused` | `scope`, `job_id` | always | agent, debug |
+| `foxxycode_scheduler_job_delete` | Delete a job, its `.state` sidecar and its run history when no run is in flight | `scope`, `job_id` | always | agent, debug |
+| `foxxycode_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `scope`, `job_id` | always | agent, debug |
+| `foxxycode_scheduler_job_cancel` | Stop the run of a job that is in flight | `scope`, `job_id` | always | agent, debug |
 
 ## Memory subagent
 

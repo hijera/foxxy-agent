@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 
 VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and FoxxyCode writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form FoxxyCode writes for everything you never set, so a saved config validates clean. On/off switches are spelled `enable`, as in foxxy-agent; `enabled`, the name FoxxyCode used before 0.3.x, is still read in every section that has the switch, reported by `foxxycode -t` as a warning and written back as `enable` by the next save (see [Configuration](../getting-started/configuration.md#checking-the-file-from-the-command-line)).
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -322,6 +322,7 @@ Optional memory subagent (implementation in external/memory; enable at runtime w
 | `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the cap is the larger of the two. |
 | `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory subagent LLM calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.max_note_chars` | integer or null | 900 | Longest body one note saved by foxxycode_memory_save may have, in characters (not bytes). An explicit 0 removes the cap. |
 | `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
 | `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and foxxycode -t reports it. 0 means no cap. |
 
@@ -410,14 +411,14 @@ Embedded SPA preferences for desktop and HTTP UI.
 
 ### `scheduler`
 
-Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
+Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${FOXXYCODE_HOME}/scheduler (user jobs) and <workspace>/.foxxycode/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scheduler.enable` | boolean | false | Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp\|http -scheduler-enabled. |
-| `scheduler.dir` | string | "" | Directory with *.md job definitions. Empty resolves to ${FOXXYCODE_HOME}/scheduler. |
 | `scheduler.max_queue` | integer | 10 | Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused. |
 | `scheduler.timeout` | string | 30m | Wall-clock limit for one run, as a Go duration (e.g. "30m", "1h30m"); the background task pool still caps it at tools.background.max_timeout_seconds. |
+| `scheduler.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for project jobs, the *.md files in <workspace>/.foxxycode/scheduler that travel with the checkout: "ask" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /foxxycode/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through FoxxyCode is approved at once; "allow" runs them like the operator's own jobs; "deny" never runs them. See https://foxxycode.dev/docs/operate/scheduler#project-jobs-and-trust. |
 | `scheduler.retain_sessions` | integer | 5 | Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes. |
 
 ### `gateways`

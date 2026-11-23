@@ -80,6 +80,14 @@ type State struct {
 	// the same lock that made the change.
 	msgRev     uint64
 	msgEditRev uint64
+	// historyRewriteID identifies the last rewind or undo persisted with Messages.
+	historyRewriteID string
+
+	// undoWatchTurn names the turn a live watchRewindUndoCancel of THIS process
+	// stands behind (rewind_undo_cancel.go). A turn marker on disk is only
+	// trusted while its turn is the one held here, so a marker left behind by a
+	// watcher whose process died is told from one that will still answer.
+	undoWatchTurn string
 
 	// persistID tells this State apart from any other over the same bundle.
 	// The counters above start at zero in every State, so a session that was
@@ -271,6 +279,10 @@ type State struct {
 	// schedulerJobId, which is what keeps it out of the working list.
 	SchedulerRun   bool
 	SchedulerJobID string
+	// SchedulerJobWorkspace is the canonical workspace of a project job's
+	// session; empty for a user job. It is what keeps a user job and a project
+	// job of the same id from finding each other's session.
+	SchedulerJobWorkspace string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
@@ -450,6 +462,22 @@ func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.mu.Unlock()
 }
 
+// SetSchedulerJobWorkspaceWithoutPersist records the workspace of a project
+// job's session (see SchedulerJobWorkspace); empty for a user job.
+func (s *State) SetSchedulerJobWorkspaceWithoutPersist(workspace string) {
+	s.mu.Lock()
+	s.SchedulerJobWorkspace = strings.TrimSpace(workspace)
+	s.mu.Unlock()
+}
+
+// GetSchedulerJobWorkspace returns the workspace of a project job's session,
+// "" for a user job or an ordinary session.
+func (s *State) GetSchedulerJobWorkspace() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerJobWorkspace
+}
+
 // IsSchedulerJob reports whether this session belongs to a scheduler job: the
 // parent of that job's runs, never a chat.
 func (s *State) IsSchedulerJob() bool {
@@ -556,8 +584,11 @@ type SubagentMeta struct {
 
 // SchedulerRunMeta is the origin of a scheduled run.
 type SchedulerRunMeta struct {
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// Workspace is the canonical workspace of a project job; empty for a
+	// user job.
+	Workspace string
 	// Trigger is "cron" for a run the tick started, "manual" for one asked
 	// for through the API or a tool.
 	Trigger string
@@ -1146,7 +1177,7 @@ var statePersistIDs atomic.Uint64
 // PlanDocument is a pointer, and an in-place plan edit would otherwise rewrite
 // content this snapshot is already encoding, pairing it with the revision from
 // before the edit.
-func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64) {
+func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64, rewriteID string) {
 	s.persistOnce.Do(func() { s.persistID = statePersistIDs.Add(1) })
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1158,7 +1189,7 @@ func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint6
 			msgs[i].PlanDocument = &snapshot
 		}
 	}
-	return msgs, s.msgRev, s.msgEditRev, s.persistID
+	return msgs, s.msgRev, s.msgEditRev, s.persistID, s.historyRewriteID
 }
 
 // GetMessages returns a copy of the message history. The copy is shallow: a
@@ -1867,6 +1898,10 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 // there would change this history without touching its revisions - which
 // persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	s.replaceMessagesWithoutPersist(msgs, nil)
+}
+
+func (s *State) replaceMessagesWithoutPersist(msgs []llm.Message, rewriteID *string) {
 	owned := make([]llm.Message, len(msgs))
 	copy(owned, msgs)
 	for i := range owned {
@@ -1877,6 +1912,9 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	}
 	s.mu.Lock()
 	s.Messages = owned
+	if rewriteID != nil {
+		s.historyRewriteID = *rewriteID
+	}
 	s.markMessagesEdited()
 	s.mu.Unlock()
 }

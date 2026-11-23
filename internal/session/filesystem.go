@@ -146,13 +146,13 @@ const messagesFileTail = "\n  ]\n}\n"
 // difference between the two paths observable to a test - encoding a long
 // history is slow rather than allocation-heavy, so the work cannot be measured
 // any other way without timing.
-func encodeMessagesFile(msgs []llm.Message, base *persistedMessages) ([]byte, int, error) {
+func encodeMessagesFile(msgs []llm.Message, base *persistedMessages, rewriteID string) ([]byte, int, error) {
 	if base != nil && base.count > 0 && len(msgs) > base.count {
 		if out, ok := spliceMessages(base.bytes, msgs[base.count:]); ok {
 			return out, len(msgs) - base.count, nil
 		}
 	}
-	data, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: msgs}, "", "  ")
+	data, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, RewriteID: rewriteID, Messages: msgs}, "", "  ")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -457,10 +457,13 @@ type SessionMeta struct {
 	// below) it names the job the run belongs to, with SchedulerTrigger
 	// ("cron" or "manual") and SchedulerFireSlot (the committed UTC minute of
 	// a cron fire, RFC3339) saying how the run started.
-	SchedulerRun      bool   `json:"schedulerRun,omitempty"`
-	SchedulerJobID    string `json:"schedulerJobId,omitempty"`
-	SchedulerTrigger  string `json:"schedulerTrigger,omitempty"`
-	SchedulerFireSlot string `json:"schedulerFireSlot,omitempty"`
+	SchedulerRun   bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID string `json:"schedulerJobId,omitempty"`
+	// SchedulerJobWorkspace is the canonical workspace of a project job (its
+	// file is <workspace>/.foxxycode/scheduler/<id>.md); empty for a user job.
+	SchedulerJobWorkspace string `json:"schedulerJobWorkspace,omitempty"`
+	SchedulerTrigger      string `json:"schedulerTrigger,omitempty"`
+	SchedulerFireSlot     string `json:"schedulerFireSlot,omitempty"`
 	// Legacy top-level sched_ run fields remain readable after the job-session
 	// migration. New runs use background task records instead.
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
@@ -506,8 +509,9 @@ func (m SessionMeta) IsSubagentRun() bool {
 }
 
 type messagesFileData struct {
-	Version  int           `json:"version"`
-	Messages []llm.Message `json:"messages"`
+	Version   int           `json:"version"`
+	RewriteID string        `json:"rewriteId,omitempty"`
+	Messages  []llm.Message `json:"messages"`
 }
 
 type uiLogFileData struct {
@@ -527,6 +531,7 @@ type LoadedSnapshot struct {
 	Dir                 string
 	Meta                SessionMeta
 	Messages            []llm.Message
+	HistoryRewriteID    string
 	UILog               []UILogEntry
 	Plan                []acp.PlanEntry
 	PermissionCommands  []string
@@ -620,14 +625,7 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
 		return nil, fmt.Errorf("session.json: %w", err)
 	}
-	var msgs []llm.Message
-	msgPath := filepath.Join(dir, messagesFile)
-	if b, readErr := readFileWithRetry(msgPath); readErr == nil {
-		var wrap messagesFileData
-		if jsonErr := json.Unmarshal(b, &wrap); jsonErr == nil {
-			msgs = wrap.Messages
-		}
-	}
+	history := readMessagesAt(dir)
 
 	var uiEntries []UILogEntry
 	ulPath := filepath.Join(dir, uiLogFile)
@@ -665,7 +663,8 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 	return &LoadedSnapshot{
 		Dir:                 dir,
 		Meta:                meta,
-		Messages:            msgs,
+		Messages:            history.Messages,
+		HistoryRewriteID:    history.RewriteID,
 		UILog:               uiEntries,
 		Plan:                plan,
 		PermissionCommands:  permCmds,
@@ -1194,7 +1193,7 @@ func (f *FileStore) Save(state *State) error {
 		return nil
 	}
 
-	msgs, msgRev, msgEditRev, stateID := state.MessagesForPersist()
+	msgs, msgRev, msgEditRev, stateID, rewriteID := state.MessagesForPersist()
 	title := conversationTitle(state, msgs)
 
 	var prevMeta SessionMeta
@@ -1225,7 +1224,7 @@ func (f *FileStore) Save(state *State) error {
 	// another process ran a turn over this bundle. Its save still writes the
 	// meta, but leaves the transcript side to the newer writer; the next turn
 	// here re-reads it (disk_refresh.go).
-	stale := state.staleAgainstDisk(dir, msgs, msgRev, msgEditRev)
+	stale := state.staleAgainstDisk(dir, msgs, msgRev, msgEditRev, rewriteID)
 
 	// What was last written is remembered rather than read back and compared:
 	// the old code encoded the history a second time only to diff it against
@@ -1247,7 +1246,7 @@ func (f *FileStore) Save(state *State) error {
 		if usable && cached.editRev == msgEditRev {
 			base = cached
 		}
-		data, _, err := encodeMessagesFile(msgs, base)
+		data, _, err := encodeMessagesFile(msgs, base, rewriteID)
 		if err != nil {
 			return err
 		}
@@ -1266,7 +1265,7 @@ func (f *FileStore) Save(state *State) error {
 			// this, archiving a conversation the server had not touched since
 			// it started moved updatedAt and sent it to the top of the list.
 			onDisk, readErr := os.ReadFile(msgPath)
-			if readErr == nil && sameTranscript(onDisk, data, msgs) {
+			if readErr == nil && sameTranscript(onDisk, data, msgs, rewriteID) {
 				messagesUnchanged = true
 				// Remember it, so the read happens once rather than on every
 				// save that follows.
@@ -1313,6 +1312,7 @@ func (f *FileStore) Save(state *State) error {
 	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true
 		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
+		meta.SchedulerJobWorkspace = strings.TrimSpace(state.GetSchedulerJobWorkspace())
 		if strings.HasPrefix(state.ID, "sched_") {
 			// Keep the old run timestamps and outcome when its transcript or
 			// session metadata is saved by a newer binary.
@@ -1331,6 +1331,7 @@ func (f *FileStore) Save(state *State) error {
 		meta.SubagentDepth = sub.Depth
 		if sub.Scheduler != nil {
 			meta.SchedulerJobID = strings.TrimSpace(sub.Scheduler.JobID)
+			meta.SchedulerJobWorkspace = strings.TrimSpace(sub.Scheduler.Workspace)
 			meta.SchedulerTrigger = strings.TrimSpace(sub.Scheduler.Trigger)
 			if !sub.Scheduler.FireSlot.IsZero() {
 				meta.SchedulerFireSlot = sub.Scheduler.FireSlot.UTC().Format(time.RFC3339)
@@ -1654,7 +1655,7 @@ func truncateRunes(s string, max int) string {
 // it is worth doing; calling it a change to the conversation is not, because the
 // listing is ordered by when a conversation last changed - and archiving one
 // would then send it to the top of the list, which is the opposite of archiving.
-func sameTranscript(onDisk, encoded []byte, msgs []llm.Message) bool {
+func sameTranscript(onDisk, encoded []byte, msgs []llm.Message, rewriteID string) bool {
 	if bytes.Equal(onDisk, encoded) {
 		return true
 	}
@@ -1662,7 +1663,7 @@ func sameTranscript(onDisk, encoded []byte, msgs []llm.Message) bool {
 	if err := json.Unmarshal(onDisk, &stored); err != nil {
 		return false
 	}
-	return reflect.DeepEqual(stored.Messages, msgs)
+	return stored.RewriteID == rewriteID && reflect.DeepEqual(stored.Messages, msgs)
 }
 
 // writeBytesAtomic writes data to path using a unique temp file in the same directory

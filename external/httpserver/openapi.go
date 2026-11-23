@@ -33,7 +33,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /foxxycode/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /foxxycode/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**. The renderers the page loads on demand live under **`/chunks/`** with content-hashed names and **`Cache-Control: public, max-age=31536000, immutable`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
@@ -2118,7 +2118,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
 					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over the **`user`** rows that are **not** compaction summaries - the numbering **`turnsBefore`** reports - a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, because truncating history is work a page on another site must not be able to start. " +
-						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, moves the **`tool_calls/`** entries and **`ui_log`** rows of the dropped turns into the bundle's undo snapshot, which **POST /foxxycode/sessions/{id}/rewind/undo** restores. " +
 						"A **`session_rewound`** event is published on **`GET /foxxycode/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "foxxycodeRewind",
 					"parameters": []interface{}{
@@ -2173,6 +2173,64 @@ func openAPISpec() map[string]interface{} {
 						},
 						"415": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/rewind/undo": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Undo the last rewind of the session",
+					"operationId": "foxxycodeRewindUndo",
+					"description": "Restores the specific rewind identified by **rewindUndo.snapshotId** from **GET /foxxycode/sessions/{id}/messages**. The server stops the edited prompt if it is still running and restores the cut messages, **uiLog** rows and tool-call detail. A later prompt, a replacement rewind, or a rewritten prefix expires the snapshot. File changes made during the edit stay on disk. Publishes **session_rewound** on **GET /foxxycode/events**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"snapshotId"},
+									"properties": map[string]interface{}{
+										"snapshotId": map[string]interface{}{"type": "string", "minLength": 1, "description": "The rewindUndo.snapshotId from the transcript."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Requested rewind taken back",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The snapshot expired, the session is busy, or the transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"415": errorResponseRef(),
+						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},
@@ -2252,8 +2310,10 @@ func openAPISpec() map[string]interface{} {
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /foxxycode/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
+						"A scheduler **job session** instead carries **readOnly** **true** and **schedulerJob** **`{jobId, workspace}`** (**`workspace`** only for a project job: the canonical workspace its definition lives in). The job session is the parent of the job's runs, nobody prompts it, and a UI points at the job's history (**GET /foxxycode/scheduler/jobs/{job_id}/runs**). " +
 						"The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version). **Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, a **limit** outside 1..1000, a **from** at or past its **before**, and a **from** and a **before** that fall inside one tool step are **400** - both ends move back to the assistant that issued the call, so such a window holds no whole step to answer with. " +
-						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
+						"**rewindUndo** **`{snapshotId, userMessageIndex}`** identifies the rewind that can be taken back with **POST /foxxycode/sessions/{id}/rewind/undo** and the index of the prompt it edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background. A missing managed worktree is also reconciled to the main checkout for an already-loaded session, refreshing its workspace catalogs without rewriting the original persisted path. Windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
@@ -4634,7 +4694,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -4693,7 +4753,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{

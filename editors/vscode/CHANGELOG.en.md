@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-16
+## Unreleased — 2026-11-23
 
 **External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
 
@@ -17,6 +17,36 @@ New hook events: `Question` - when the agent asks something (the payload carries
 
 **IDE context before a send.**
 Right before a message goes out the panel pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message. The IntelliJ panel ships the snapshot first; the VS Code extension follows.
+## 0.3.53 — 2026-11-21
+
+**Panel restart.** Restart keeps control of the replacement process even when the previous backend exits later. The editor tab and sidebar reconnect to the new server together; closing a tab during restart does not leave the remaining panel disconnected.
+
+## 0.3.52 — 2026-11-20
+
+**Guidance for DeepSeek models.**
+DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
+
+## 0.3.51 — 2026-11-19
+
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
+## 0.3.50 — 2026-11-19
+
+**Saving diagrams in VS Code.** The MMD and SVG buttons use the editor's Save As picker and save through the extension, avoiding downloads cancelled inside the webview.
+
+**Diagrams and formulas in answers.**
+Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
+Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
+Inline formulas copy their LaTeX source in the editor panel even when its embedded browser denies the Clipboard API.
+
+**Project jobs and memory.**
+The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask policy, jobs from the repository require approval and file changes require fresh approval. During an upgrade, jobs from the legacy `scheduler.dir` are copied to Global with their state. Job files with mixed-case Markdown extensions remain discoverable and editable. The `max_note_chars` memory setting limits note length in characters. A notice appears when text is truncated, including text in Cyrillic.
+
+**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
+
+## 0.3.49 — 2026-11-15
 
 **Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
 
