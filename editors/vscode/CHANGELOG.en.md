@@ -8,7 +8,16 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-21
+## Unreleased — 2026-11-23
+
+**External execution through hooks.** `ToolExecute` lets a synchronous hook run a tool after the permission gate and answer with `toolResult` or `toolError`. `FirstPrompt` adds context only to the session's first turn without changing the cached system prompt.
+
+**Hooks for notifications.**
+New hook events: `Question` - when the agent asks something (the payload carries the questions and their options), and `TurnEnd` - when the agent finished its work and waits for the next message. Both are the source for native and IDE notifications.
+
+**IDE context before a send.**
+Right before a message goes out the panel pushes a snapshot of the open buffers - unsaved edits included - and the model sees them in the IDE context block from the very first message. The IntelliJ panel ships the snapshot first; the VS Code extension follows.
+## 0.3.53 — 2026-11-21
 
 **Panel restart.** Restart keeps control of the replacement process even when the previous backend exits later. The editor tab and sidebar reconnect to the new server together; closing a tab during restart does not leave the remaining panel disconnected.
 

@@ -280,7 +280,7 @@ import {
   recordLastProjectSession,
   shouldRestoreLastSession,
 } from "./sessions/lastProjectSession";
-import { isEditorEmbed } from "./embedShell";
+import { hostBeforeSend, isEditorEmbed } from "./embedShell";
 import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
@@ -5987,6 +5987,10 @@ export function App() {
         reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
         pendingPermissionModeRef.current = "";
       }
+      if (!ownsPost() || abortCtl.signal.aborted) return;
+      // In an editor embed the host pushes a fresh IDE context snapshot (open
+      // buffers included) before the message goes out, so the turn reads it.
+      await hostBeforeSend();
       if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
         method: "POST",

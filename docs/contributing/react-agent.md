@@ -129,8 +129,8 @@ See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
-checklist after the history; its block carries the two sections no template prints, the memory
-report and the running background tasks, and is left out when there is neither.
+checklist after the history; its block carries the sections no template prints, including the memory
+report, running background tasks and one-time `FirstPrompt` enrichment, and is left out when none applies.
 
 ### The other half: read/grep eviction
 

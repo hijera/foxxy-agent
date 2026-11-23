@@ -1,17 +1,32 @@
 package dev.foxxycode.intellij.diff
 
 /**
- * One `edit_proposed` / `edit_applied` / `open_file` / `reveal_file` event from
+ * One `edit_proposed` / `edit_applied` / `open_file` / `reveal_file` / `tool_execute` event from
  * the foxxycode `GET /foxxycode/ide/events` SSE stream.
  * Mirrors the Go `ideEvent` struct in external/httpserver/ideevents.go.
  */
 data class FoxxyCodeEditEvent(
-    val type: String,        // "edit_proposed" | "edit_applied" | "open_file" | "reveal_file"
+    val type: String,        // "edit_proposed" | "edit_applied" | "open_file" | "reveal_file" | "tool_execute"
     val toolCallId: String,
     val sessionId: String,
     val path: String,        // absolute path
     val before: String,
     val after: String,
+    // Set on tool_execute only: the raw tool call the client is asked to execute,
+    // and the token its POST /foxxycode/ide/tool-result answer must echo.
+    val tool: String = "",
+    val args: String = "",
+    val nonce: String = "",
+    // Epoch ms when the agent stops waiting and runs the call itself (0 = no
+    // deadline, as in a Coddy hook payload whose window the hook enforces). A
+    // client that starts work after it races the agent's local fallback, so an
+    // expired call must not run at all.
+    val deadline: Long = 0,
+    // The session workspace the call runs in: a Coddy ToolExecute payload carries
+    // it, and so does a native `tool_execute` event (the backend puts the
+    // session's cwd there). Relative paths resolve against it.
+    val hook: Boolean = false,
+    val cwd: String = "",
 ) {
     val isProposed: Boolean get() = type == "edit_proposed"
     val isApplied: Boolean get() = type == "edit_applied"
@@ -30,4 +45,11 @@ data class FoxxyCodeEditEvent(
      * the OS file manager rather than an editor tab.
      */
     val isRevealFile: Boolean get() = type == "reveal_file"
+
+    /**
+     * The agent offers this tool call for execution through the IDE. The
+     * answer travels back as POST /foxxycode/ide/tool-result (see
+     * FoxxyCodeToolExecutor); until it arrives the agent writes nothing.
+     */
+    val isToolExecute: Boolean get() = type == "tool_execute"
 }

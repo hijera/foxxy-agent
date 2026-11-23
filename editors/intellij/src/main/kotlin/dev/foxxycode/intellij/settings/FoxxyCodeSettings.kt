@@ -34,6 +34,21 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
         // Show native inline diffs in the editor when the agent edits files.
         var nativeDiffs: Boolean = true
 
+        // Execute the agent's file writes (write/edit/apply_patch) through the editor's
+        // document model - buffers, undo stack, save policy - instead of the agent writing
+        // the file behind it. See docs/features/ide-tool-delegation.md.
+        var ideToolExecution: Boolean = true
+
+        // Per-tool switches for the delegated execution (each off means the agent runs
+        // that tool itself). The document-model writes above are the master switch.
+        var ideExecTerminal: Boolean = true
+        var ideExecRead: Boolean = true
+        var ideExecPlanWrite: Boolean = true
+        var ideExecMkdir: Boolean = true
+        var ideExecRm: Boolean = true
+        var ideExecMv: Boolean = true
+        var ideExecTouch: Boolean = true
+
         // Report which files are open (open tabs + active file) to the agent each turn.
         var trackOpenFiles: Boolean = true
 
@@ -56,5 +71,26 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
     companion object {
         fun getInstance(): FoxxyCodeSettings =
             ApplicationManager.getApplication().getService(FoxxyCodeSettings::class.java)
+
+        /**
+         * The `?handles=` value of the plugin's IDE event stream: every tool the
+         * switches currently let the plugin execute, in the order the feature docs
+         * list them. Empty when execution is off entirely, so the subscription
+         * declares no tools and the agent offers nothing. The executor re-checks
+         * the switches per call, so a mid-session toggle costs a round trip at
+         * most until the stream reconnects.
+         */
+        fun delegatedHandles(state: State): String {
+            if (!state.ideToolExecution) return ""
+            val on = mutableListOf("write", "edit", "apply_patch")
+            if (state.ideExecTerminal) on.add("run_command")
+            if (state.ideExecRead) on.add("read")
+            if (state.ideExecPlanWrite) on.add("plan_write")
+            if (state.ideExecMkdir) on.add("mkdir")
+            if (state.ideExecRm) on.add("rm")
+            if (state.ideExecMv) on.add("mv")
+            if (state.ideExecTouch) on.add("touch")
+            return on.joinToString(",")
+        }
     }
 }

@@ -12,9 +12,15 @@ import java.nio.charset.StandardCharsets
  * Reads the foxxycode `GET /foxxycode/ide/events` Server-Sent-Events stream on a background daemon
  * thread and delivers parsed [FoxxyCodeEditEvent]s to [onEvent]. Reconnects with backoff until
  * [stop] is called. Pure `HttpURLConnection` (no extra deps), matching FoxxyCodeProcessManager.
+ *
+ * [handles] names the tools this client can execute through the IDE (the `?handles=` query
+ * parameter). The agent offers a call only while some subscriber declared it, but the
+ * `tool_execute` event itself is broadcast to every connected client - one that did not
+ * declare the tool answers `not_handled`, and the agent runs the call locally.
  */
 class FoxxyCodeIdeEventClient(
     private val baseUrl: String,
+    private val handles: String = "write,edit,apply_patch,run_command,read,plan_write,mkdir,rm,mv,touch",
     private val onEvent: (FoxxyCodeEditEvent) -> Unit,
 ) {
     private val log = logger<FoxxyCodeIdeEventClient>()
@@ -45,7 +51,8 @@ class FoxxyCodeIdeEventClient(
 
     private fun eventsUrl(): String {
         val base = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
-        return base + "foxxycode/ide/events"
+        val suffix = if (handles.isBlank()) "" else "?handles=" + handles.trim()
+        return base + "foxxycode/ide/events" + suffix
     }
 
     private fun loop() {
@@ -108,6 +115,8 @@ class FoxxyCodeIdeEventClient(
         return try {
             val o = JsonParser.parseString(payload).asJsonObject
             fun str(key: String) = if (o.has(key) && !o.get(key).isJsonNull) o.get(key).asString else ""
+            fun num(key: String) =
+                if (o.has(key) && o.get(key).isJsonPrimitive) o.get(key).asLong else 0L
             val type = str("type")
             if (type.isEmpty()) return null
             FoxxyCodeEditEvent(
@@ -117,6 +126,11 @@ class FoxxyCodeIdeEventClient(
                 path = str("path"),
                 before = str("before"),
                 after = str("after"),
+                tool = str("tool"),
+                args = str("args"),
+                nonce = str("nonce"),
+                deadline = num("deadline"),
+                cwd = str("cwd"),
             )
         } catch (e: Exception) {
             log.warn("failed to parse ide event: ${e.message}")

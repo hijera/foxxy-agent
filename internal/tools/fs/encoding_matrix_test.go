@@ -317,7 +317,7 @@ func TestEncodingMatrixPreviewMatchesWrite(t *testing.T) {
 
 			changed := tc.body + tc.insert + "\n"
 			args := mustJSON(t, map[string]string{"path": "source.go", "content": changed})
-			_, before, after, ok, err := EditPreview("write", args, root)
+			_, before, after, ok, err := EditPreview("write", args, root, "")
 			if err != nil || !ok {
 				t.Fatalf("EditPreview: ok=%v err=%v", ok, err)
 			}
