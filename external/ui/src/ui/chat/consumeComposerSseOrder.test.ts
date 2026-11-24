@@ -97,6 +97,28 @@ describe("consumeComposerSseReader chronological ordering", () => {
     ]);
   });
 
+  it("keeps reasoning in the middle of an answer from splitting its text bubble", async () => {
+    seq = 0;
+    const p = harness(
+      readerFromChunks([
+        text("The answer starts "),
+        reasoning("a late thought"),
+        text("and finishes on the same line."),
+        DONE,
+      ]),
+    );
+    await consumeComposerSseReader(p);
+
+    const items = p.getItems();
+    expect(items.map((x) => x.type)).toEqual([
+      "thinking",
+      "assistant_message",
+    ]);
+    expect(items[1]).toMatchObject({
+      content: "The answer starts and finishes on the same line.",
+    });
+  });
+
   it("puts text after an action into a new bubble below it", async () => {
     seq = 0;
     const p = harness(
