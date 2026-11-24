@@ -322,7 +322,7 @@ func (a *Agent) refreshContextBreakdown(build *systemPromptBuild, turnCtx string
 		return
 	}
 	// The Conversation estimate mirrors what buildMessages sends: only the window
-	// the active compaction engine still replays.
+	// since the most recent compaction summary.
 	sys := joinNonEmptyPromptBlocks(build.Content, turnCtx)
 	msgs := a.prunedForLLM(a.llmVisibleMessages())
 	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, a.modelReadsImages(), build.ToolDefs), false)

@@ -751,13 +751,13 @@ merge (`<<`) or anchor; an explicit value on `agent` overrides the merged value.
 
 Transport failures, empty answers and first-token reissues share `agent.llm_retry_max` extra attempts per model step (default 10). Both the immediate first-token replay and later reissues after a stall wait spend this allowance; `llm_stall_retry_max_wait_ms` also limits the time spent waiting. Tool progress or a new follow-up starts a new allowance. No-answer recovery replays the frozen request before adding one no-answer nudge; it preserves prompt-cache prefixes and does not consume `max_turns`. An exhausted allowance ends the retry, including a provider outage. Interrupted answers instead use the separate `llm_continue_max` turn budget and keep their existing continuation delays, even when `llm_retry_max` is zero. Loop guards, Stop hooks, fallback chains and quota-reset waits keep their own limits.
 
-`/compact --model <id>` and `compact_context.model` override the summarizer for one call for either `compaction.engine: foxxycode` or `opencode`. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
+`/compact --model <id>` and `compact_context.model` override the summarizer for one call. The configured chain remains as fallback. Settings offers configured logical models, including unsaved edits.
 
 Provider account usage sources are `neuraldeep`, `codex` and `devin`. `usage_limits_panel: false` disables their reads as well as the UI and console display. Codex and Devin use their managed login; explicit credentials that shadow it do not report unrelated subscription quotas.
 
 ## Automatic compaction and shared servers
 
-`compaction.auto_enable` defaults to `true`. Set it to `false` to disable the threshold trigger while retaining `/compact` and the Context popover action. `compaction.enable` remains the master switch for both. Both `foxxycode` and `opencode` engines support it.
+`compaction.auto_enable` defaults to `true`. Set it to `false` to disable the threshold trigger while retaining `/compact` and the Context popover action. `compaction.enable` remains the master switch for both. See [Upgrading from OpenCode](../features/compaction.md#upgrading-from-opencode) for existing configurations.
 
 `mcp.idle_timeout_seconds` defaults to 300; 0 stops an unheld server immediately. Long-running surfaces keep global servers alive until process exit. Project and `${CWD}` declarations share a connection only within their canonical workspace.
 

@@ -14,6 +14,10 @@ import (
 // still need it.
 var gitBin, _ = exec.LookPath("git")
 
+// Fixture commands need Git's normal environment even when the backend under
+// test cannot find Git. Git for Windows can crash during a clone with PATH hidden.
+var gitFixturePath = os.Getenv("PATH")
+
 func mustGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	if gitBin == "" {
@@ -22,6 +26,7 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command(gitBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
+		"PATH="+gitFixturePath,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
 	)

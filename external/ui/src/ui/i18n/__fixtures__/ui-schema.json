@@ -387,16 +387,6 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "engine": {
-          "default": "coddy",
-          "description": "Which compaction implementation to use. \"foxxycode\" (default) keeps a summary row and replays only the window after it. \"opencode\" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the model's compact_context tool, fold a long history in passes and walk the fallback models.",
-          "enum": [
-            "foxxycode",
-            "opencode"
-          ],
-          "title": "Compaction engine",
-          "type": "string"
-        },
         "fallback_models": {
           "default": [],
           "description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
@@ -410,12 +400,6 @@
           "default": 2,
           "description": "Most recent user turns preserved verbatim (default 2). With no more turns than that, automatic compaction keeps only the prompt being answered and the manual command keeps none.",
           "title": "Keep recent turns",
-          "type": "integer"
-        },
-        "max_tokens": {
-          "default": 4096,
-          "description": "Completion token cap for the summary generation (opencode engine only).",
-          "title": "Summary max tokens",
           "type": "integer"
         },
         "model": {
@@ -459,7 +443,7 @@
         },
         "threshold_percent": {
           "default": 80,
-          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80 (foxxycode) / 85 (opencode).",
+          "description": "Trigger at this percent of the model context window: its max_context_tokens, else the window its provider reports, else 128000. Default 80.",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -467,14 +451,12 @@
       "title": "Automatic context compaction",
       "type": "object",
       "x-foxxycode-property-order": [
-        "engine",
         "enable",
         "auto_enable",
         "model",
         "fallback_models",
         "threshold_percent",
         "keep_recent_turns",
-        "max_tokens",
         "result_eviction"
       ]
     },

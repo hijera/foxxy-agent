@@ -55,7 +55,6 @@ type compactHTTPFeatureState struct {
 	mgr         *session.Manager
 	srv         *Server
 	sessionID   string
-	engine      string
 	maxContext  int
 	exchanges   int
 	status      int
@@ -78,7 +77,6 @@ func (s *compactHTTPFeatureState) reset() error {
 	}
 	s.root = root
 	s.sessionID = ""
-	s.engine = ""
 	s.maxContext = 0
 	s.exchanges = 0
 	s.status = 0
@@ -119,24 +117,13 @@ func (s *compactHTTPFeatureState) startServer() error {
 // startServerWithContextWindow boots the test server on the default compaction engine;
 // maxContextTokens > 0 arms auto-compaction against that model context window.
 func (s *compactHTTPFeatureState) startServerWithContextWindow(maxContextTokens int) error {
-	return s.startServerWithEngine("", maxContextTokens)
+	return s.startServerWithProvider(config.ProviderConfig{Name: "fake", Type: "openai", APIKey: "test"}, maxContextTokens)
 }
 
 // startServerWithProvider boots the test server with provider serving
 // fake/model. Completions always come from the canned provider; the row only
 // decides where the model listing is read from.
 func (s *compactHTTPFeatureState) startServerWithProvider(provider config.ProviderConfig, maxContextTokens int) error {
-	return s.bootServer("", provider, maxContextTokens)
-}
-
-// startServerWithEngine boots the test server with an explicit compaction engine so a scenario can
-// assert parity between the coddy and opencode implementations.
-func (s *compactHTTPFeatureState) startServerWithEngine(engine string, maxContextTokens int) error {
-	return s.bootServer(engine, config.ProviderConfig{Name: "fake", Type: "openai", APIKey: "test"}, maxContextTokens)
-}
-
-func (s *compactHTTPFeatureState) bootServer(engine string, provider config.ProviderConfig, maxContextTokens int) error {
-	s.engine = engine
 	s.maxContext = maxContextTokens
 	sessRoot := filepath.Join(s.root, "sessions")
 	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
@@ -150,8 +137,7 @@ func (s *compactHTTPFeatureState) bootServer(engine string, provider config.Prov
 			// No session runs on it: a summary it wrote was asked for by name.
 			{Model: "fake/summarizer-qwen", MaxTokens: 100, MaxContextTokens: maxContextTokens},
 		},
-		Agent:      config.Agent{Model: "fake/model"},
-		Compaction: config.CompactionConfig{Engine: engine},
+		Agent: config.Agent{Model: "fake/model"},
 	}
 	cfg.Compaction.ApplyDefaults()
 	fakeFactory := func(llm.ProviderInput) (llm.Provider, error) {
@@ -199,16 +185,9 @@ func (s *compactHTTPFeatureState) sessionWithExchanges(n int) error {
 	return nil
 }
 
-// sessionWithExchangesOnEngine boots a server pinned to one compaction engine with a tiny context
-// window, so a single regular prompt trips auto-compaction on either engine (the manual /compact
-// command is coddy-only).
-func (s *compactHTTPFeatureState) sessionWithExchangesOnEngine(n int, engine string) error {
-	switch engine {
-	case config.CompactionEngineCoddy, config.CompactionEngineOpenCode:
-	default:
-		return fmt.Errorf("unknown compaction engine %q", engine)
-	}
-	if err := s.startServerWithEngine(engine, 50); err != nil {
+// sessionWithSmallWindow lets a regular prompt trigger auto-compaction.
+func (s *compactHTTPFeatureState) sessionWithSmallWindow(n int) error {
+	if err := s.startServerWithContextWindow(50); err != nil {
 		return err
 	}
 	return s.sessionWithExchanges(n)
@@ -226,7 +205,7 @@ func (s *compactHTTPFeatureState) restartServer() error {
 		s.srv = nil
 	}
 	s.mgr = nil
-	return s.startServerWithEngine(s.engine, s.maxContext)
+	return s.startServerWithContextWindow(s.maxContext)
 }
 
 // sendCompactPrompt drives /compact over the streaming surface so the scenario sees the same
@@ -491,22 +470,6 @@ func compactHTTPSummaryText(msgs []llm.Message) string {
 	return b.String()
 }
 
-// llmWindowForEngine mirrors the agent's buildMessages dispatch: the coddy engine replays from the
-// last summary row onward, the opencode engine keeps everything not flagged Compacted.
-func (s *compactHTTPFeatureState) llmWindowForEngine(history []llm.Message) []llm.Message {
-	if !strings.EqualFold(s.engine, config.CompactionEngineOpenCode) {
-		return session.MessagesForLLM(history)
-	}
-	out := make([]llm.Message, 0, len(history))
-	for _, m := range history {
-		if m.Compacted {
-			continue
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
 func (s *compactHTTPFeatureState) fetchSessionStats() (*session.SessionStats, error) {
 	req, err := http.NewRequest(http.MethodGet, s.ts.URL+"/foxxycode/sessions/"+s.sessionID+"/stats", nil)
 	if err != nil {
@@ -545,7 +508,7 @@ func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
 	if st == nil {
 		return fmt.Errorf("session %q not registered", s.sessionID)
 	}
-	window := s.llmWindowForEngine(st.GetMessages())
+	window := session.MessagesForLLM(st.GetMessages())
 	wantConversation := session.EstimateContextTokens(compactHTTPConversationText(window))
 	if b.Conversation != wantConversation {
 		return fmt.Errorf("HTTP conversation tokens = %d, want %d", b.Conversation, wantConversation)
@@ -567,7 +530,7 @@ func (s *compactHTTPFeatureState) slashCatalogOffersCompact() error {
 		return err
 	}
 	if !strings.Contains(raw, `"name":"compact"`) {
-		return fmt.Errorf("the %q engine does not advertise /compact: %s", s.engine, raw)
+		return fmt.Errorf("the command catalog does not advertise /compact: %s", raw)
 	}
 	return nil
 }
@@ -689,7 +652,7 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 }
 
 // initializeCompactionRestoreScenario drives features/context_compaction_restore.feature: the
-// reported context usage must survive a reload on both compaction engines.
+// reported context usage must survive a server restart.
 func initializeCompactionRestoreScenario(sc *godog.ScenarioContext) {
 	s := &compactHTTPFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -700,7 +663,7 @@ func initializeCompactionRestoreScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^an HTTP session with (\d+) completed exchanges on the "([^"]*)" compaction engine$`, s.sessionWithExchangesOnEngine)
+	sc.Step(`^an HTTP session with (\d+) completed exchanges and a small context window$`, s.sessionWithSmallWindow)
 	sc.Step(`^the client posts to the session compact endpoint$`, s.postCompactEndpoint)
 	sc.Step(`^the compact request succeeds$`, s.compactRequestSucceeds)
 	sc.Step(`^the user sends a regular prompt$`, s.sendRegularPrompt)

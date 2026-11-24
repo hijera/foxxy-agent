@@ -559,8 +559,8 @@ type UsageUpdate struct {
 	Size          int    `json:"size"`
 }
 
-// CompactionUpdate marks the start or completion of an automatic context-compaction pass, where
-// older turns are summarized to keep the conversation within the model's context window.
+// CompactionUpdate marks a summary during session replay. Older servers also
+// used this shape for live OpenCode compaction updates.
 type CompactionUpdate struct {
 	SessionUpdate   string `json:"sessionUpdate"` // "compaction"
 	Phase           string `json:"phase"`         // "start" | "done"

@@ -13,6 +13,10 @@
 
 **Workspace files and edit review.** Open files from the chat, review Git and Subversion changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The rounded review buttons use colored outlines that follow the editor's light or dark color scheme. Moving the pointer over a button highlights it and shows a hand cursor. The working copy counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
 
+## 0.3.54 — 2026-11-20
+
+**Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
+
 ## 0.3.52 — 2026-11-20
 
 **Guidance for DeepSeek models.**

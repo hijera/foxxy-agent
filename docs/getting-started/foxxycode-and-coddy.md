@@ -75,7 +75,7 @@ exact upstream commit this fork is synced to.
   containing `image`) instead of silently staying `false`. It is advisory, never a gate.
 - **Automatic context compaction** - long conversations are auto-summarized to stay within the
   context window; config-gated and enabled by default - see
-  [`internal/agent/compaction.go`](../../internal/agent/compaction.go) and
+  [`internal/agent/compact.go`](../../internal/agent/compact.go) and
   [`internal/config/compaction.go`](../../internal/config/compaction.go) (configuration in
   [`docs/getting-started/configuration.md`](configuration.md)).
 

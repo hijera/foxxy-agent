@@ -320,6 +320,43 @@ func TestCompactionFallsBackToTheNextSummarizer(t *testing.T) {
 	}
 }
 
+// A summarizer that answers with empty content (a content filter, a
+// zero-token completion) is a failed candidate too: the chain must walk to
+// the next model, or one empty answer is the end of the compaction.
+func TestCompactionFallsBackWhenASummarizerAnswersEmpty(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	silent := &compactCannedProvider{t: t, summary: "   "}
+	working := &compactCannedProvider{t: t, summary: "SUMMARY FROM THE DEPUTY"}
+
+	ag := compactTestAgent(t, st, config.CompactionConfig{
+		KeepRecentTurns: &keep,
+		Model:           "fake/silent",
+		FallbackModels:  []string{"fake/model"},
+	}, nil)
+	ag.cfg.Models = append(ag.cfg.Models, config.ModelEntry{Model: "fake/silent", MaxTokens: 100})
+	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
+		if strings.Contains(in.Model, "silent") {
+			return silent, nil
+		}
+		return working, nil
+	}
+
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Force: true})
+	if err != nil {
+		t.Fatalf("compaction: %v", err)
+	}
+	if len(silent.requests) == 0 {
+		t.Fatal("the configured summarizer was never tried")
+	}
+	if res.Model != "fake/model" {
+		t.Fatalf("summary model = %q, want the fallback that answered", res.Model)
+	}
+	if !strings.Contains(res.Summary, "DEPUTY") {
+		t.Fatalf("summary = %q, want the fallback's answer", res.Summary)
+	}
+}
+
 func TestCompactionChainEndsAtTheSessionModel(t *testing.T) {
 	st := seededCompactState(t, 2)
 	keep := 1

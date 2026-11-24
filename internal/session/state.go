@@ -1919,28 +1919,6 @@ func (s *State) replaceMessagesWithoutPersist(msgs []llm.Message, rewriteID *str
 	s.mu.Unlock()
 }
 
-// ReplaceMessagesAndPersist replaces conversation history and persists it. Used by auto-compaction
-// to swap older turns for a summary message while keeping the rewritten transcript on disk.
-//
-// A replacement is an edit to persistence: without moving the edit revision, a save would read
-// "nothing changed", keep the longer history on disk and splice the next append onto it. Plan
-// documents are copied for the same reason ReplaceMessagesWithoutPersist copies them.
-func (s *State) ReplaceMessagesAndPersist(msgs []llm.Message) {
-	owned := make([]llm.Message, len(msgs))
-	copy(owned, msgs)
-	for i := range owned {
-		if pd := owned[i].PlanDocument; pd != nil {
-			snapshot := *pd
-			owned[i].PlanDocument = &snapshot
-		}
-	}
-	s.mu.Lock()
-	s.Messages = owned
-	s.markMessagesEdited()
-	s.mu.Unlock()
-	s.touchPersist()
-}
-
 // RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk.
 // The permission-mode override lasts only as long as this process.
 func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory string) {

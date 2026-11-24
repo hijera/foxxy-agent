@@ -281,13 +281,12 @@ Summarize older turns when the conversation approaches the model's context windo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `compaction.engine` | string, one of `foxxycode`, `opencode` | foxxycode | Compaction implementation: "foxxycode" (default) keeps a summary row and replays only the window after it; "opencode" flags older turns and filters them from the payload. Both answer /compact, the compact endpoint and the compact_context tool, fold a long history in passes and walk fallback_models. |
+| `compaction.engine` | string, one of `coddy`, `foxxycode`, `opencode` | coddy | Coddy summarizes older turns and replays the session from the most recent summary. The legacy values foxxycode and opencode also resolve to Coddy. Loading opencode prints a migration notice. |
 | `compaction.enable` | boolean | true | Turn on auto-compaction. Unset defaults to true; set false to disable. |
 | `compaction.model` | string | "" | Exact models[].model id used for the summarization pass; empty falls back to agent.model. |
-| `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. Both engines walk the same chain. |
-| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80 (foxxycode) / 85 (opencode); the opencode engine clamps to 50..99. |
+| `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable model does not leave a session that ran out of room without a compaction. |
+| `compaction.threshold_percent` | integer | 80 | Trigger when context usage exceeds this percent of the model context window: its max_context_tokens, else the window its provider's model listing reports, else 128000. Default 80. Configurations migrated from OpenCode keep their previous effective threshold. |
 | `compaction.keep_recent_turns` | integer | 2 | Number of most recent user turns preserved verbatim (never summarized). Default 2. |
-| `compaction.max_tokens` | integer | 4096 | Completion token cap for the summary generation (opencode engine only). |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete. |
 | `compaction.result_eviction.enable` | boolean | true | Master switch for result eviction. |
 | `compaction.result_eviction.keep_recent` | integer | 2 | Most recent evictable results kept as a working window. |
@@ -683,7 +682,7 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 
 Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
 
-Two engines share the section, selected by `engine`: the default **foxxycode** engine (the value keeps the upstream name) inserts a summary row and replays only the window from the last summary onward; the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript. Both answer the manual `/compact` command, the HTTP compact endpoint and the model's `compact_context` tool, fold a history larger than the summarizer's window in passes and walk `fallback_models`. Either engine republishes the context estimate right after it folds history: the agent recomputes the `conversation` and `summary` categories over the window it actually sends, persists them next to the provider token counters in `stats.json` and emits `usage_update`, so the composer's context ring drops without a reload and a session reopened after a restart reports the compacted window.
+Coddy inserts a summary row and replays from the most recent summary. FoxxyCode publishes the smaller model window through `usage_update` and saves it with the session statistics. Existing OpenCode configurations switch to Coddy with a migration warning. See [Upgrading from OpenCode](../features/compaction.md#upgrading-from-opencode) for the threshold and legacy settings.
 
 #### `compaction.result_eviction`
 
