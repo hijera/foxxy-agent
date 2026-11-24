@@ -42,7 +42,7 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 	if err != nil {
 		return notHandled, err
 	}
-	// Registered before the broadcast, so a result that arrives the instant a
+	// Registered before dispatch, so a result that arrives the instant a
 	// client learns of the request already has somewhere to land.
 	ch := registerToolExecWait(tcid, nonce)
 	defer unregisterToolExecWait(tcid, ch)
@@ -69,7 +69,9 @@ func (s *Sender) ExecuteToolCall(ctx context.Context, req acp.ToolExecutionReque
 		ev.Before = string(before)
 		ev.After = string(after)
 	}
-	ideEvents.Broadcast(ev)
+	if !ideEvents.DispatchTool(ev) {
+		return notHandled, nil
+	}
 
 	select {
 	case res := <-ch:

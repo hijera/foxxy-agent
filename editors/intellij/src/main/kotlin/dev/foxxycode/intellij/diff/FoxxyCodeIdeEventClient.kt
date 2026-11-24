@@ -15,8 +15,8 @@ import java.nio.charset.StandardCharsets
  *
  * [handles] names the tools this client can execute through the IDE (the `?handles=` query
  * parameter). The agent offers a call only while some subscriber declared it, but the
- * `tool_execute` event itself is broadcast to every connected client - one that did not
- * declare the tool answers `not_handled`, and the agent runs the call locally.
+ * `tool_execute` event is delivered to only one capable client. If that client
+ * answers `not_handled`, the agent runs the call locally.
  */
 class FoxxyCodeIdeEventClient(
     private val baseUrl: String,

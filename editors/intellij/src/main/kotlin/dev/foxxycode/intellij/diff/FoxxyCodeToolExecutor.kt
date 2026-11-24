@@ -290,6 +290,10 @@ class FoxxyCodeToolExecutor(private val project: Project) {
         if (ev.hook && ev.tool in setOf("write", "edit", "apply_patch")) {
             try {
                 ev = prepareHookPreview(ev)
+            } catch (e: EncodingNotSupported) {
+                // Preserve the outer not_handled route: the native tool owns
+                // decoding and rewriting files in legacy encodings.
+                throw e
             } catch (e: Throwable) {
                 respond(ev, failed(e.message ?: "could not prepare the IDE edit"))
                 return
@@ -387,9 +391,10 @@ class FoxxyCodeToolExecutor(private val project: Project) {
             respond(ev, notHandled())
             return
         }
+        val workDir = TerminalWorkingDirectory.resolve(args, ev.cwd, project.basePath)
         ApplicationManager.getApplication().executeOnPooledThread {
             val r = try {
-                FoxxyCodeTerminalCommandRunner.run(project, command, ev.cwd.ifBlank { project.basePath }, waitMs)
+                FoxxyCodeTerminalCommandRunner.run(project, command, workDir, waitMs)
             } catch (t: Throwable) {
                 log.warn("run_command terminal failed", t)
                 FoxxyCodeTerminalCommandRunner.Result(handled = false)

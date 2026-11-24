@@ -76,8 +76,7 @@ object FoxxyCodeTerminalCommandRunner {
             val cls = Class.forName("org.jetbrains.plugins.terminal.TerminalView")
             val view = cls.getMethod("getInstance", Project::class.java).invoke(null, project)
             val tabName = (TAB_PREFIX + command).take(60)
-            widget = cls.getMethod("createLocalShellWidget", String::class.java, String::class.java)
-                .invoke(view, tabName, workDir ?: project.basePath) as? Component
+            widget = createLocalShellWidget(view, workDir ?: project.basePath, tabName)
         }
         return widget ?: throw IllegalStateException("no terminal widget")
     }
@@ -96,6 +95,12 @@ object FoxxyCodeTerminalCommandRunner {
         }
     }
 }
+
+// Both parameters have the same JVM type, so reflection cannot catch swapping
+// the working directory with the tab title. Keep the API boundary testable.
+internal fun createLocalShellWidget(view: Any, workDir: String?, tabName: String): Component? =
+    view.javaClass.getMethod("createLocalShellWidget", String::class.java, String::class.java)
+        .invoke(view, workDir, tabName) as? Component
 
 /** Pure screen-scraping of a delegated terminal run; unit-tested without the platform. */
 object TerminalCommandOutput {

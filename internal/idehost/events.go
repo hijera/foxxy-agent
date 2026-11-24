@@ -33,9 +33,8 @@ type Event struct {
 	Deadline int64  `json:"deadline,omitempty"`
 }
 
-// Hub fans structured edit events out to every connected IDE client. It is a
-// process-global broadcast (there is one foxxycode http per workspace); subscribers that fall
-// behind drop events rather than blocking the agent.
+// Hub broadcasts edit notifications and routes tool execution to one capable
+// client. Subscribers that fall behind never block the agent.
 type Hub struct {
 	mu sync.Mutex
 	// subs maps each subscriber to the tool names it declared itself able to
@@ -86,6 +85,28 @@ func (h *Hub) Unsubscribe(ch chan Event) {
 	h.mu.Lock()
 	delete(h.subs, ch)
 	h.mu.Unlock()
+}
+
+// DispatchTool sends an execution request to exactly one capable subscriber.
+// Selection and delivery share the subscription lock, so a disconnected client
+// cannot be selected. Full queues are skipped; false means nothing was sent and
+// the caller can fall back immediately. Other clients never learn the nonce.
+func (h *Hub) DispatchTool(ev Event) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for ch, handles := range h.subs {
+		_, all := handles["*"]
+		_, named := handles[ev.ToolName]
+		if !all && !named {
+			continue
+		}
+		select {
+		case ch <- ev:
+			return true
+		default:
+		}
+	}
+	return false
 }
 
 func (h *Hub) Broadcast(ev Event) {

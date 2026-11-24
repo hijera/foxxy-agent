@@ -9,6 +9,9 @@
 
 ## Unreleased — 2026-11-23
 
+**Reliable tool delegation.**
+Each call goes to only one capable IDE client, so multiple connections no longer execute the same command twice. Terminal commands honor their `cwd`, and Coddy leaves edits to non-UTF-8 files to the native file tools.
+
 **File edits go through the editor.**
 The agent no longer writes files behind the IDE: `write`/`edit`/`apply_patch` run through the editor's document model, so edits land in open (including unsaved) buffers, the undo stack and the native diff. A new setting, "Apply file edits through the editor", is on by default in Settings | Tools | FoxxyCode; turned off, everything works as before with the agent writing the file. When the editor holds unsaved changes or the buffer diverged from the file, the agent gets a conflict, re-reads the file and overwrites nothing.
 

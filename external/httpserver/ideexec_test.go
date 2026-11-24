@@ -116,6 +116,23 @@ func TestIdeExecuteToolCallNotHandledWithoutCapableClient(t *testing.T) {
 	}
 }
 
+func TestIdeExecuteToolCallFullQueueFallsBack(t *testing.T) {
+	ch := ideEvents.SubscribeHandled([]string{"write"})
+	defer ideEvents.Unsubscribe(ch)
+	for i := 0; i < cap(ch); i++ {
+		ch <- ideEvent{Type: "edit_applied"}
+	}
+	s := NewSender(&config.Config{}, nil, false, "m")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	res, err := s.ExecuteToolCall(ctx, acp.ToolExecutionRequest{
+		SessionID: "full-queue", ToolCallID: "full-call", ToolName: "write", ArgsJSON: `{}`,
+	})
+	if err != nil || res.Status != acp.ToolExecNotHandled {
+		t.Fatalf("undelivered call should decline without waiting for the deadline: %+v, %v", res, err)
+	}
+}
+
 func TestIdeExecuteToolCallTimeoutFallsBack(t *testing.T) {
 	ch := ideEvents.SubscribeHandled([]string{"*"})
 	defer ideEvents.Unsubscribe(ch)
