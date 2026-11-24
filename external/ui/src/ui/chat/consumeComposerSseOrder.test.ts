@@ -58,13 +58,8 @@ const usageUpdate = (used: number, size: number) =>
   `event: usage_update\ndata: ${JSON.stringify({ sessionUpdate: "usage_update", used, size })}\n\n`;
 
 describe("consumeComposerSseReader context usage", () => {
-  it("usage_update replaces the displayed current context after compaction", async () => {
-    seq = 0;
-    const p = harness(readerFromChunks([usageUpdate(42000, 128000), DONE]));
-    await consumeComposerSseReader(p);
-
-    expect(p.getContextUsage()).toEqual([{ used: 42000, size: 128000 }]);
-  });
+  // "usage_update replaces the displayed current context after compaction"
+  // lives in consumeComposerSse.order.test.ts; it was asserted twice.
 
   it("ignores a usage_update without a positive window size", async () => {
     seq = 0;
