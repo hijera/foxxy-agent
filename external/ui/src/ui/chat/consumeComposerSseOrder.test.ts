@@ -119,6 +119,31 @@ describe("consumeComposerSseReader chronological ordering", () => {
     });
   });
 
+  it("keeps reasoning after an action below it and the next text in a new bubble", async () => {
+    seq = 0;
+    const p = harness(
+      readerFromChunks([
+        text("The answer starts "),
+        toolCall("call_1"),
+        reasoning("a late thought"),
+        text("and finishes below the action."),
+        DONE,
+      ]),
+    );
+    await consumeComposerSseReader(p);
+
+    const items = p.getItems();
+    expect(items.map((x) => x.type)).toEqual([
+      "assistant_message",
+      "tool_call",
+      "thinking",
+      "assistant_message",
+    ]);
+    expect(items[3]).toMatchObject({
+      content: "and finishes below the action.",
+    });
+  });
+
   it("puts text after an action into a new bubble below it", async () => {
     seq = 0;
     const p = harness(
