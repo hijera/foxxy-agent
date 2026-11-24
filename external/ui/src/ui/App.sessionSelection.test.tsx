@@ -20,14 +20,38 @@ const CHAT = "sess_parallel_chat";
 const MODEL = "rpa/qwen3.8-27b";
 
 let storedModes: Record<string, string>;
+let storedReasoning: Record<string, string>;
+let settingsVersions: Record<string, number>;
 let heldTurnSids: Set<string>;
 let openTurns: Map<string, ReadableStreamDefaultController<Uint8Array>>;
+/** The next messages read, held back until a test lets it through. */
+let holdRead: boolean;
+let releaseRead: (() => void) | null;
+/** The next settings write's answer, held back the same way. */
+let holdPatch: boolean;
+let releasePatch: (() => void) | null;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+/**
+ * The settings snapshot a read or a write's answer carries. Built per call, so
+ * a response held back keeps the state of its request time - a read that raced
+ * with a write served from before it.
+ */
+const settingsSnap = (sid: string) => ({
+  sessionId: sid,
+  version: settingsVersions[sid] ?? 1,
+  model: MODEL,
+  reasoning: storedReasoning[sid] ?? "high",
+  mode: storedModes[sid] ?? "agent",
+  permissionMode: "ask",
+  configuredPermissionMode: "ask",
+  overrides: [],
+});
 
 function emptyStream() {
   return new Response(
@@ -99,15 +123,26 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     const sid = decodeURIComponent(match[1]!);
     const suffix = match[2]!.split("?")[0];
     if (suffix === "/messages") {
-      return json({
+      // The profile the session was left at on the server: the values a read
+      // would put back over whatever the reader picks in between. The response
+      // body is built now, so a held read keeps serving its request time.
+      const response = json({
         model: MODEL,
         selectedModelId: MODEL,
-        // The profile the session was left at on the server: the values a read
-        // would put back over whatever the reader picks in between.
         mode: storedModes[sid] ?? "agent",
         selectedReasoning: "high",
+        settings: settingsSnap(sid),
         messages: [{ role: "user", content: `prompt in ${sid}` }],
       });
+      // Only the settings-only read of the shadow open path is held: a
+      // transcript page must still paint while it is.
+      if (holdRead && match[2] === "/messages?limit=1") {
+        holdRead = false;
+        return new Promise<Response>((resolve) => {
+          releaseRead = () => resolve(response);
+        });
+      }
+      return response;
     }
     if (suffix === "/composer-stream") return emptyStream();
     if (suffix === "/tool-calls") return json({ toolCalls: [] });
@@ -122,9 +157,23 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     if (suffix === "/activity")
       return json({ sessionId: sid, turnActive: openTurns.has(sid) });
     if (!suffix && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { mode?: string };
+      const body = JSON.parse(String(init.body)) as {
+        mode?: string;
+        selectedReasoning?: string;
+      };
       if (body.mode) storedModes[sid] = body.mode;
-      return json({});
+      if (body.selectedReasoning) storedReasoning[sid] = body.selectedReasoning;
+      settingsVersions[sid] = (settingsVersions[sid] ?? 1) + 1;
+      // The answer is the settings snapshot of the PATCH route: it carries the
+      // picked value and the new version the next read is compared against.
+      const response = json({ settings: settingsSnap(sid) });
+      if (holdPatch) {
+        holdPatch = false;
+        return new Promise<Response>((resolve) => {
+          releasePatch = () => resolve(response);
+        });
+      }
+      return response;
     }
     if (!suffix) return json({});
   }
@@ -140,8 +189,14 @@ beforeEach(() => {
   releaseModels = null;
   holdModels = false;
   storedModes = { [SESS]: "agent", [PLAN]: "plan", [CHAT]: "ask" };
+  storedReasoning = {};
+  settingsVersions = {};
   heldTurnSids = new Set();
   openTurns = new Map();
+  holdRead = false;
+  releaseRead = null;
+  holdPatch = false;
+  releasePatch = null;
   initLocale("en");
   localStorage.clear();
   document.cookie = "foxxycode_llm_reasoning=; Path=/; Max-Age=0";
@@ -284,4 +339,53 @@ test("two running sessions each show their own mode on every switch", async () =
 
   await goTo(`/#/s/${CHAT}`);
   await waitFor(() => expect(modeChip()).toHaveTextContent("Ask"));
+});
+
+test("a mode picked while the open read is in flight is not undone by that read", async () => {
+  await mountSession(CHAT);
+  await startHeldTurn(CHAT, "chat in parallel");
+  await navigate(PLAN);
+  expect(modeChip()).toHaveTextContent("Plan");
+
+  // Coming back to the running session keeps its rows from the stream shadow
+  // and reads its settings alone - that read, held here, is in flight while
+  // the reader picks a Mode.
+  holdRead = true;
+  holdPatch = true;
+  await goTo(`/#/s/${CHAT}`);
+  await pickMode("Plan");
+
+  // The read was served before the pick and the write has not been answered
+  // yet: neither may move the Mode back over the pick.
+  await act(async () => {
+    releaseRead?.();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await settle();
+  expect(modeChip()).toHaveTextContent("Plan");
+
+  await act(async () => {
+    releasePatch?.();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await settle();
+  expect(modeChip()).toHaveTextContent("Plan");
+});
+
+test("a read served before the mode write is dropped once the write lands", async () => {
+  await mountSession(CHAT);
+  await startHeldTurn(CHAT, "chat in parallel");
+  await navigate(PLAN);
+
+  holdRead = true;
+  await goTo(`/#/s/${CHAT}`);
+  // The write answers and settles the chip before the read comes back.
+  await pickMode("Plan");
+
+  await act(async () => {
+    releaseRead?.();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await settle();
+  expect(modeChip()).toHaveTextContent("Plan");
 });

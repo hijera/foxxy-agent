@@ -1656,6 +1656,11 @@ export function App() {
    * "the user picked a new mode while the turn was running".
    */
   const modeEditSeqRef = useRef(0);
+  // A Mode pick this tab PATCHed to its session and the server has not answered
+  // yet, per session. While one is in flight, no settings snapshot may move the
+  // Mode back over the pick: the write's answer mirrors through
+  // applySessionSettings and settles the chip and the version together.
+  const modeWritesInFlightRef = useRef(new Map<string, number>());
   /** Current mode, readable from callbacks that outlive their render. */
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -3631,7 +3636,8 @@ export function App() {
   }
 
   /** Read settings alone when a running session's transcript comes from its shadow. */
-  async function readViewedSettings(sid: string) {
+  async function readViewedSettings(sid: string, signal?: AbortSignal) {
+    const key = sid.trim();
     try {
       const res = await fetchJSON<{
         settings?: unknown;
@@ -3639,13 +3645,14 @@ export function App() {
         selectedModelId?: string;
         selectedReasoning?: string;
         mode?: string;
-      }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
-        headers: sid === sessionId ? headers : { [HDR]: sid },
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/messages?limit=1`, {
+        headers: key === sessionId ? headers : { [HDR]: key },
+        signal: signal ?? null,
       });
-      if (viewedSessionIdRef.current.trim() !== sid || !res.ok || !res.data) {
+      if (viewedSessionIdRef.current.trim() !== key || !res.ok || !res.data) {
         return;
       }
-      mirrorSettingsRead(sid, res.data);
+      mirrorSettingsRead(key, res.data);
     } catch {
       // A later transcript read or settings event can still settle the selectors.
     }
@@ -4812,10 +4819,11 @@ export function App() {
         setItems([...shadowSnap]);
         // No transcript read happens on this path, but the selectors still
         // belong to the session being opened rather than the one just left.
-        await readViewedSettings(sessionId);
-        if (lifecycle.signal.aborted) {
-          return;
-        }
+        // Detached: a settings read that hangs must not hold the rest of the
+        // open (the spinner, the stats and the stream rejoin) hostage. It
+        // re-checks the viewed session after its await, and the lifecycle
+        // signal cancels it when this open is superseded.
+        void readViewedSettings(sessionId, lifecycle.signal);
       } else {
         // freshLoad when no shadow: prevents stale itemsRef from a previous session
         // bleeding into this session (e.g. React StrictMode double-invoke of effects).
@@ -6704,7 +6712,10 @@ export function App() {
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
-    if (snap.mode) {
+    // A Mode pick of this tab is being written to the session right now: that
+    // pick is the newest truth, and a snapshot that raced with the write would
+    // silently undo it (the write's answer settles the chip in its own turn).
+    if (snap.mode && !modeWritesInFlightRef.current.get(snap.sessionId)) {
       setMode(snap.mode);
     }
     if (snap.model && llmModelIds.includes(snap.model)) {
@@ -6833,16 +6844,23 @@ export function App() {
       if (isClientDraftSessionId(sid)) {
         return;
       }
-      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: m }),
-      }).catch(() => {
-        // The mode is already applied locally; a lost write must not surface as
-        // an unhandled rejection.
+      // Through patchSessionSettings like every other pick: the write's answer
+      // mirrors the snapshot and bumps the settings version, so a read that is
+      // slower than the write cannot put the old mode back. Until the answer
+      // lands, modeWritesInFlightRef holds the chip still over any snapshot
+      // the write raced with; a lost write keeps the pick applied locally.
+      const inflight = modeWritesInFlightRef.current;
+      inflight.set(sid, (inflight.get(sid) ?? 0) + 1);
+      void patchSessionSettings(sid, { mode: m }).finally(() => {
+        const left = modeWritesInFlightRef.current.get(sid) ?? 0;
+        if (left <= 1) {
+          modeWritesInFlightRef.current.delete(sid);
+        } else {
+          modeWritesInFlightRef.current.set(sid, left - 1);
+        }
       });
     },
-    [sessionId, headers],
+    [sessionId, patchSessionSettings],
   );
 
   // The backend switched the profile on its own (a plan run, or the model
