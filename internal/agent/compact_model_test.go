@@ -74,23 +74,19 @@ func TestCompactSessionUsesTheModelNamedForTheCall(t *testing.T) {
 	}
 }
 
-func TestCompactNamedModelWorksWithBothEngines(t *testing.T) {
-	for _, engine := range []string{"coddy", "opencode"} {
-		t.Run(engine, func(t *testing.T) {
-			keep := 1
-			st := seededCompactState(t, 3)
-			ag, first, second := twoModelCompactAgent(t, st, config.CompactionConfig{Engine: engine, KeepRecentTurns: &keep})
-			res, err := ag.CompactSession(context.Background(), CompactOptions{Model: "QWEN", Force: true})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if res.Model != "fake/second-qwen" || len(second.requests) != 1 || len(first.requests) != 0 {
-				t.Fatalf("model = %q, named requests %d, session requests %d", res.Model, len(second.requests), len(first.requests))
-			}
-			if visible := session.MessagesForLLM(st.GetMessages()); len(visible) == 0 || !visible[0].CompactionSummary {
-				t.Fatalf("summary is not the replayed head: %+v", visible)
-			}
-		})
+func TestCompactNamedModelUsesTheOverride(t *testing.T) {
+	keep := 1
+	st := seededCompactState(t, 3)
+	ag, first, second := twoModelCompactAgent(t, st, config.CompactionConfig{KeepRecentTurns: &keep})
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Model: "QWEN", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Model != "fake/second-qwen" || len(second.requests) != 1 || len(first.requests) != 0 {
+		t.Fatalf("model = %q, named requests %d, session requests %d", res.Model, len(second.requests), len(first.requests))
+	}
+	if visible := session.MessagesForLLM(st.GetMessages()); len(visible) == 0 || !visible[0].CompactionSummary {
+		t.Fatalf("summary is not the replayed head: %+v", visible)
 	}
 }
 

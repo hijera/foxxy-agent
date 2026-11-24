@@ -23,9 +23,7 @@ func TestCompactionDefaults(t *testing.T) {
 	if got := c.EffectiveKeepRecentTurns(); got != config.CompactionDefaultKeepRecentTurns {
 		t.Errorf("EffectiveKeepRecentTurns = %d, want %d", got, config.CompactionDefaultKeepRecentTurns)
 	}
-	if c.MaxTokens != config.CompactionDefaultMaxTokens {
-		t.Errorf("MaxTokens = %d, want %d", c.MaxTokens, config.CompactionDefaultMaxTokens)
-	}
+
 }
 
 func TestResultEvictionDefaults(t *testing.T) {
@@ -67,19 +65,6 @@ func TestResultEvictionValidate(t *testing.T) {
 	}
 }
 
-func TestCompactionOpenCodeDefaults(t *testing.T) {
-	c := config.CompactionConfig{Engine: "opencode"}
-	c.Normalize()
-	c.ApplyDefaults()
-
-	if !c.EngineIsOpenCode() {
-		t.Fatal("EngineIsOpenCode should be true for engine: opencode")
-	}
-	if c.ThresholdPercent != config.CompactionDefaultThresholdOpenCode {
-		t.Errorf("ThresholdPercent = %d, want %d (opencode default)", c.ThresholdPercent, config.CompactionDefaultThresholdOpenCode)
-	}
-}
-
 func TestCompactionExplicitDisablePreserved(t *testing.T) {
 	off := false
 	c := config.CompactionConfig{Enabled: &off}
@@ -90,31 +75,26 @@ func TestCompactionExplicitDisablePreserved(t *testing.T) {
 }
 
 func TestCompactionCanDisableOnlyAutomation(t *testing.T) {
-	for _, engine := range []string{"coddy", "opencode"} {
-		off := false
-		c := config.CompactionConfig{Engine: engine, AutoEnabled: &off}
-		if !c.IsEnabled() || c.IsAutoEnabled() {
-			t.Fatalf("%s manual and automatic switches are not independent: %+v", engine, c)
+	off := false
+	c := config.CompactionConfig{AutoEnabled: &off}
+	if !c.IsEnabled() || c.IsAutoEnabled() {
+		t.Fatalf("manual and automatic switches are not independent: %+v", c)
+	}
+}
+
+func TestLegacyCompactionKeepsTheEffectiveThreshold(t *testing.T) {
+	for _, tc := range []struct{ threshold, want int }{{0, 85}, {10, 50}, {90, 90}, {250, 99}} {
+		c := config.CompactionConfig{Engine: "opencode", ThresholdPercent: tc.threshold}
+		c.Normalize()
+		c.ApplyDefaults()
+		if c.Engine != config.CompactionEngineCoddy || c.ThresholdPercent != tc.want {
+			t.Errorf("threshold %d: engine %q, threshold %d, want Coddy and %d", tc.threshold, c.Engine, c.ThresholdPercent, tc.want)
 		}
 	}
 }
 
-func TestCompactionOpenCodeThresholdClamped(t *testing.T) {
-	low := config.CompactionConfig{Engine: "opencode", ThresholdPercent: 10}
-	low.ApplyDefaults()
-	if low.ThresholdPercent != 50 {
-		t.Errorf("low ThresholdPercent = %d, want clamp to 50", low.ThresholdPercent)
-	}
-
-	high := config.CompactionConfig{Engine: "opencode", ThresholdPercent: 250}
-	high.ApplyDefaults()
-	if high.ThresholdPercent != 99 {
-		t.Errorf("high ThresholdPercent = %d, want clamp to 99", high.ThresholdPercent)
-	}
-}
-
 func TestCompactionCoddyThresholdNotClamped(t *testing.T) {
-	// The coddy engine accepts the full 1..100 range; only opencode clamps to 50..99.
+	// A current config accepts the full 1..100 range.
 	c := config.CompactionConfig{ThresholdPercent: 10}
 	c.ApplyDefaults()
 	if c.ThresholdPercent != 10 {
@@ -138,7 +118,7 @@ func TestCompactionFoxxyCodeEngineIsAliasOfCoddy(t *testing.T) {
 	c := config.CompactionConfig{Engine: "foxxycode"}
 	c.Normalize()
 	c.ApplyDefaults()
-	if c.Engine != config.CompactionEngineCoddy || c.EngineIsOpenCode() {
+	if c.Engine != config.CompactionEngineCoddy {
 		t.Fatalf("engine foxxycode resolved to %q, want %q", c.Engine, config.CompactionEngineCoddy)
 	}
 	cfg := &config.Config{Compaction: config.CompactionConfig{Engine: "foxxycode"}}

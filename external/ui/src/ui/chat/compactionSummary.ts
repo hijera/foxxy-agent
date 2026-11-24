@@ -4,7 +4,7 @@
 const COMPACTION_PREAMBLES = [
   // coddy engine (internal/session/compaction.go)
   "The earlier conversation was compacted. Summary of the compacted part:\n\n",
-  // opencode engine (internal/agent/compaction.go)
+  // Persisted summaries from the retired OpenCode engine.
   "Summary of the earlier conversation (older turns were compacted to save context):\n\n",
 ];
 

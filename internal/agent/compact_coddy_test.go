@@ -125,14 +125,19 @@ func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
 	keepTurns := 1
 	keepResults := 0
 	minBytes := 10
+	startPercent := 50
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
 	ag := compactTestAgent(t, st, config.CompactionConfig{
 		KeepRecentTurns: &keepTurns,
 		ResultEviction: config.ResultEviction{
 			KeepRecent:     &keepResults,
 			MinResultBytes: &minBytes,
+			StartPercent:   &startPercent,
 		},
 	}, provider)
+	// A real window far above the gate: the summarizer head must evict anyway
+	// (fork(compaction-summary-gate)), or the stale read is summarized as true.
+	ag.cfg.Models[0].MaxContextTokens = 128000
 
 	if _, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "", Force: false}); err != nil {
 		t.Fatal(err)

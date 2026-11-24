@@ -22,12 +22,17 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
+
+// errEmptyCompactionSummary is what a summarizer that answers with no content
+// produced. It is a failure of that candidate, not the end of the chain.
+var errEmptyCompactionSummary = errors.New("compaction produced an empty summary")
 
 const (
 	// compactionInputSharePercent is how much of the summarizer's context
@@ -64,7 +69,7 @@ func compactionInputBudget(window, instructionTokens int) int {
 		window = 0
 	}
 	budget := window*compactionInputSharePercent/100 -
-		summarizerPromptTokens() - instructionTokens
+		session.EstimateTokens(compactionSystemPrompt) - instructionTokens
 	if budget < compactionMinChunkTokens {
 		return compactionMinChunkTokens
 	}
@@ -172,7 +177,7 @@ func (a *Agent) foldCompactionHead(
 		rest = rest[done:]
 	}
 	if strings.TrimSpace(carry) == "" {
-		return "", "", steps, ErrEmptyCompactionSummary
+		return "", "", steps, errEmptyCompactionSummary
 	}
 	return carry, used, steps, nil
 }
@@ -193,13 +198,17 @@ func (a *Agent) foldOnePass(
 	var lastErr error
 	for i, cand := range chain {
 		for attempt := 0; ; attempt++ {
-			resp, callErr := cand.provider.Complete(ctx, compactionRequestWith(cand.system, carry, chunk.body, instructions), nil)
+			resp, callErr := cand.provider.Complete(ctx, compactionRequest(carry, chunk.body, instructions), nil)
 			if callErr == nil {
 				out := strings.TrimSpace(resp.Content)
-				if out == "" {
-					return "", "", 0, ErrEmptyCompactionSummary
+				if out != "" {
+					return out, cand.modelID, chunk.count, nil
 				}
-				return out, cand.modelID, chunk.count, nil
+				// An empty answer is this candidate producing nothing, not a
+				// chunk the request refused: skip the shrink ladder and give
+				// the next model the same pass (issue #247's chain promise).
+				lastErr = errEmptyCompactionSummary
+				break
 			}
 			lastErr = callErr
 			if ctx.Err() != nil {
@@ -232,6 +241,9 @@ func (a *Agent) foldOnePass(
 			a.log.Warn("compaction summarizer could not fold this pass; falling back to the next model",
 				"model", cand.modelID, "next", chain[i+1].modelID, "error", lastErr)
 		}
+	}
+	if errors.Is(lastErr, errEmptyCompactionSummary) {
+		return "", "", 0, lastErr
 	}
 	return "", "", 0, fmt.Errorf("compaction LLM call: %w", lastErr)
 }

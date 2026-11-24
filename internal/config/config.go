@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,12 +80,20 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
+			logCompactionMigration(rec)
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
 	_ = WriteBackup(paths.ConfigPath, originalData)
+	logCompactionMigration(cfg)
 	return cfg, nil
+}
+
+func logCompactionMigration(cfg *Config) {
+	if cfg.Compaction.migratedOpenCode {
+		slog.Warn(openCodeCompactionNotice, "config", cfg.Paths.ConfigPath, "fix", openCodeCompactionFix)
+	}
 }
 
 func validateSubconfigs(cfg *Config) error {

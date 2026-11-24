@@ -7,6 +7,10 @@
 
 # FoxxyCode plugin changes
 
+## Unreleased — 2026-11-20
+
+**Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
+
 ## 0.3.52 — 2026-11-20
 
 **Guidance for DeepSeek models.**
