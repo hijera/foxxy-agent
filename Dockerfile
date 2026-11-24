@@ -49,6 +49,8 @@ ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
 COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
+# The renderers app.js loads on demand (Mermaid, KaTeX), content-hashed.
+COPY --from=ui-builder /ui/chunks /src/external/ui/chunks
 
 RUN mkdir -p /out \
 	/out/ssl-certs \

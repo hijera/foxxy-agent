@@ -1064,7 +1064,7 @@ func savedState(t *testing.T, id string, n int) (*FileStore, *State) {
 func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 	msgs := buildHistory(400)
 
-	whole, encoded, err := encodeMessagesFile(msgs, nil)
+	whole, encoded, err := encodeMessagesFile(msgs, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,11 +1072,11 @@ func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 		t.Fatalf("encoding from nothing touched %d messages, want the whole history", encoded)
 	}
 
-	base, _, err := encodeMessagesFile(msgs[:398], nil)
+	base, _, err := encodeMessagesFile(msgs[:398], nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	grown, encoded, err := encodeMessagesFile(msgs, &persistedMessages{count: 398, bytes: base})
+	grown, encoded, err := encodeMessagesFile(msgs, &persistedMessages{count: 398, bytes: base}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1092,7 +1092,7 @@ func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
 // encoder must notice rather than splice onto stale bytes.
 func TestAnEditedHistoryIsEncodedInFull(t *testing.T) {
 	msgs := buildHistory(20)
-	base, _, err := encodeMessagesFile(msgs, nil)
+	base, _, err := encodeMessagesFile(msgs, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1100,14 +1100,14 @@ func TestAnEditedHistoryIsEncodedInFull(t *testing.T) {
 	// encoded again.
 	edited := append([]llm.Message(nil), msgs...)
 	edited[3].Content = "rewritten"
-	out, encoded, err := encodeMessagesFile(edited, &persistedMessages{count: 20, bytes: base})
+	out, encoded, err := encodeMessagesFile(edited, &persistedMessages{count: 20, bytes: base}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if encoded != 20 {
 		t.Fatalf("an edited history encoded %d messages, want all of them", encoded)
 	}
-	want, _, err := encodeMessagesFile(edited, nil)
+	want, _, err := encodeMessagesFile(edited, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1277,43 +1277,6 @@ func TestCompactionSummaryInsertIsPersistedInFull(t *testing.T) {
 	}
 }
 
-// The compaction engine of this fork swaps the older turns for a summary
-// through ReplaceMessagesAndPersist (internal/agent/compaction.go). The shorter
-// history is what has to be on disk afterwards, and the next append builds on
-// it rather than on the history the store remembered from before the swap.
-func TestReplaceMessagesAndPersistWritesTheCompactedHistory(t *testing.T) {
-	fs, st := savedState(t, "sess_engine_compacted", 8)
-	kept := st.GetMessages()[6:]
-	compacted := append([]llm.Message{NewCompactionSummaryMessage("what came before", "test-model")}, kept...)
-	st.ReplaceMessagesAndPersist(compacted)
-	if err := fs.Save(st); err != nil {
-		t.Fatal(err)
-	}
-	snap, err := fs.ReadSnapshot("sess_engine_compacted")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snap.Messages) != 3 || !snap.Messages[0].CompactionSummary {
-		t.Fatalf("disk holds %d messages after the swap, want the summary and the two kept ones", len(snap.Messages))
-	}
-
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "after the summary"})
-	if err := fs.Save(st); err != nil {
-		t.Fatal(err)
-	}
-	onDisk, err := os.ReadFile(filepath.Join(st.SessionDir, messagesFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: st.GetMessages()}, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(onDisk, append(want, '\n')) {
-		t.Fatalf("the append after a compaction did not build on the compacted history")
-	}
-}
-
 // A long-lived server opens many sessions; the copy of each history the store
 // keeps to splice appends onto must leave with the session, and a reopened
 // session still persists correctly after it did.
@@ -1392,18 +1355,18 @@ func TestSplicedMessagesMatchAFullEncodingForAwkwardContent(t *testing.T) {
 			base := buildHistory(3)
 			full := append(append([]llm.Message(nil), base...), tc.msg)
 
-			prev, _, err := encodeMessagesFile(base, nil)
+			prev, _, err := encodeMessagesFile(base, nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			spliced, encoded, err := encodeMessagesFile(full, &persistedMessages{count: len(base), bytes: prev})
+			spliced, encoded, err := encodeMessagesFile(full, &persistedMessages{count: len(base), bytes: prev}, "")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if encoded != 1 {
 				t.Fatalf("encoded %d messages, want only the appended one", encoded)
 			}
-			want, _, err := encodeMessagesFile(full, nil)
+			want, _, err := encodeMessagesFile(full, nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1497,7 +1460,7 @@ func TestASecondStateOverTheSameBundleIsNotMistakenForTheFirst(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		second.AddMessage(llm.Message{Role: llm.RoleUser, Content: "from the second state"})
 	}
-	if _, rev, _, _ := second.MessagesForPersist(); rev != 5 {
+	if _, rev, _, _, _ := second.MessagesForPersist(); rev != 5 {
 		t.Fatalf("the second state reached revision %d, the test needs the collision at 5", rev)
 	}
 	if err := fs.Save(second); err != nil {
@@ -1555,7 +1518,7 @@ func TestSaveNoticesTheHistoryWasReplacedUnderneathIt(t *testing.T) {
 	msgPath := filepath.Join(st.SessionDir, messagesFile)
 
 	// Somebody else writes a different history to the same path.
-	other, _, err := encodeMessagesFile(buildHistory(2), nil)
+	other, _, err := encodeMessagesFile(buildHistory(2), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

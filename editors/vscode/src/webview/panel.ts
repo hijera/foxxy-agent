@@ -4,6 +4,8 @@ import { currentFoxxyCodeTheme } from "./themeBridge";
 import { readSettings } from "../settings";
 import { info } from "../notifications";
 import { OPEN_EXTERNAL_MESSAGE_TYPE, externalUrlFromMessage } from "./externalLink";
+import { DOWNLOAD_TEXT_MESSAGE_TYPE, textDownloadFromMessage, type TextDownload } from "./textDownload";
+import { homedir } from "os";
 
 /** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
  *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
@@ -58,6 +60,7 @@ export class FoxxyCodePanelController {
   private frameLive = false;
   /** Mentions requested before the wrapper existed; flushed by `render()`. */
   private pendingMentions: string[] = [];
+  private renderGeneration = 0;
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -70,6 +73,11 @@ export class FoxxyCodePanelController {
     // changes forwarded from the embedded SPA by the wrapper script.
     webview.onDidReceiveMessage((msg: { type?: string; locale?: string; url?: string }) => {
       switch (msg?.type) {
+        case DOWNLOAD_TEXT_MESSAGE_TYPE: {
+          const download = textDownloadFromMessage(msg);
+          if (download) void this.saveTextDownload(download);
+          break;
+        }
         case "foxxycode:retry":
           this.opts.onRetry?.();
           break;
@@ -107,14 +115,30 @@ export class FoxxyCodePanelController {
     );
   }
 
+  private async saveTextDownload(download: TextDownload): Promise<void> {
+    try {
+      const folder = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir());
+      const extension = download.filename.endsWith(".mmd") ? "mmd" : "svg";
+      const target = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(folder, download.filename),
+        filters: { [extension.toUpperCase()]: [extension] },
+      });
+      if (target) await vscode.workspace.fs.writeFile(target, Buffer.from(download.text, "utf8"));
+    } catch (error) {
+      void vscode.window.showErrorMessage(t("download.errorSave", String(error)));
+    }
+  }
+
   /** Show a status message while the server is booting (no iframe yet). */
   showStatus(message: string): void {
+    this.renderGeneration++;
     this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), false, this.activeHtmlLang());
   }
 
   /** Show an error message with Retry / Open Settings buttons. */
   showError(message: string): void {
+    this.renderGeneration++;
     this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), true, this.activeHtmlLang());
   }
@@ -187,6 +211,7 @@ export class FoxxyCodePanelController {
     }
   }
   dispose(): void {
+    this.renderGeneration++;
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
   }
@@ -194,11 +219,13 @@ export class FoxxyCodePanelController {
   // ---- rendering ------------------------------------------------------------
 
   private async render(): Promise<void> {
-    if (!this.base) return;
+    const base = this.base;
+    if (!base) return;
+    const generation = ++this.renderGeneration;
     const settings = readSettings();
     const theme = settings.followVscodeTheme ? currentFoxxyCodeTheme() : "dark";
     const lang = spaLanguageCode(vscode.env.language);
-    const localUrl = appendQueryParams(this.base, { theme, lang, embed: EMBED_ID });
+    const localUrl = appendQueryParams(base, { theme, lang, embed: EMBED_ID });
     // asExternalUri converts http://127.0.0.1:PORT/ to a forwarded URI in remote
     // workspaces (Remote SSH / Codespaces / WSL). Locally it returns the same URL.
     let external: vscode.Uri;
@@ -207,6 +234,7 @@ export class FoxxyCodePanelController {
     } catch {
       external = vscode.Uri.parse(localUrl);
     }
+    if (generation !== this.renderGeneration) return;
     const src = external.toString(true);
     this.currentUrl = src;
     this.opts.onUrl?.(src);
@@ -276,6 +304,9 @@ export class FoxxyCodePanelController {
           }
           if (d.type === "${OPEN_EXTERNAL_MESSAGE_TYPE}" && typeof d.url === "string") {
             vscodeApi.postMessage({ type: d.type, url: d.url });
+          }
+          if (d.type === "${DOWNLOAD_TEXT_MESSAGE_TYPE}" && typeof d.filename === "string" && typeof d.text === "string") {
+            vscodeApi.postMessage({ type: d.type, filename: d.filename, text: d.text });
           }
           return;
         }

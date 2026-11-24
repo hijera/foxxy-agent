@@ -15,29 +15,17 @@ func coddyCompactedHistory() []llm.Message {
 	return []llm.Message{
 		{Role: llm.RoleUser, Content: "FOLDED-QUESTION"},
 		{Role: llm.RoleAssistant, Content: "FOLDED-ANSWER"},
-		{Role: llm.RoleUser, Content: summaryPrefix + "THE-SUMMARY", CompactionSummary: true},
+		{Role: llm.RoleUser, Content: "THE-SUMMARY", CompactionSummary: true},
 		{Role: llm.RoleUser, Content: "live question"},
 		{Role: llm.RoleAssistant, Content: "live answer"},
 	}
 }
 
-// openCodeCompactedHistory is the same conversation folded by the opencode engine, which flags the
-// folded messages instead of relying on the summary position.
-func openCodeCompactedHistory() []llm.Message {
-	h := coddyCompactedHistory()
-	h[0].Compacted = true
-	h[1].Compacted = true
-	return h
-}
-
-func agentWithEngine(t *testing.T, engine string, history []llm.Message) (*Agent, *session.State) {
+func agentWithHistory(t *testing.T, history []llm.Message) (*Agent, *session.State) {
 	t.Helper()
 	cfg := &config.Config{
 		Models: []config.ModelEntry{{Model: "fake/model", MaxContextTokens: 128000}},
 		Agent:  config.Agent{Model: "fake/model"},
-		Compaction: config.CompactionConfig{
-			Engine: engine,
-		},
 	}
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
@@ -47,38 +35,11 @@ func agentWithEngine(t *testing.T, engine string, history []llm.Message) (*Agent
 	return NewAgent(cfg, st, nil, nil), st
 }
 
-func TestLLMVisibleMessagesMatchesEngineWindow(t *testing.T) {
-	// The coddy engine replays from the summary row onward; the opencode engine keeps every
-	// message that is not flagged Compacted. Same conversation, different bookkeeping.
-	cases := []struct {
-		engine  string
-		history []llm.Message
-		want    int
-	}{
-		{config.CompactionEngineCoddy, coddyCompactedHistory(), 3},
-		{config.CompactionEngineOpenCode, openCodeCompactedHistory(), 3},
-	}
-	for _, tc := range cases {
-		t.Run(tc.engine, func(t *testing.T) {
-			a, _ := agentWithEngine(t, tc.engine, tc.history)
-			window := a.llmVisibleMessages()
-			if len(window) != tc.want {
-				t.Fatalf("%s window size = %d, want %d", tc.engine, len(window), tc.want)
-			}
-			for _, m := range window {
-				if m.Compacted || m.Content == "FOLDED-QUESTION" || m.Content == "FOLDED-ANSWER" {
-					t.Fatalf("folded message stayed in the %s window: %q", tc.engine, m.Content)
-				}
-			}
-		})
-	}
-}
-
 // The context HUD numerator must describe the payload, not the archive. Before this the fork fed
 // the unfiltered transcript into computeContextBreakdown, so on the default coddy engine — whose
 // folded messages carry no flag — the ring never dropped after compaction.
 func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
-	a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
+	a, st := agentWithHistory(t, coddyCompactedHistory())
 	_ = a.buildSystemPrompt("agent", nil, nil)
 
 	b := st.GetLastContextBreakdown()
@@ -99,7 +60,7 @@ func TestBuildSystemPromptExcludesFoldedTurnsFromConversation(t *testing.T) {
 }
 
 func TestRefreshConversationContextUsageMovesTextIntoSummary(t *testing.T) {
-	a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
+	a, st := agentWithHistory(t, coddyCompactedHistory())
 	st.SetLastContextBreakdown(&session.ContextBreakdown{
 		SystemPrompt: 100,
 		Conversation: 10000,
@@ -134,7 +95,7 @@ func TestRefreshConversationContextUsageMovesTextIntoSummary(t *testing.T) {
 func TestTurnOpensWithTheEstimateItsFirstRequestCosts(t *testing.T) {
 	for _, mode := range []string{"agent", "plan"} {
 		t.Run(mode, func(t *testing.T) {
-			a, st := agentWithEngine(t, config.CompactionEngineCoddy, coddyCompactedHistory())
+			a, st := agentWithHistory(t, coddyCompactedHistory())
 			build := a.buildSystemPromptParts(mode, nil, nil)
 			opened := st.GetLastContextBreakdown()
 			if opened == nil {

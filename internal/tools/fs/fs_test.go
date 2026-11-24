@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -419,6 +420,147 @@ func TestGlobHidesSessionStore(t *testing.T) {
 	}
 }
 
+// A confined turn's glob does not follow a symbolic link out of its working
+// directory: a link to the agent's home lists nothing behind it.
+func TestConfinedGlobDoesNotFollowLinksOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret-token.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "mine.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"pattern": "**/*.json", "path": root})
+	out, err := executeGlob(context.Background(), string(args), &tooling.Env{CWD: root, Confined: true})
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if strings.Contains(out, "secret-token.json") || !strings.Contains(out, "mine.json") {
+		t.Fatalf("confined glob: %q", out)
+	}
+}
+
+// A confined turn's glob never lists the agent home nested inside the
+// workspace, while a sibling directory keeps its files: the denial prunes the
+// whole subtree before anything is enumerated, and home entries can neither
+// leak into the output nor use up the result cap.
+func TestConfinedGlobSkipsTheAgentHomeAndKeepsSiblings(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "aa-agent-home")
+	writeSearchFixture(t, filepath.Join(home, "config.yaml"), "{}\n")
+	writeSearchFixture(t, filepath.Join(home, "nested", "key.pem"), "---\n")
+	sibling := filepath.Join(root, "zz-other-home")
+	writeSearchFixture(t, filepath.Join(sibling, "readme.md"), "public\n")
+	writeSearchFixture(t, filepath.Join(root, "note.txt"), "public note\n")
+	env := &tooling.Env{
+		CWD: root, Confined: true,
+		ReadPathAllowed: func(p string) bool {
+			// The walker may ask about the denied entry itself - that is how
+			// it prunes. Nothing below the home may be asked or visited.
+			if p != home && isWithinDir(p, home) {
+				t.Fatalf("confined glob enumerated below the denied home: %s", p)
+			}
+			return !isWithinDir(p, home)
+		},
+	}
+	args, _ := json.Marshal(map[string]any{"pattern": "**/*", "path": root})
+	out, err := executeGlob(context.Background(), string(args), env)
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if strings.Contains(out, "aa-agent-home") {
+		t.Fatalf("confined glob listed the agent home: %q", out)
+	}
+	for _, want := range []string{"note.txt", filepath.Join("zz-other-home", "readme.md")} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("confined glob lost %q:\n%s", want, out)
+		}
+	}
+}
+
+// A denied root refuses the whole listing outright: a glob pointed straight
+// at the agent home (as a hook-rewritten argument would be) lists nothing.
+func TestConfinedGlobRefusesDeniedRoots(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "agent-home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{home, filepath.Join(home, "sub")} {
+		t.Run(path, func(t *testing.T) {
+			args, _ := json.Marshal(map[string]any{"pattern": "**/*", "path": path})
+			out, err := executeGlob(context.Background(), string(args), &tooling.Env{
+				CWD: root, Confined: true, ReadPathAllowed: func(string) bool { return false },
+			})
+			if err == nil || out != "" {
+				t.Fatalf("denied glob root returned output=%q err=%v", out, err)
+			}
+		})
+	}
+}
+
+// A confined turn's tree never prints the agent home nested inside the
+// workspace, and a sibling directory keeps its entries.
+func TestConfinedPrintTreeSkipsTheAgentHomeAndKeepsSiblings(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "aa-agent-home")
+	for _, d := range []string{filepath.Join(home, "sessions", "sess_x"), filepath.Join(root, "zz-other-home")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "sessions", "sess_x", "messages.json"), []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "zz-other-home", "readme.md"), []byte("public\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("public note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := &tooling.Env{
+		CWD: root,
+		ReadPathAllowed: func(p string) bool {
+			return !isWithinDir(p, home)
+		},
+	}
+	out, err := executePrintTree(context.Background(), `{"depth":4}`, env)
+	if err != nil {
+		t.Fatalf("print_tree: %v", err)
+	}
+	if strings.Contains(out, "aa-agent-home") {
+		t.Fatalf("confined print_tree listed the agent home:\n%s", out)
+	}
+	for _, want := range []string{"note.txt", "zz-other-home/", "readme.md"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("confined print_tree lost %q:\n%s", want, out)
+		}
+	}
+}
+
+// A denied root refuses the whole tree outright, the way grep refuses a
+// denied search root.
+func TestConfinedPrintTreeRefusesDeniedRoots(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "agent-home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executePrintTree(context.Background(), `{"path":"`+filepath.ToSlash(home)+`"}`, &tooling.Env{
+		CWD: root, ReadPathAllowed: func(string) bool { return false },
+	})
+	if err == nil || out != "" {
+		t.Fatalf("denied print_tree root returned output=%q err=%v", out, err)
+	}
+}
+
 // --- grep.go / search.go: portable content search ---------------------------
 
 func TestGrepNativeFallbackSearch(t *testing.T) {
@@ -555,7 +697,7 @@ func TestNativeGlobSupportsDoubleStarWithoutRipgrep(t *testing.T) {
 	writeSearchFixture(t, want, "package nested\n")
 	writeSearchFixture(t, filepath.Join(root, "file.txt"), "not go\n")
 
-	paths, err := nativeGlob(context.Background(), root, "**/*.go", "")
+	paths, err := nativeGlob(context.Background(), root, "**/*.go", "", nil)
 	if err != nil {
 		t.Fatalf("nativeGlob: %v", err)
 	}
@@ -572,7 +714,7 @@ func TestNativeGlobSupportsDoublestarAlternatives(t *testing.T) {
 	writeSearchFixture(t, markdownFile, "# Readme\n")
 	writeSearchFixture(t, filepath.Join(root, "notes.txt"), "notes\n")
 
-	paths, err := nativeGlob(context.Background(), root, "**/*.{go,md}", "")
+	paths, err := nativeGlob(context.Background(), root, "**/*.{go,md}", "", nil)
 	if err != nil {
 		t.Fatalf("nativeGlob: %v", err)
 	}

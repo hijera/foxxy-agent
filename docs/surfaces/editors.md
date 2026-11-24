@@ -11,6 +11,14 @@ The plugin (`editors/intellij`, every IntelliJ-based IDE from 2022.2) and the ex
 - the agent's file edits as native inline diffs with Accept, Reject and checkpoints, driven by the `/foxxycode/ide/*` routes;
 - inline code completion in the editor when `autocomplete` is on ([config reference](../reference/config.md#autocomplete)).
 
+In VS Code, **FoxxyCode: Restart** replaces the shared backend and reconnects both the sidebar
+and the editor tab to its new address. Hidden panels reconnect too; closing a tab while the
+replacement starts leaves it closed and updates the remaining panel.
+
+![Both VS Code panels after restarting the shared backend](../assets/editors/vscode-restart-both-panels-dark-1280.png)
+
+*The sidebar and editor tab reconnect together after Restart.*
+
 In IntelliJ, **Suggest Code at Caret** is available from the editor context menu and through `Alt+\` in the default keymap. The shortcut starts FoxxyCode if its panel has not been opened yet. Autocomplete is off by default; when it is off, the action shows a hint pointing to FoxxyCode Settings instead of silently doing nothing. If your keyboard layout does not produce that shortcut, find **Suggest Code at Caret** under Settings → Keymap and assign a key combination that works in your layout. Accept a shown suggestion with Tab or dismiss it with Escape.
 
 ![A directory dropped from the IntelliJ project tree inserts a mention ending in slash](../assets/editors/intellij-directory-mention-dark-1400.png)
@@ -108,7 +116,7 @@ Everything an editor renders about FoxxyCode comes out of the protocol, so every
 |---|---|
 | Mode selector (`agent`, `plan`, `ask`) | the `mode` config option of `session/new` and `session/load` (plus the legacy `modes` field); changed with `session/set_config_option` or `session/set_mode` |
 | Model selector | the `model` config option, one row per `models[].model` in `config.yaml`, default `agent.model`; absent when the list is empty |
-| Reasoning or thinking control | the `reasoning` config option in the `thought_level` category, with the levels the session's model offers (`off` last where its provider can turn thinking off); absent for a model without levels |
+| Reasoning or thinking control | the `reasoning` config option in the `thought_level` category, with the levels the session's model offers (`off` last only when its logical model sets `allow_reasoning_off: true`); absent for a model without levels |
 | Permission policy (`ask`, `accept_edits`, `bypass`) | the `permission_mode` config option in the `_permission_mode` category, which a client without special handling shows as a plain selector; an override is session-scoped and wins over `tools.permission_mode`, but lives in the agent's memory only, so a restart of the agent returns to the configured mode |
 | Slash commands | `available_commands_update` after `session/new` and `session/load`: the settings commands (`model`, `reasoning`, `think`, `nothink`, `agent`, `plan`, `ask`, `permissions`, with their argument hint in `input.hint`), then `compact`, `export` and `plugin`, then every skill from `skills.dirs`. The settings commands run from the prompt text, with `--once` or `--count=N` for the next turns only ([Session settings](../features/session-settings.md)) |
 | Permission prompts | `session/request_permission` with the options Allow, Allow always and Reject (and the program-wide `allow_always_<program>` for a plain shell command, and under `ask` the session switches `allow_session_bypass` and, for a file write, `allow_session_accept_edits`); sent only under `ask` (commands and writes) or `accept_edits` (commands); `bypass` never asks |

@@ -349,7 +349,7 @@ test("rewinding the first message removes the old visible tail before resending"
   };
   await mount();
   fireEvent.click(screen.getAllByRole("button", { name: "Edit message" })[0]!);
-  await send("Corrected first prompt");
+  await send("Corrected first prompt", "Send edit");
   await waitFor(() => expect(screen.queryByText("Earlier A prompt")).not.toBeInTheDocument());
   expect(screen.getByText("Corrected first prompt")).toBeInTheDocument();
   expect(backend.posts[0]!.sid).toBe(A);
@@ -394,9 +394,9 @@ test.each([true, false])(
     }
   },
 );
-async function send(text: string) {
+async function send(text: string, buttonName: string = "Send") {
   fireEvent.change(composer(), { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  fireEvent.click(screen.getByRole("button", { name: buttonName }));
   await waitFor(() => expect(backend.posts.length).toBeGreaterThan(0));
 }
 async function navigate(sid: string) {

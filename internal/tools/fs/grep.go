@@ -100,6 +100,9 @@ func executeGrepWithRunner(ctx context.Context, argsJSON string, env *tooling.En
 	if strings.TrimSpace(args.Path) != "" {
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
+	if env.ReadPathAllowed != nil && !env.ReadPathAllowed(searchPath) {
+		return "", fmt.Errorf("grep: path is outside the permitted workspace")
+	}
 	if _, err := os.Stat(searchPath); err != nil {
 		return "", fmt.Errorf("grep: %w", err)
 	}
@@ -117,7 +120,10 @@ func executeGrepWithRunner(ctx context.Context, argsJSON string, env *tooling.En
 	// would reject patterns ripgrep handles fine. Non-ASCII patterns skip it:
 	// ripgrep matches raw bytes, so a Cyrillic pattern never matches a
 	// Windows-1251 file, while the built-in engine decodes each file first.
-	if runner.lookPath != nil && runner.run != nil && isASCIIPattern(args.Pattern) {
+	// A confined search uses the built-in walker, which checks each path
+	// before opening it. Filtering ripgrep's output would read private files
+	// first and could let their matches consume the result limit.
+	if env.ReadPathAllowed == nil && runner.lookPath != nil && runner.run != nil && isASCIIPattern(args.Pattern) {
 		if rgPath, lookupErr := runner.lookPath("rg"); lookupErr == nil {
 			output, exitCode, runErr := runner.run(ctx, rgPath, systemRGArgs(args, searchPath, maxResults))
 			switch {
@@ -140,7 +146,7 @@ func executeGrepWithRunner(ctx context.Context, argsJSON string, env *tooling.En
 	if err != nil {
 		return "", fmt.Errorf("grep: invalid regular expression: %w", err)
 	}
-	output, err := nativeGrepSearch(ctx, searchPath, args.Glob, storeRoot, matcher, maxResults)
+	output, err := nativeGrepSearch(ctx, searchPath, args.Glob, storeRoot, matcher, maxResults, env.ReadPathAllowed)
 	if err != nil {
 		return "", fmt.Errorf("grep: %w", err)
 	}

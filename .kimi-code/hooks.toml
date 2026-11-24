@@ -3,7 +3,7 @@
 
 [[hooks]]
 event = "SessionStart"
-matcher = "startup|resume"
+matcher = "startup|resume|clear|compact"
 command = "python .kimi-code/hooks/attach_rules.py"
 timeout = 10
 

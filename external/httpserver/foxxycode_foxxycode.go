@@ -1483,8 +1483,8 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID, assetsDir string, msgs []llm.
 		}
 		// Compaction markers so the SPA renders the summary row as its own
 		// CompactionMessage foldout and hides messages folded away by the
-		// opencode engine. The foxxycode engine sets compaction_summary; the
-		// opencode engine additionally sets compacted on the folded head.
+		// retired OpenCode engine. Coddy sets compaction_summary; legacy
+		// OpenCode transcripts additionally set compacted on the folded head.
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
 		}
@@ -1764,7 +1764,8 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 				"session", id, "error", err)
 		}
 	}
-	msgs, rev := st.MessagesWithRev()
+	transcript := s.mgr.ReadTranscript(st)
+	msgs, rev := transcript.Messages, transcript.Revision
 	page := session.PageMessages(msgs, query)
 	// Both ends of a page move back to the assistant that issued a tool call,
 	// so a from and a before inside one tool step leave nothing whole to
@@ -1801,13 +1802,22 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 		out["subagent"] = subagentMetaLink(meta)
 	} else if st.IsSchedulerJob() {
 		out["readOnly"] = true
-		out["schedulerJob"] = map[string]interface{}{"jobId": st.GetSchedulerJobID()}
+		job := map[string]interface{}{"jobId": st.GetSchedulerJobID()}
+		if ws := st.GetSchedulerJobWorkspace(); ws != "" {
+			job["workspace"] = ws
+		}
+		out["schedulerJob"] = job
 	}
 	// An archived session is where the composer learns it must not offer a
 	// prompt. It cannot be read off the session listing: that skips the archive,
 	// so the conversation on screen may be in no page the client holds.
 	if archived, _ := st.ArchiveState(); archived {
 		out["archived"] = true
+	}
+	// The last rewind can still be taken back: the client offers Undo on the
+	// prompt it edited.
+	if transcript.Undo != nil {
+		out["rewindUndo"] = transcript.Undo
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
@@ -1824,7 +1834,7 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	}
 	// A session saved before only the agent's own settings changes were
 	// noted keeps the notices of the operator's: they are not shown.
-	if u := page.UILog(msgs, session.VisibleUILog(msgs, st.GetUILog())); len(u) > 0 {
+	if u := page.UILog(msgs, session.VisibleUILog(msgs, transcript.UILog)); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
 			rows = append(rows, map[string]interface{}{

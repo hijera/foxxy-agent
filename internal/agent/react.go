@@ -32,6 +32,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/svn"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	fstools "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
@@ -47,7 +48,6 @@ type SessionState interface {
 	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
-	ReplaceMessagesAndPersist(msgs []llm.Message)
 	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
 	GetMCPToolFilter() func(server, tool string) bool
@@ -355,8 +355,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		typed := typedText(prompt)
 		// The built-in /compact command compacts history instead of running the ReAct
 		// loop. runCompactCommand persists the command text itself (so it shows in the
-		// transcript like any other message), and under the opencode engine returns a
-		// short notice instead of compacting.
+		// transcript like any other message).
 		if args, ok := parseCompactCommand(typed); ok {
 			return a.runCompactCommand(ctx, args, userText)
 		}
@@ -481,13 +480,13 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// permission prompt, and to nothing after that.
 	defer a.releasePlanContext()
 
-	// FoxxyCode engine: buildSystemPromptParts refreshed the context breakdown, so
+	// buildSystemPromptParts refreshed the context breakdown, so
 	// compact before the first LLM call when the estimate crossed the
 	// auto-compaction threshold, then rebuild the payload from the windowed
 	// history. A compaction is a legitimate reason to render the system message
 	// again: the prefix behind it has just been rewritten anyway.
 	finishCompaction := a.debugStage(ctx, "initial_compaction")
-	if a.cfg.Compaction.EngineIsCoddy() && a.maybeAutoCompact(ctx) {
+	if a.maybeAutoCompact(ctx) {
 		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 		messages = a.buildMessages(sys.Content)
 	}
@@ -866,7 +865,6 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenReissues int
-	var lastInputTokens int
 	// Numbers every model call of the turn, retries and continuations included,
 	// for the debug log and the network trace that carries it.
 	var llmCalls int
@@ -1052,26 +1050,12 @@ func (a *Agent) runReActLoop(
 		}
 		turnCtx := a.buildTurnContext(sys)
 
-		// Auto-compaction: when the conversation approaches the context window, summarize older
-		// turns and rebuild the payload from the rewritten history. Non-fatal on error. The foxxycode
-		// engine re-checks between turns (the first check ran before the loop); the opencode engine
-		// checks every turn against the provider's real input-token count.
-		//
-		// The estimate is refreshed first: the system message no longer is, and the
-		// estimate is what the foxxycode trigger reads while tool results grow.
-		// A model switch also rechecks the first request against its new context window.
+		// Recheck context usage between rounds as tool results grow. The first
+		// check ran before the loop, but a model switch also needs a check
+		// against the new model's window before its first request.
 		a.refreshContextBreakdown(sys, turnCtx)
-		compacted := false
 		finishCompaction := a.debugStage(ctx, "turn_compaction")
-		if a.cfg.Compaction.EngineIsCoddy() {
-			compacted = (turn > 0 || switched) && a.maybeAutoCompact(ctx)
-		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
-			if a.log != nil {
-				a.log.Warn("context compaction failed", "err", err)
-			}
-		} else {
-			compacted = did
-		}
+		compacted := (turn > 0 || switched) && a.maybeAutoCompact(ctx)
 		if compacted {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
@@ -1079,6 +1063,8 @@ func (a *Agent) runReActLoop(
 				messages = emptyRecoveryProjection(messages, emptyContinuations)
 			}
 			turnCtx = a.buildTurnContext(sys)
+			// Count the rebuilt block that the next request will send.
+			a.refreshContextBreakdown(sys, turnCtx)
 		}
 		finishCompaction()
 		messages = closeInterruptedToolCalls(messages)
@@ -1862,7 +1848,6 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
-		lastInputTokens = response.InputTokens
 		// All three counters are cumulative for this turn. Sending the last call's
 		// input/output next to a cumulative total would make Input + Output != Total in
 		// every client that renders the three together.
@@ -2468,6 +2453,21 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
+	// The permission mode is read on every call, not once per turn: the
+	// operator may have switched the session to bypass from the previous
+	// call's dialog, and the rest of the batch runs under that.
+	env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	env.Confined = false
+	env.ReadPathAllowed = nil
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			env.Confined = r.ConfineToWorkspace
+			if env.Confined {
+				cwd, home := env.CWD, a.cfg.Paths.Home
+				env.ReadPathAllowed = func(p string) bool { return session.PathInWorkspace(p, cwd, home) }
+			}
+		}
+	}
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
 	a.callImages = nil
@@ -2526,6 +2526,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A restricted turn refuses a tool it does not name, or a path outside its
+	// working directory, before hooks and permission run: a replayed or
+	// hallucinated call must not reach either. The refusal goes through the
+	// same bookkeeping as every other outcome, so the client's card completes.
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
+				a.finishToolCall(sessionDir, sessionID, tc, err.Error(), nil, "cancelled")
+				return err.Error(), nil
+			}
+		}
+	}
 
 	// A child may only call what its effective tool set admits: the
 	// advertised definitions are filtered the same way, so this catches a
@@ -2600,7 +2613,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
 	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
-	if st := sessionStatePtr(a.state); st != nil {
+	// A restricted turn is not the turn of whoever granted "always allow":
+	// the grants of the session stay with the people who gave them.
+	if st := sessionStatePtr(a.state); st != nil && (st.GetTurnRestriction() == nil || !st.GetTurnRestriction().AskAlways) {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 		sessHTTPGrants = st.GetPermissionHTTPGrants()
@@ -2959,13 +2974,7 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 // so the LLM sees the full skill instructions immediately before the user's request.
 // The stored history content is never modified — only the slice sent to the LLM differs.
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
-	history := a.state.GetMessages()
-	// The foxxycode compaction engine replays only the window from the last summary onward; earlier
-	// history stays in the transcript for the UI. The opencode engine keeps the full slice and
-	// relies on isLLMHistoryMessage to drop messages flagged Compacted.
-	if a.cfg.Compaction.EngineIsCoddy() {
-		history = session.MessagesForLLM(history)
-	}
+	history := a.llmVisibleMessages()
 	// UI-only rows (a bare plan document between a call and its result) must be
 	// out of the analysis: they would cut a batch's contiguous result chain and
 	// make a healthy pair look misplaced.
@@ -3576,10 +3585,52 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
+	// A restricted turn asks the surface before anything that needs approval:
+	// the surface knows who wrote the message, the session's mode does not.
+	if st := sessionStatePtr(state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil && r.AskAlways {
+			return config.PermModeAsk
+		}
+	}
 	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()
+}
+
+// checkRestrictedCall refuses a call the turn's restriction does not allow:
+// a tool outside its list, or a read outside the session's working directory
+// or inside the agent's home.
+func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, cfg *config.Config) error {
+	note := strings.TrimSpace(r.Note)
+	if note == "" {
+		note = "this tool is not available in this turn"
+	}
+	if !r.Allows(tc.Name) {
+		return fmt.Errorf("%s: %s", tc.Name, note)
+	}
+	if !r.ConfineToWorkspace {
+		return nil
+	}
+	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
+	if tc.Name == "glob" {
+		var a struct {
+			Pattern string `json:"pattern"`
+		}
+		if json.Unmarshal([]byte(tc.InputJSON), &a) == nil && (filepath.IsAbs(a.Pattern) || strings.HasPrefix(a.Pattern, "~") || strings.Contains(a.Pattern, "..")) {
+			paths = append(paths, a.Pattern)
+		}
+	}
+	home := ""
+	if cfg != nil {
+		home = cfg.Paths.Home
+	}
+	for _, p := range paths {
+		if !session.PathInWorkspace(p, cwd, home) {
+			return fmt.Errorf("%s: %s (%s is outside the session's working directory)", tc.Name, note, p)
+		}
+	}
+	return nil
 }
 
 // extractCommand parses the "command" field from run_command JSON args.

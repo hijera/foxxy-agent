@@ -129,6 +129,19 @@ func (s *configTestFlagState) legacyEnabledKey(line int) error {
 	return s.write(body)
 }
 
+func (s *configTestFlagState) legacyCompactionEngine() error {
+	return s.write("# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\ncompaction:\n  engine: opencode\n  max_tokens: 2048\n")
+}
+
+func (s *configTestFlagState) reportWarnsAboutCompactionMigration() error {
+	txt := s.out.String()
+	if !strings.Contains(txt, "warning: compaction.engine: The OpenCode compaction engine has been replaced by the more advanced Coddy engine.") ||
+		!strings.Contains(txt, `replace "opencode" with "coddy" or remove compaction.engine`) {
+		return fmt.Errorf("the report lacks the Coddy migration warning and fix:\n%s", txt)
+	}
+	return nil
+}
+
 func (s *configTestFlagState) reportWarnsAboutAlias(line int, key, meant string) error {
 	want := s.cfgPath + ":" + strconv.Itoa(line) + ":"
 	for _, l := range strings.Split(s.out.String(), "\n") {
@@ -300,6 +313,8 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config\.yaml with one provider and one model$`, s.validConfig)
 	sc.Step(`^a config\.yaml whose httpserver section says "enbaled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: false" on line (\d+)$`, s.legacyEnabledKey)
+	sc.Step(`^a config\.yaml with the OpenCode compaction engine$`, s.legacyCompactionEngine)
+	sc.Step(`^the report says the OpenCode compaction engine was replaced by Coddy$`, s.reportWarnsAboutCompactionMigration)
 	sc.Step(`^a config\.yaml whose codex model sets max_tokens on line (\d+)$`, s.codexModelMaxTokens)
 	sc.Step(`^the report warns that max_tokens bounds nothing on a codex model$`, s.reportWarnsCodexMaxTokens)
 	sc.Step(`^a config\.yaml whose logger\.level is "([^"]*)"$`, s.loggerLevel)

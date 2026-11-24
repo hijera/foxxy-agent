@@ -90,6 +90,10 @@ type schedulerHTTPState struct {
 	providers map[string]*schedHTTPProvider
 
 	jobID      string
+	project    bool
+	workspace  string
+	sessionID  string
+	digest     string
 	status     int
 	body       map[string]interface{}
 	runTask    string
@@ -117,6 +121,7 @@ func (s *schedulerHTTPState) reset() error {
 	s.release = nil
 	s.providers = map[string]*schedHTTPProvider{}
 	s.jobID = ""
+	s.project, s.workspace, s.sessionID, s.digest = false, "", "", ""
 	s.status = 0
 	s.body = nil
 	s.runTask, s.jobSession, s.runSession = "", "", ""
@@ -178,7 +183,7 @@ func (s *schedulerHTTPState) serverWithJob(jobID string) error {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
 		Sessions:  config.Sessions{Dir: s.sessRoot},
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: s.schedDir, Timeout: "1m"},
+		Scheduler: config.SchedulerConfig{Enabled: true, Timeout: "1m"},
 	}
 	cfg.Tools.PermissionMode = config.PermModeAsk
 	cfg.Subagents.Dirs = []string{filepath.Join(s.home, "agents")}
@@ -298,7 +303,7 @@ func (s *schedulerHTTPState) waitSettled() error {
 		return err
 	}
 	return waitUntil("the job to be released", func() bool {
-		_, running := s.rt.RunningRun(filepath.Join(s.schedDir, s.jobID+".md"))
+		_, running := s.rt.RunningRun(s.jobRef())
 		return !running
 	})
 }

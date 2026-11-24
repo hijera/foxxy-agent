@@ -1,6 +1,6 @@
 /**
  * Contract: the layout grid (DESIGN.md, "Layout grid") is the only source of
- * viewport widths. Every width query in styles.css and every matchMedia in the
+ * viewport widths. Every width query in the stylesheets and every matchMedia in the
  * code uses an edge of a tier - phone, tablet, desktop, wide - or one of the
  * component thresholds the grid's table lists, in the direction it lists it. A
  * new width is added to that table first: a threshold nobody wrote down is how
@@ -11,9 +11,6 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-// @ts-ignore -- shared source composition is plain JavaScript.
-import { readStyleSource } from "../../postcss-fork-styles.mjs";
-
 import {
   PHONE_MAX_WIDTH_PX,
   SHELL_STACK_MAX_WIDTH_PX,
@@ -21,7 +18,23 @@ import {
 } from "./shellBreakpoint";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readStyleSource().replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** Every stylesheet of the SPA: styles.css and the few a module imports itself (ui/telegram/telegram.css). */
+function stylesheets(root: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    if (statSync(path).isDirectory()) {
+      if (name !== "node_modules") out.push(...stylesheets(path));
+    } else if (name.endsWith(".css")) out.push(path);
+  }
+  return out;
+}
+
+const css = stylesheets(join(dir, ".."))
+  .map((path) => readFileSync(path, "utf8"))
+  .join("\n")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 const design = readFileSync(join(dir, "../../../../DESIGN.md"), "utf8");
 
 type Query = { kind: "min" | "max"; px: number };

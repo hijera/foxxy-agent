@@ -33,7 +33,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /foxxycode/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /foxxycode/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**. The renderers the page loads on demand live under **`/chunks/`** with content-hashed names and **`Cache-Control: public, max-age=31536000, immutable`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
@@ -589,7 +589,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
 					"description": "Returns session settings commands with **`kind`**, **`setting`**, **`hint`**, **`choices`** and **`value`**, followed by deterministic actions (**`/compact`**, **`/export`**, **`/plugin`**). **GET /foxxycode/slash-commands** includes the same command names ahead of skills. " +
-						"**`compact`** appears only while **`compaction.enable`** is true (both engines answer the manual command); **`export`** and **`plugin`** are always present. " +
+						"**`compact`** appears only while **`compaction.enable`** is true; **`export`** and **`plugin`** are always present. " +
 						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
@@ -1836,6 +1836,7 @@ func openAPISpec() map[string]interface{} {
 											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /foxxycode/auth/telegram), the bot's admins only."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1892,10 +1893,53 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/auth/telegram": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
+					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
+						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
+						"**400** without an enabled Telegram bot with a token or with a body that is not valid JSON, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+					"operationId": "authTelegram",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"init_data": map[string]string{"type": "string"}},
+									"required":   []string{"init_data"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the Mini App session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string", "description": "`telegram:<user id>`"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie, so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -2074,7 +2118,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
 					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over the **`user`** rows that are **not** compaction summaries - the numbering **`turnsBefore`** reports - a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**, because truncating history is work a page on another site must not be able to start. " +
-						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, moves the **`tool_calls/`** entries and **`ui_log`** rows of the dropped turns into the bundle's undo snapshot, which **POST /foxxycode/sessions/{id}/rewind/undo** restores. " +
 						"A **`session_rewound`** event is published on **`GET /foxxycode/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "foxxycodeRewind",
 					"parameters": []interface{}{
@@ -2129,6 +2173,64 @@ func openAPISpec() map[string]interface{} {
 						},
 						"415": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/rewind/undo": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Undo the last rewind of the session",
+					"operationId": "foxxycodeRewindUndo",
+					"description": "Restores the specific rewind identified by **rewindUndo.snapshotId** from **GET /foxxycode/sessions/{id}/messages**. The server stops the edited prompt if it is still running and restores the cut messages, **uiLog** rows and tool-call detail. A later prompt, a replacement rewind, or a rewritten prefix expires the snapshot. File changes made during the edit stay on disk. Publishes **session_rewound** on **GET /foxxycode/events**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"snapshotId"},
+									"properties": map[string]interface{}{
+										"snapshotId": map[string]interface{}{"type": "string", "minLength": 1, "description": "The rewindUndo.snapshotId from the transcript."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Requested rewind taken back",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The snapshot expired, the session is busy, or the transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"415": errorResponseRef(),
+						"500": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},
@@ -2208,8 +2310,10 @@ func openAPISpec() map[string]interface{} {
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /foxxycode/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
+						"A scheduler **job session** instead carries **readOnly** **true** and **schedulerJob** **`{jobId, workspace}`** (**`workspace`** only for a project job: the canonical workspace its definition lives in). The job session is the parent of the job's runs, nobody prompts it, and a UI points at the job's history (**GET /foxxycode/scheduler/jobs/{job_id}/runs**). " +
 						"The response also includes the current **settings** snapshot (model, reasoning, mode, permissionMode, configuredPermissionMode, overrides and version). **Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, a **limit** outside 1..1000, a **from** at or past its **before**, and a **from** and a **before** that fall inside one tool step are **400** - both ends move back to the assistant that issued the call, so such a window holds no whole step to answer with. " +
-						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /foxxycode/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
+						"**rewindUndo** **`{snapshotId, userMessageIndex}`** identifies the rewind that can be taken back with **POST /foxxycode/sessions/{id}/rewind/undo** and the index of the prompt it edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial selected-session read with a matching `X-FoxxyCode-Session-ID` header (the read may page with `limit`). It starts that restored ordinary session's deferred configured MCP connections in the background. A missing managed worktree is also reconciled to the main checkout for an already-loaded session, refreshing its workspace catalogs without rewriting the original persisted path. Windowed re-reads (`before`, `from`) and every later read remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
@@ -3698,7 +3802,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript, by whichever engine **compaction.engine** names. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command (**model** is its **--model** option). Both compaction engines support this per-call summarizer. **400** when model names no single configured model, before a turn starts. It runs as a turn of the session: **GET /foxxycode/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** with code **session_busy** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript by Coddy. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command (**model** is its **--model** option). **400** when model names no single configured model, before a turn starts. It runs as a turn of the session: **GET /foxxycode/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** with code **session_busy** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -4389,7 +4493,7 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. `off` joins the choices only when that logical model sets `allow_reasoning_off: true`. Omitted for non-reasoning models.",
 									},
 									"reasoning_default": map[string]string{
 										"type":        "string",
@@ -4542,7 +4646,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -4601,7 +4705,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{

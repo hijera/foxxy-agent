@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useEscapeCloses } from "./useEscapeCloses";
 import { useT } from "../i18n/I18nProvider";
 
 /** How large the image is drawn: fitted to the window, or a scale of its own size. */
@@ -377,12 +378,12 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural]);
 
+  // Escape closes the viewer wherever the focus is: a tap on the picture
+  // leaves it on body, and so does Telegram Web's Back (a parent-page button).
+  useEscapeCloses(true, props.onClose);
+
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      props.onClose();
-    } else if (e.key === "+" || e.key === "=") {
+    if (e.key === "+" || e.key === "=") {
       e.preventDefault();
       changeZoom(zoomIn);
     } else if (e.key === "-") {

@@ -92,6 +92,8 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Работа за корпоративным прокси** — если прокси не задан ни у провайдера, ни в окружении, берётся системный прокси Windows, включая PAC-скрипт и автоопределение (WPAD); поле прокси в настройках прячет пароль, а кнопка **…** собирает адрес из хоста, порта, логина и пароля с любыми символами — см. [Работа за прокси](docs/operate/proxy.md)
 - **Мультимодальность и вложения** — изображения и файлы можно прикреплять через поле ввода (📎), если в настройках модели указано `multimodal: true`; файлы сохраняются в `~/.foxxycode/sessions/<id>/assets/`, передаются в контекст агента и отображаются в сообщении пользователя
 - **Экспорт диалога** — любую сессию можно выгрузить в **PDF**, **DOCX**, **HTML** или **JSON**. Markdown в сообщениях отрисовывается по-настоящему: таблицы, подсветка синтаксиса, вложенные списки и чек-листы, цитаты, ссылки с рабочими аннотациями и картинки из `assets/` сессии; удалённые `http(s)`-картинки при экспорте намеренно не загружаются. Панелям IDE, которые не умеют принимать загрузку, служит отдельный маршрут, записывающий документ на диск и подсвечивающий его в файловом менеджере; подробнее в [HTTP API](docs/reference/http-api.md)
+- **Диаграммы и формулы** — блоки Mermaid и SVG отображаются как картинки, а LaTeX — как формулы в веб-интерфейсе и Telegram Mini App. Исходник можно посмотреть и скачать, диаграммы следуют теме оформления, а Mermaid и KaTeX загружаются отдельно по необходимости — см. [Диаграммы и формулы](docs/surfaces/web-ui.md#diagrams-and-formulas)
+- **Проектные задания планировщика** — наряду с личными заданиями из `${FOXXYCODE_HOME}/scheduler` поддерживаются файлы `<workspace>/.foxxycode/scheduler`, которые хранятся вместе с репозиторием. Запуск по расписанию и вручную требует одобрения конкретного содержимого файла; старый `scheduler.dir` переносится автоматически — см. [Планировщик](docs/operate/scheduler.md#project-jobs-and-trust)
 - **Уровень рассуждения** — для моделей с рассуждением (gpt-5, серия o, gpt-oss, qwen3, модели Claude с thinking) выпадающий список в поле ввода задаёт уровень (`minimal`/`low`/`medium`/`high`), который преобразуется в OpenAI `reasoning_effort` или Anthropic extended-thinking `budget_tokens`; поддержка определяется автоматически по идентификатору модели и настраивается для каждой модели — см. [Настройку](docs/getting-started/configuration.md)
 - **Самонастройка агента** — агент умеет менять собственную конфигурацию по вашей просьбе, но не втихую: `config_get` читает значение по точечному пути (секреты возвращаются как `<redacted>`), `config_set` **накапливает** команды в стиле uci из OpenWrt (`set`, `add_list`, `del_list`, `delete`) без записи в файл, `config_changes` показывает накопленное, `config_commit` применяет пакет одной транзакцией — с проверкой по схеме, снимком в `config.yaml.prev`, горячей перезагрузкой навыков, правил, инструментов и политики MCP и обязательным диалогом разрешения, а `config_revert` и `config_rollback` откатывают накопленное или уже применённое. Синтаксису учит встроенный навык `/configure-foxxycode`; подробнее в [Справочнике по конфигурации](docs/reference/config.md#agent-self-configuration)
 - **Улучшение промпта** — кнопка с волшебной палочкой в строке контекста поля ввода переписывает черновик через модель (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** возвращает исходный текст, а неудача оставляет черновик нетронутым — см. [Встроенный интерфейс](docs/surfaces/web-ui.md)
@@ -604,6 +606,13 @@ tools:
 - Session-scoped MCP management, explicit background activation and recovery from removed worktrees.
 - Provider proxy authentication, repaired outbound tool-call pairing and Anthropic history fixes.
 - Vendored Crossreview 2.0 with independent reviewers and trusted project rosters.
+
+## Upstream 1.2.55–1.2.60 capabilities
+
+- Telegram Mini App: the web UI opens from the bot menu or `/app`, follows Telegram navigation and signs in bot admins from the launch data.
+- Pachca integration bot with direct chats, groups and threads, quoted replies, admin-only settings and offline test coverage.
+- Group members who are not bot admins can chat but cannot change the model, resume sessions or run privileged tools.
+- `models[].allow_reasoning_off` makes Off an explicit per-model capability instead of inferring it from the model name.
 
 ## Архитектура
 

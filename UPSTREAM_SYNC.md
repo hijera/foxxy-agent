@@ -8,6 +8,30 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.72 — 2026-11-19
+
+Checkpoint: `b9f75122ff13706b8716b162b88a2bfb36a6203b` (commit of annotated tag `1.2.72`), following `706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25` (`1.2.70`). Implementation: `ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b`, based on current `origin/main` `3e5b721c5ea71b8c732fa7c9d87b7251185c5dc1`. All eight commits are accounted for: seven adapted changes and one redundant integration merge. No remaining work in this range.
+
+- Ported visible message-edit state with draft and attachment recovery, plus undo of the last sent edit. Rewind keeps the cut messages, UI log and tool-call detail in a bundle-local snapshot; the new undo endpoint cancels the edited turn and restores the conversation without reverting workspace files. Swarm session deduplication now uses the topology's deterministic hop-by-hop tie-break, with the upstream ring, lease and warning tests included.
+- Preserved every registered fork divergence, including cross-process session refresh for both rewind and undo, queue and stop-notice behavior, paged transcripts, scheduler and child-session read-only rules, localization and the Chromium 104 baseline. The HTTP handler, OpenAPI, narrative guides, DESIGN and both editor changelog twins stay in step.
+- Validation: full shipped-tag `make test` with 3,499 SPA tests and the complete Go tree, focused backend and SPA tests, fork guards, rebranding, documentation checks, both editor changelog suites, embedded build and `make lint` pass. Layout, the full phone overflow grid and the complete 3,306-message transcript-window/two-browser/swarm scenario pass. Two documentation captures come from the real FoxxyCode offline stand, which also verified Undo end to end. Scope and adaptations: `docs/plans/upstream-1.2.72-port.md`.
+
+## Sync through upstream 1.2.70 — 2026-11-14
+
+Checkpoint: `706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25` (commit of annotated tag `1.2.70`), following `30fccb74140d42cc9b6a9e234d5eb831404fd3c5` (`1.2.60`). Implementation: `0b1a17bcb65f8b1e3772de483f06e3d59e4ca1d7`, based on PR #162 head `7173b71a434ee42b133f4b88a6efd2b2582b0048` with its review follow-ups. All 38 commits are accounted for: 36 adapted changes and two redundant integration merges. No remaining work in this range.
+
+- Ported Mermaid/SVG diagrams and KaTeX formulas with lazy content-hashed renderer chunks, project scheduler jobs with fixed roots and digest-bound trust, configurable character-capped memory notes, pinned-row dragging, correctly timed UI-log notices, the Memory settings regrouping, swarm file-transfer coverage and the contributor-rule updates. The queued-message alignment change and its revert cancel out.
+- Preserved every registered fork divergence, legacy `sched_` run history, `docs`/`debug` job modes, retry and continuation budgets, queue and stop-notice behavior, cross-process state, both compaction engines, Summary, IDE context, SVN, exports, localization and the Chromium 104 baseline. `ui.Handler()` serves the committed 137 renderer chunks immutable; `app.js` keeps the fork's 2.65 MB baseline budget and renderer-marker guard.
+- Validation: full shipped-tag `make test` with 3,452 SPA tests, `make lint`, `make check-windows`, `make lint-windows`, agent-rule adapters, focused backend and UI tests, all seven themes of `check:diagrams`, fork guards, documentation/schema checks and both editor changelog suites pass. Eleven screenshots come from the real FoxxyCode stand, not Coddy-branded media. Scope and adaptations: `docs/plans/upstream-1.2.70-port.md`.
+
+## Sync through upstream 1.2.60 — 2026-11-12
+
+Checkpoint: `30fccb74140d42cc9b6a9e234d5eb831404fd3c5` (commit of annotated tag `1.2.60`), following `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (`1.2.56`). Implementation: `18d49d6fcf1fa57740d91694f680108d9f2fe359`. All 58 commits are accounted for: 52 adapted changes and six redundant integration merges. No remaining work in this range.
+
+- Ported the Telegram Mini App with signed admin launch, responsive Telegram navigation, the Pachca integration bot, quoted replies and admin-restricted messenger turns, explicit `allow_reasoning_off`, vendor-neutral rule adapters with transactional delivery, and the rpa-gen-rules 1.3.4 updates. The no-op `.codex/rules.md` index is removed.
+- Preserved every registered fork divergence, retry and continuation budgets, queue and stop-notice behavior, cross-process state, both compaction engines, Summary, provider templates, IDE context, SVN, exports, localization, GitHub Pages publication and the Chromium 104 baseline. The Kimi Code adapter receives the same YAML-list and lifecycle support and joins `make test-agent-rules`.
+- Validation: focused and full-tag Go compilation/tests, UI type checking and localization, all adapter contracts, fork guards, documentation/schema checks, Chromium 104 build, and the real `check:telegram` scenario pass. Three new screenshots come from the real FoxxyCode/tgfake stand, not upstream media. Scope and adaptations: `docs/plans/upstream-1.2.60-port.md`.
+
 ## Sync through upstream 1.2.56 — 2026-11-06
 
 Checkpoint: `1e1cd320a1a0408d4a52155c8d76e31d4550e83e` (tag `1.2.56`), following `cc012f2b890a5a271b40dd15566a43b922669ce3` (`1.2.54`). Implementation: `970f493d88063526f9297081d02a4e3ab0ae473a`; Windows backup follow-up: `d80c6de963f641619bdc30dd78e5e8409014e03a`. All 16 commits are accounted for: 14 adapted changes and two redundant integration merges. No remaining work in this range.
@@ -121,7 +145,8 @@ Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following
 | `switch-enable-alias` | Переключатели — `enable`, `enabled` неизвестен | `enable` канонический, `enabled` — алиас | Ничего: алиас покрывает новые переключатели |
 | `prompt-file-encoding` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `retry-recovery-steps` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
-| `compaction-both-engines` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `compaction-model-override` | 1.1.64 (#312) | The per-call summarizer works with Coddy after OpenCode was retired | Preserve the override and fallback chain on later ports |
+| `compaction-summary-gate` | 1.2.72 port | Гейт `start_percent` для проекции суммаризатора поднят: эвакуация результатов включена всегда, протухшее чтение не попадает в сводку как актуальное; живые запросы LLM гейт сохраняют | Сохранять поднятие гейта при следующих портах compaction |
 | `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
@@ -306,8 +331,10 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 
 **Тесты:** upstream-овские BDD-шаги (ACP/HTTP/stats) + юнит-тесты, плюс два фичефайла форка,
 которых в upstream нет: `features/context_compaction_engines.feature` (ACP-usage совпадает с
-LLM-окном на **обоих** движках) и `features/context_compaction_restore.feature` (usage
-выживает перезапуск сервера на обоих движках; `/compact` рекламируется только на `coddy`).
+LLM-окном на **обоих** движках; файл удалён вместе с движком opencode — #166) и
+`features/context_compaction_restore.feature` (usage выживает перезапуск сервера на обоих
+движках; `/compact` рекламируется только на `coddy`; в #166 переписан на один движок — проверка
+на обоих относится к порту до удаления opencode).
 Оба проверены «наоборот»: без форковых правок сценарии падают.
 
 ### Коммит 2 — Tool-approval previews (upstream `2d5f2e7` + 6 follow-up)
@@ -2518,7 +2545,7 @@ upstream выше `1.1.32` нет, поэтому порт шёл по SHA. Но
 - Сохранены форковый идентификатор клиента NeuralDeep `coddy`, прямое подключение к loopback при входе и правила сессий. Тестовые стенды на Windows изолированы от внешнего GitHub, а дочерний процесс команды не удерживает временный каталог теста. Проверка `golangci-lint` и генератор документации прошли.
 - Живой `foxxycode cli` с NeuralDeep: `--dry-run` показал 0 ошибок и 0 предупреждений; модель `gpt-oss-20b` ответила на запрос. В запущенном sandbox IntelliJ плагин открыл панель, отправил запрос через JCEF и показал ответ `LIVE_OK_1161`; снимок прогона хранится в локальном `editors/intellij/build/uiconsole/` и не включён в документацию, поскольку эта волна не меняет UI панели.
 - Первый полный Go-прогон с релизными тегами прошёл все пакеты, кроме `external/ui`: в двух BDD шагах стояли старые имена Vitest-тестов. После исправления весь `external/ui` прошёл отдельно (`111.6s`); повторный обход всего дерева Go застрял до запуска следующих пакетов и был остановлен. Обычный Go-прогон без тегов прошёл отдельно. Полный Vitest: 271 файл, 2385 тестов. TypeScript, docsgen, forkguard и три набора lint прошли.
-- Linux CI обнаружил десять Go-файлов серии `1.1.51`–`1.1.60`, где `gofmt` отличался от содержимого коммитов; Windows-чекаут с CRLF не позволял заметить это командой `gofmt -l` в рабочем дереве. Все десять файлов отформатированы отдельным follow-up-коммитом.
+- Linux CI обнаружил десять Go-файлов серии `1.1.51`–`1.1.60`, где `gofmt` отличался от содержимого коммитов; Windows-чекаут с CRLF не позволял заметить это командой `gofmt -l` в worktree. Все десять файлов отформатированы отдельным follow-up-коммитом.
 
 ---
 

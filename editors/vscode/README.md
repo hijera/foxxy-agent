@@ -85,6 +85,8 @@ Install the built VSIX via **Extensions: Install from VSIX…** in the Command P
 npm test                # vitest: i18n, binaryResolver, execCapture, portUtil, editEvent, lineFragments, projectRelativePaths, terminalCapturePolicy, prepareBinary, build
 npm run typecheck       # tsc --noEmit
 npm run compile         # esbuild bundle to out/extension.js
+# After npm ci, from the repository root:
+go test ./editors/vscode # Gherkin restart scenarios backed by the extension tests
 ```
 
 ## Using the extension
@@ -108,7 +110,9 @@ the VS Code color theme"**, native inline diffs, auto-apply edits, open-file and
 and the opt-in **terminal clipboard capture** (see below). The UI language is **not** an extension
 setting — it is set once in the FoxxyCode UI (**Settings → General**) and shared across the whole
 app. Toolbar buttons on the webview title bar: Restart, Reload, Open in Browser, Open DevTools,
-Settings. The extension version is shown next to the view name in the sidebar header (and in the
+Settings. **Restart** replaces the shared backend and reconnects both the sidebar and any open
+editor tab to its new address, including a panel hidden during the restart. A tab closed while
+the backend starts is left closed. The extension version is shown next to the view name in the sidebar header (and in the
 editor tab title when opened via **Open Panel**).
 
 ### Attaching files

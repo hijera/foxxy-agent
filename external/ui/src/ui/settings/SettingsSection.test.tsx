@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
@@ -289,6 +290,16 @@ const gatewaysRootSchema: JsonSchema = {
           },
           "x-foxxycode-property-order": ["enable", "token", "proxy"],
         },
+        pachca: {
+          type: "object",
+          title: "Pachca",
+          properties: {
+            enable: { type: "boolean", title: "Enabled" },
+            token: { type: "string", title: "Bot token" },
+            proxy: { type: "string", title: "Proxy URL" },
+          },
+          "x-foxxycode-property-order": ["enable", "token", "proxy"],
+        },
       },
     },
   },
@@ -296,11 +307,12 @@ const gatewaysRootSchema: JsonSchema = {
 
 function GatewaysHarness(props: {
   proxy?: string;
+  pachca?: boolean;
   onDoc: (doc: Record<string, unknown>) => void;
 }) {
   const [doc, setDoc] = React.useState<Record<string, unknown>>({
     gateways: {
-      telegram: {
+      [props.pachca ? "pachca" : "telegram"]: {
         enable: true,
         token: "123:abc",
         ...(props.proxy === undefined ? {} : { proxy: props.proxy }),
@@ -320,10 +332,10 @@ function GatewaysHarness(props: {
   );
 }
 
-function telegramProxy(doc: Record<string, unknown>): unknown {
+function gatewayProxy(doc: Record<string, unknown>, name: "telegram" | "pachca"): unknown {
   const gateways = doc.gateways as Record<string, unknown> | undefined;
-  const telegram = gateways?.telegram as Record<string, unknown> | undefined;
-  return telegram?.proxy;
+  const gateway = gateways?.[name] as Record<string, unknown> | undefined;
+  return gateway?.proxy;
 }
 
 test("the Telegram proxy has the Ignore system proxy switch too", () => {
@@ -337,18 +349,19 @@ test("the Telegram proxy has the Ignore system proxy switch too", () => {
     />,
   );
 
-  const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
-  const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
+  const panel = screen.getByRole("group", { name: "Telegram" });
+  const direct = within(panel).getByRole("switch", { name: "Ignore system proxy" });
+  const url = within(panel).getByLabelText("Proxy URL") as HTMLInputElement;
   expect(url.value).toBe("socks5h://127.0.0.1:1080");
 
   fireEvent.click(direct);
-  expect(telegramProxy(doc)).toBe("none");
+  expect(gatewayProxy(doc, "telegram")).toBe("none");
   expect(url).toBeDisabled();
-  fireEvent.mouseEnter(screen.getByRole("button", { name: "About Ignore system proxy" }));
+  fireEvent.mouseEnter(within(panel).getByRole("button", { name: "About Ignore system proxy" }));
   expect(screen.getByRole("tooltip").textContent).toContain("Telegram bot ignores");
 
   fireEvent.click(direct);
-  expect(telegramProxy(doc)).toBe("socks5h://127.0.0.1:1080");
+  expect(gatewayProxy(doc, "telegram")).toBe("socks5h://127.0.0.1:1080");
 });
 // The queue mode answers what Enter does with a message written during a
 // turn: it belongs with the model and the turn cap, never loose between the
@@ -375,6 +388,7 @@ test("the agent tab keeps the queue mode inside its model and turns fieldset", (
   expect(turn.textContent).toContain("Queue mode");
   expect(screen.getByRole("combobox", { name: "Queue mode" }).closest("fieldset")).toBe(turn);
 });
+
 
 test.each([
   ["openai", "OpenAI/Go", ""],
@@ -410,4 +424,88 @@ test("managed providers hide the compatible identity selector", () => {
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
   expect(screen.queryByLabelText("User-Agent")).toBeNull();
+});
+
+
+test("the Pachca proxy uses the same Ignore system proxy switch", () => {
+  let doc: Record<string, unknown> = {};
+  render(
+    <GatewaysHarness
+      pachca
+      proxy="http://127.0.0.1:3128"
+      onDoc={(next) => {
+        doc = next;
+      }}
+    />,
+  );
+
+  const panel = screen.getByRole("group", { name: "Pachca" });
+  const direct = within(panel).getByRole("switch", { name: "Ignore system proxy" });
+  fireEvent.click(direct);
+  expect(gatewayProxy(doc, "pachca")).toBe("none");
+  expect(within(panel).getByLabelText("Proxy URL")).toBeDisabled();
+
+  fireEvent.click(direct);
+  expect(gatewayProxy(doc, "pachca")).toBe("http://127.0.0.1:3128");
+});
+
+test("the logical model form groups the reasoning-off capability with reasoning", () => {
+  const modelsSection: SectionDescriptor = {
+    id: "models",
+    label: "Logical models",
+    kind: "array",
+    schemaKey: "models",
+    labelField: "model",
+  };
+  const schema = {
+    type: "object",
+    properties: {
+      models: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_tokens: { type: "integer", title: "Max tokens" },
+            stream: { type: "boolean", title: "Stream responses" },
+            reasoning_levels: {
+              type: "array",
+              title: "Reasoning levels",
+              items: { type: "string" },
+            },
+            reasoning_default: { type: "string", title: "Default reasoning level" },
+            allow_reasoning_off: {
+              type: "boolean",
+              title: "Allow disabling reasoning",
+              default: false,
+            },
+          },
+          "x-foxxycode-property-order": [
+            "model",
+            "max_tokens",
+            "stream",
+            "reasoning_levels",
+            "reasoning_default",
+            "allow_reasoning_off",
+          ],
+        },
+      },
+    },
+  } as JsonSchema;
+  render(
+    <SettingsSection
+      section={modelsSection}
+      schema={schema}
+      doc={{ providers: [{ name: "demo" }], models: [{ model: "demo/m1" }] }}
+      setDoc={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.getByTestId("settings-group-model").textContent).toContain("Model id");
+  expect(screen.getByTestId("settings-group-generation").textContent).toContain("Max tokens");
+  const reasoning = screen.getByTestId("settings-group-reasoning");
+  expect(reasoning.textContent).toContain("Reasoning levels");
+  expect(reasoning.textContent).toContain("Default reasoning level");
+  expect(reasoning.textContent).toContain("Allow disabling reasoning");
 });

@@ -7,8 +7,9 @@
 
 # FoxxyCode plugin changes
 
+## Unreleased — 2026-11-20
 
-## Unreleased — 2026-11-15
+**Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
 
 **Codex replies survive keepalive events.**
 Service heartbeats no longer interrupt a response with an empty-JSON error or repeatedly restart a long editor-assistant request. Malformed events and genuinely truncated responses still fail.
@@ -56,6 +57,38 @@ Applying a patch invalidates the checks for the previous draft revision.
 
 **Live progress works with tokens and remote servers.**
 Events use authenticated fetch streaming and resume from the last received frame.
+
+## 0.3.52 — 2026-11-20
+
+**Guidance for DeepSeek models.**
+DeepSeek models get coding and tool-use guidance. If a mode has no DeepSeek prompt, FoxxyCode still uses the applicable OpenAI or NeuralDeep template, including templates from your custom prompt directory.
+
+## 0.3.51 — 2026-11-19
+
+**Safer message editing.** A pending edit keeps the original draft while it is being sent. Undo applies to the specific edit shown in the panel, including when two editor windows share a conversation.
+
+**Editing sent messages.** While editing a sent message, the composer identifies the message being changed, and Escape cancels the edit and restores the previous draft. The last sent edit can be undone: the conversation returns to its state before the edit, while file changes remain.
+
+## 0.3.50 — 2026-11-19
+
+**Diagrams and formulas in answers.**
+Mermaid and SVG fences render as pictures and LaTeX as formulas, including in the Telegram Mini App. View or download the MMD/SVG source and open pictures in the viewer. Diagrams follow the active theme, and Mermaid and KaTeX load only when needed. Code fences opened on a list item's first line keep literal LaTeX delimiters when displayed and copied.
+Local compatibility functions keep Mermaid 12 working in Chromium 104, linked nodes render and save as valid SVG, and the renderer dependencies include the DOMPurify and KaTeX security fixes.
+Inline formulas copy their LaTeX source in the editor panel even when its embedded browser denies the Clipboard API.
+
+**Project jobs and memory.**
+The scheduler reads jobs from `<workspace>/.foxxycode/scheduler`. With the Ask policy, jobs from the repository require approval and file changes require fresh approval. During an upgrade, jobs from the legacy `scheduler.dir` are copied to Global with their state. Job files with mixed-case Markdown extensions remain discoverable and editable. The `max_note_chars` memory setting limits note length in characters. A notice appears when text is truncated, including text in Cyrillic.
+
+**History and notices.** Drag a pinned chat by its entire row to reorder it. UI log notices appear before the reply they belong to.
+
+## 0.3.49 — 2026-11-15
+
+**Telegram Mini App and Pachca.** The web UI opens from the Telegram bot menu or `/app`, follows the theme, Back button, on-screen keyboard and half-open window. Bot admins sign in with signed launch data. A Pachca bot supports direct chats, groups and threads with quoted replies, separate sessions and offline checks.
+
+**Reasoning settings and group permissions.** Off appears in the reasoning selector only when explicitly enabled per model through `allow_reasoning_off`, rather than inferred from its name. Non-admin group members can only chat: model, mode, `/resume`, configuration and privileged tools are unavailable to them.
+
+**Keep the agent home private.**
+Messenger users without admin rights can search and read workspace files, while `grep`, `glob` and `print_tree` hide the agent home even when it is nested inside the project. Private contents and file names stay out of results and do not consume the search limit.
 
 ## 0.3.48 — 2026-11-14
 
@@ -117,7 +150,6 @@ Long errors and model or mode change notices no longer overflow the chat: collap
 - Remote environments switch in place, accept configured tokens and show connection diagnostics; the start footer includes GitHub, API docs and the active server version.
 - User-requested settings changes update controls without duplicate transcript notices; agent-initiated changes still appear in the conversation.
 - Fixed standalone HTTP MCP shutdown, `cwd` permission checks through symlinks and junctions, and duplicate OpenAI tool-argument previews after stream truncation.
-
 
 ## 0.3.38 — 2026-10-26
 

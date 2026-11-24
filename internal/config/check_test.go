@@ -118,6 +118,34 @@ func TestCheckLegacyEnabledIsAWarning(t *testing.T) {
 	}
 }
 
+func TestLoadOpenCodeCompactionMigratesAndWarns(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	body := []byte("compaction:\n  engine: ' OpenCode '\n  max_tokens: 2048\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cfg, err := LoadFromCLI(CLIPaths{Home: home, Config: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cfg.Compaction; c.Engine != CompactionEngineCoddy || c.ThresholdPercent != 85 {
+		t.Fatalf("expected Coddy with the previous trigger, got %+v", c)
+	}
+	if msg := logs.String(); !strings.Contains(msg, "OpenCode compaction engine has been replaced by the more advanced Coddy engine") {
+		t.Fatalf("missing migration notice: %s", msg)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("loading changed the original config: %q, err = %v", got, err)
+	}
+}
+
 func TestCheckLegacyEnabledBesideTheSwitchIsIgnored(t *testing.T) {
 	rep := checkYAML(t, withModeline("scheduler:\n  enable: true\n  enabled: false\n"))
 	if !rep.Valid() {
@@ -154,6 +182,14 @@ func TestCheckWarnsAboutAKeyThatMovedOut(t *testing.T) {
 	}
 	if w := warningsOf(sources); len(w) != 1 || w[0].Path != "skills.sources" || !strings.Contains(w[0].Fix, "marketplaces.json") {
 		t.Fatalf("want one warning at skills.sources naming marketplaces.json, got %+v", sources.Findings)
+	}
+
+	sched := checkYAML(t, withModeline("scheduler:\n  dir: /srv/jobs\n"))
+	if errs := errorsOf(sched); len(errs) != 0 {
+		t.Fatalf("scheduler.dir must not be an error: %+v", errs)
+	}
+	if w := warningsOf(sched); len(w) != 1 || w[0].Path != "scheduler.dir" || !strings.Contains(w[0].Fix, ".foxxycode/scheduler") {
+		t.Fatalf("want one warning at scheduler.dir naming the fixed folders, got %+v", sched.Findings)
 	}
 }
 

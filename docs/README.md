@@ -28,6 +28,7 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 - [Editors](surfaces/editors.md) - The IntelliJ and VS Code plugins that run foxxycode http, and Zed, VS Code, Obsidian and scripts as ACP clients of foxxycode acp, and what they share with the other surfaces.
 - [IntelliJ connection diagnostics](operate/intellij-connection-diagnostics.md) - Startup stage timings, first-response latency and the debug logging to collect when the IDE panel starts or answers slowly.
 - [Telegram gateway](surfaces/gateway.md) - The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
+- [Pachca gateway](surfaces/pachca.md) - The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits.
 
 ## Operate
 

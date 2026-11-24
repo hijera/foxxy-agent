@@ -19,9 +19,18 @@ in `external/ui/vite.config.ts`). Two build steps enforce the baseline:
   `color-mix()` (Chromium 111+) to precomputed per-theme values at build
   time; the build fails on expressions it cannot resolve.
 - `external/ui/scripts-check-chromium104.mjs` — scans the built
-  `dist/styles.css` and `dist/app.js` (including dependency code) for CSS/JS
+  `dist/styles.css` and every JavaScript file under `dist/`, including lazy
+  renderer chunks and their dependencies, for CSS/JS
   features newer than Chromium 104 and fails `npm run build:go` on findings.
   Run standalone with `npm --prefix external/ui run check:compat`.
+
+`external/ui/src/compat/chromium104Dependencies.ts` adapts two renderer dependency calls
+at build time: Chevrotain's grammar grouping uses a local null-prototype map,
+and the URL sanitizer validates with the `URL` constructor and a catch. This
+keeps Mermaid 12 and the current sanitizer without installing page-wide
+polyfills. DOMPurify and KaTeX are overridden consistently across the dependency
+tree so the lazy renderers use the patched versions too. Dependency upgrades
+must pass the recursive compatibility scan and real Chromium 104 rendering.
 
 Contributor rule: do not use CSS or JS features newer than Chromium 104 in
 the shipped UI (details in `.claude/rules/ui-spa.md`). Notable off-limits

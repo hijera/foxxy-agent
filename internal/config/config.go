@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,12 +80,20 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if err != nil {
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
+			logCompactionMigration(rec)
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
 	_ = WriteBackup(paths.ConfigPath, originalData)
+	logCompactionMigration(cfg)
 	return cfg, nil
+}
+
+func logCompactionMigration(cfg *Config) {
+	if cfg.Compaction.migratedOpenCode {
+		slog.Warn(openCodeCompactionNotice, "config", cfg.Paths.ConfigPath, "fix", openCodeCompactionFix)
+	}
 }
 
 func validateSubconfigs(cfg *Config) error {
@@ -144,6 +153,10 @@ func validateSubconfigs(cfg *Config) error {
 	cfg.Gateways.Telegram.Normalize()
 	if err := cfg.Gateways.Telegram.Validate(); err != nil {
 		// The error already names its key under gateways.telegram.
+		return err
+	}
+	cfg.Gateways.Pachca.Normalize()
+	if err := cfg.Gateways.Pachca.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
@@ -221,6 +234,8 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Gateways.Telegram.Normalize()
 	cfg.Gateways.Telegram.ApplyDefaults()
+	cfg.Gateways.Pachca.Normalize()
+	cfg.Gateways.Pachca.ApplyDefaults()
 
 	cfg.HTTPServer.Normalize()
 

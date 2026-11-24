@@ -5,36 +5,20 @@ import (
 	"strings"
 )
 
-// Compaction engine identifiers (compaction.engine).
 const (
-	// CompactionEngineCoddy is the default engine ported from upstream: it inserts a
-	// summary row at the compaction boundary and replays only the window from the
-	// last summary onward (session.MessagesForLLM). It supports the manual /compact
-	// command and the HTTP compact endpoint.
+	// CompactionEngineCoddy is the sole compaction engine.
 	CompactionEngineCoddy = "coddy"
-	// CompactionEngineFoxxyCode is the name the schema, the example config and
-	// the documentation have always given the default engine. It is read as an
-	// alias of CompactionEngineCoddy, so a file written for either spelling
-	// validates and runs the same engine.
-	CompactionEngineFoxxyCode = "foxxycode"
-	// CompactionEngineOpenCode is the fork's original engine: it flags older messages
-	// Compacted and filters them from the model payload (isLLMHistoryMessage).
-	CompactionEngineOpenCode = "opencode"
-)
+	// CompactionEngineFoxxyCode is a spelling used by existing configurations.
+	CompactionEngineFoxxyCode      = "foxxycode"
+	legacyCompactionEngineOpenCode = "opencode"
+	openCodeCompactionNotice       = "The OpenCode compaction engine has been replaced by the more advanced Coddy engine."
+	openCodeCompactionFix          = "replace \"opencode\" with \"coddy\" or remove compaction.engine"
+	legacyCompactionThreshold      = 85
 
-// Default values for CompactionConfig.
-const (
-	// CompactionDefaultThresholdCoddy triggers auto-compaction for the coddy engine.
+	// CompactionDefaultThresholdCoddy triggers automatic compaction.
 	CompactionDefaultThresholdCoddy = 80
-	// CompactionDefaultThresholdOpenCode triggers auto-compaction for the opencode engine.
-	CompactionDefaultThresholdOpenCode = 85
 	// CompactionDefaultKeepRecentTurns is how many recent user turns stay verbatim.
 	CompactionDefaultKeepRecentTurns = 2
-	// CompactionDefaultMaxTokens caps the opencode summary completion.
-	CompactionDefaultMaxTokens = 4096
-
-	compactionMinThresholdPercent = 50
-	compactionMaxThresholdPercent = 99
 )
 
 const (
@@ -53,15 +37,14 @@ const (
 	ResultEvictionDefaultStartPercent = 50
 )
 
-// CompactionConfig controls automatic context compaction (summarization of older turns when the
-// conversation approaches the model's context window). Two engines share this section, selected
-// by Engine; implementations live in internal/agent (compact.go for coddy, compaction.go for
-// opencode).
+// CompactionConfig controls summarization of older turns as the conversation
+// approaches the model's context window.
 type CompactionConfig struct {
-	// Engine selects the compaction implementation: "coddy" (default) inserts a summary row and
-	// replays only the window from the last summary onward; "opencode" flags older messages
-	// Compacted and filters them from the payload. Empty defaults to coddy.
+	// Engine is retained for existing YAML and settings clients. It resolves
+	// to Coddy, including when a configuration used to select OpenCode.
 	Engine string `yaml:"engine"`
+
+	migratedOpenCode bool `yaml:"-"`
 
 	// Enabled is a pointer so an unset value defaults to true while an explicit false is
 	// preserved. Use CompactionEnabled to read the effective value. Auto-compaction only fires
@@ -77,24 +60,23 @@ type CompactionConfig struct {
 	// summarizer above them fails. A compaction is what a session out of room
 	// has left, so one unreachable or overloaded model must not be the end of
 	// it; the session's own model is always the last resort, whether or not it
-	// is listed here (upstream issue #247). Both engines walk the same chain.
+	// is listed here (upstream issue #247).
 	FallbackModels []string `yaml:"fallback_models"`
 
 	// ThresholdPercent triggers compaction when context usage exceeds this percentage of the
-	// model's context window. The default depends on Engine (coddy 80, opencode 85); read the
-	// effective value with EffectiveThresholdPercent.
+	// model's context window. Read the effective value with EffectiveThresholdPercent.
 	ThresholdPercent int `yaml:"threshold_percent"`
 
 	// KeepRecentTurns is the number of most recent user turns preserved verbatim. A nil pointer
-	// means the default (2); an explicit 0 is honored by the coddy engine (opencode clamps to at
-	// least 1). Read the effective value with EffectiveKeepRecentTurns. When the window holds no
+	// means the default (2). An explicit 0 requests a full fold for manual compaction.
+	// Read the effective value with EffectiveKeepRecentTurns. When the window holds no
 	// more user turns than this, a compaction keeps fewer: the automatic trigger down to the
 	// prompt being answered, the manual command down to none.
 	KeepRecentTurns *int `yaml:"keep_recent_turns"`
 
-	// MaxTokens caps the summary completion size for the opencode engine. The coddy engine issues
-	// the summary request without an output cap and ignores this. Default 4096.
-	MaxTokens int `yaml:"max_tokens"`
+	// MaxTokens is accepted for compatibility with old YAML and settings clients.
+	// Deprecated: Coddy does not use this limit.
+	MaxTokens int `yaml:"max_tokens,omitempty"`
 
 	// ResultEviction prunes superseded read/grep results only from the LLM
 	// projection. Persisted transcript messages are never rewritten.
@@ -161,27 +143,15 @@ func (c *CompactionConfig) CompactionEnabled() bool {
 // IsEnabled is an alias for CompactionEnabled used by the coddy engine call sites.
 func (c *CompactionConfig) IsEnabled() bool { return c.CompactionEnabled() }
 
-// IsAutoEnabled reports whether either engine may compact automatically.
+// IsAutoEnabled reports whether automatic compaction is enabled.
 func (c *CompactionConfig) IsAutoEnabled() bool {
 	return c.IsEnabled() && (c.AutoEnabled == nil || *c.AutoEnabled)
 }
 
-// EngineIsOpenCode reports whether the opencode engine is selected.
-func (c *CompactionConfig) EngineIsOpenCode() bool {
-	return strings.EqualFold(strings.TrimSpace(c.Engine), CompactionEngineOpenCode)
-}
-
-// EngineIsCoddy reports whether the coddy engine is selected (the default when unset).
-func (c *CompactionConfig) EngineIsCoddy() bool { return !c.EngineIsOpenCode() }
-
-// EffectiveThresholdPercent returns threshold_percent with the per-engine default applied (covers
-// configs constructed without ApplyDefaults).
+// EffectiveThresholdPercent returns threshold_percent with the default applied.
 func (c *CompactionConfig) EffectiveThresholdPercent() int {
 	if c.ThresholdPercent > 0 {
 		return c.ThresholdPercent
-	}
-	if c.EngineIsOpenCode() {
-		return CompactionDefaultThresholdOpenCode
 	}
 	return CompactionDefaultThresholdCoddy
 }
@@ -194,17 +164,27 @@ func (c *CompactionConfig) EffectiveKeepRecentTurns() int {
 	return *c.KeepRecentTurns
 }
 
-// Normalize trims string fields and lowercases the engine in place.
+// Normalize trims string fields and maps old engine selections to Coddy.
 func (c *CompactionConfig) Normalize() {
 	c.Model = strings.TrimSpace(c.Model)
 	c.Engine = strings.ToLower(strings.TrimSpace(c.Engine))
-	if c.Engine == CompactionEngineFoxxyCode {
+	switch c.Engine {
+	case CompactionEngineFoxxyCode:
 		c.Engine = CompactionEngineCoddy
+	case legacyCompactionEngineOpenCode:
+		c.migratedOpenCode = true
+		c.Engine = CompactionEngineCoddy
+		// Keep the effective trigger of configurations that previously used
+		// the old default or had their threshold clamped by the loader.
+		if c.ThresholdPercent <= 0 {
+			c.ThresholdPercent = legacyCompactionThreshold
+		} else {
+			c.ThresholdPercent = min(99, max(50, c.ThresholdPercent))
+		}
 	}
 }
 
-// ApplyDefaults sets zero values to safe defaults. An omitted enabled key defaults to true and an
-// omitted engine defaults to coddy.
+// ApplyDefaults sets omitted values for the Coddy engine.
 func (c *CompactionConfig) ApplyDefaults() {
 	if c.Engine == "" {
 		c.Engine = CompactionEngineCoddy
@@ -216,27 +196,14 @@ func (c *CompactionConfig) ApplyDefaults() {
 	if c.ThresholdPercent <= 0 {
 		c.ThresholdPercent = c.EffectiveThresholdPercent()
 	}
-	// The opencode engine clamps the trigger into a conservative band; the coddy engine accepts
-	// the full 1..100 range validated below.
-	if c.EngineIsOpenCode() {
-		if c.ThresholdPercent < compactionMinThresholdPercent {
-			c.ThresholdPercent = compactionMinThresholdPercent
-		}
-		if c.ThresholdPercent > compactionMaxThresholdPercent {
-			c.ThresholdPercent = compactionMaxThresholdPercent
-		}
-	}
-	if c.MaxTokens <= 0 {
-		c.MaxTokens = CompactionDefaultMaxTokens
-	}
 }
 
 // Validate checks the engine value, compaction model reference, and threshold bounds.
 func (c *CompactionConfig) Validate(cfg *Config) error {
 	switch c.Engine {
-	case "", CompactionEngineCoddy, CompactionEngineFoxxyCode, CompactionEngineOpenCode:
+	case "", CompactionEngineCoddy, CompactionEngineFoxxyCode:
 	default:
-		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineFoxxyCode, CompactionEngineOpenCode)
+		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineCoddy, CompactionEngineFoxxyCode)
 	}
 	if err := c.ResultEviction.Validate(); err != nil {
 		return err
@@ -247,11 +214,7 @@ func (c *CompactionConfig) Validate(cfg *Config) error {
 	if c.Model != "" && cfg.FindModelEntry(c.Model) == nil {
 		return fmt.Errorf("model %q: not found in models list", c.Model)
 	}
-	if c.EngineIsOpenCode() {
-		if c.ThresholdPercent < compactionMinThresholdPercent || c.ThresholdPercent > compactionMaxThresholdPercent {
-			return fmt.Errorf("threshold_percent: must be within %d..%d for the opencode engine", compactionMinThresholdPercent, compactionMaxThresholdPercent)
-		}
-	} else if c.ThresholdPercent < 1 || c.ThresholdPercent > 100 {
+	if c.ThresholdPercent < 1 || c.ThresholdPercent > 100 {
 		return fmt.Errorf("threshold_percent: must be within 1..100")
 	}
 	if c.KeepRecentTurns != nil && *c.KeepRecentTurns < 0 {

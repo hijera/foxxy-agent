@@ -104,6 +104,7 @@ function FileField(props: {
           </span>
           <button
             type="button"
+            data-testid="miniapps-file-remove"
             disabled={busy}
             aria-label={t("miniapps.files.remove", { name: file.name })}
             onClick={() => {

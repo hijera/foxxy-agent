@@ -103,11 +103,14 @@ models:
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
+  #   # allow_reasoning_off: true     # optional: add Off only after verifying this deployment honours FoxxyCode's disable-reasoning request
 
   # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
   # - model: "neuraldeep/qwen3.8-27b"
   #   max_tokens: 8192
   #   temperature: 0.2
+  #   multimodal: false
+  #   # allow_reasoning_off: true     # NeuralDeep Hub may ignore this request; use only after verifying the deployment
 
   # - model: "neuraldeep/qwen3.6-35b-a3b"
   #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
@@ -527,13 +530,14 @@ tools:
 #   enable: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
-# Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
-# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
-# basename.lock during a run.
+# Jobs live in two fixed folders: your own in ${FOXXYCODE_HOME}/scheduler, and the project jobs a repository carries in
+# <workspace>/.foxxycode/scheduler, which run only once approved (project_trust). YAML frontmatter description, schedule
+# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecar: basename.state
+# (kept in ${FOXXYCODE_HOME} for a project job). The old scheduler.dir is migrated on load and then removed from the config.
 # Enable with scheduler.enable and/or foxxycode acp|http -scheduler-enabled.
 # scheduler:
 #   enable: false
-#   dir: ""              # empty = ${FOXXYCODE_HOME}/scheduler
+#   project_trust: ask   # ask (approve each project job), allow (run them like your own) or deny
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
@@ -558,6 +562,7 @@ tools:
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   max_note_chars: 900  # longest body one saved note may have, in characters; 0 = no cap
 #   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
 #                                  # notes; never answer the task itself"; the main agent never sees them
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
@@ -566,20 +571,16 @@ tools:
 # (models[].max_context_tokens, else the window the provider's model listing reports, else
 # 128000), older turns are summarized into one message so the session can continue. Enabled by default; it only fires near the window. compaction.model is used ONLY for
 # the summary pass — leave empty to reuse agent.model.
-# Two engines: "foxxycode" (default) keeps a summary row and replays only the window after it, and
-# enables the manual /compact command; "opencode" flags older turns and filters them from the
-# payload. Both engines fold a history that outgrew the summarizer's own window in several
-# passes, walk the same fallback chain, and answer the model's own compact_context tool.
+# Coddy inserts a summary row and keeps the recent context. Older configs with
+# engine: opencode switch to Coddy automatically and log a migration notice.
 # compaction:
-#   engine: foxxycode           # foxxycode (default) | opencode
 #   enable: true
 #   auto_enable: true      # false disables only the automatic threshold trigger
 #   model: ""
 #   fallback_models: []     # tried in order when the summarizer above them fails; the session
 #                           # model is the last resort whether or not it is listed
-#   threshold_percent: 80   # trigger at this % of the model context window (opencode clamps 50..99)
+#   threshold_percent: 80   # trigger at this % of the model context window
 #   keep_recent_turns: 2    # most recent user turns kept verbatim
-#   max_tokens: 4096        # completion cap for the summary (opencode engine only)
 #   result_eviction:
 #     enable: true
 #     keep_recent: 2         # working window; 0 keeps none
@@ -597,8 +598,11 @@ tools:
 #   model: ""
 #   max_tokens: 64          # completion cap for the title
 
-# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway.telegram or -tags gateway).
-# Run the bot with: foxxycode gateway --config config.yaml
+# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway, or
+# -tags gateway.telegram / -tags gateway.pachca for one adapter).
+# Set enable: true and `foxxycode serve` polls the enabled bots alongside everything else.
+# With httpserver.enable the chats are live sessions in the web UI. See docs/surfaces/gateway.md
+# and docs/surfaces/pachca.md.
 # gateways:
 #   telegram:
 #     enable: false
@@ -623,7 +627,30 @@ tools:
 #       - chat_id: -1009876543210
 #         isolation: "admin"      # only respond to admin users
 #         access: "admins"
+#     mini_app:
+#       # The web UI as the bot's Mini App: the menu button opens it and /app
+#       # opens the chat's own conversation there. Telegram opens https only, so
+#       # publish the web UI behind a TLS proxy with sign-in on
+#       # (`foxxycode serve set-password`): the bot does not advertise an open one.
+#       url: "https://foxxycode.example.com/"
+#       menu_button: true             # default; false leaves the menu button to @BotFather
+#   # Pachca (Пачка) integration bot: reads the bot's events history, so the
+#   # machine needs no public address. Turn on "Save events history" in the
+#   # bot's outgoing webhook settings. See docs/surfaces/pachca.md.
+#   pachca:
+#     enable: false
+#     token: "${PACHCA_BOT_TOKEN}"     # optional: omit to read PACHCA_BOT_TOKEN from env/.env
+#     # proxy: none                    # inherit (default), none (direct), or a URL
+#     poll_interval_seconds: 2         # 1 to 60
+#     admins: [12345]                  # Pachca user IDs with elevated rights
+#     default_access: "all"            # all | admins | group:<name>
+#     default_isolation: "individual"  # individual | shared | admin
+#     chats:
+#       - chat_id: 334                 # a conversation, channel or thread chat id
+#         isolation: "shared"
+#         access: "all"
 
+# ----------------------------------------------------------------------------
 # swarm - a relay that nodes register into, and that chains into other relays.
 # Server side needs -tags swarm and swarm.enable; the join list below is
 # honoured by every foxxycode serve process, which is what lets an ordinary agent be

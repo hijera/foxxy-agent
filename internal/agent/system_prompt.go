@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -321,7 +322,7 @@ func (a *Agent) refreshContextBreakdown(build *systemPromptBuild, turnCtx string
 		return
 	}
 	// The Conversation estimate mirrors what buildMessages sends: only the window
-	// the active compaction engine still replays.
+	// since the most recent compaction summary.
 	sys := joinNonEmptyPromptBlocks(build.Content, turnCtx)
 	msgs := a.prunedForLLM(a.llmVisibleMessages())
 	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, a.modelReadsImages(), build.ToolDefs), false)
@@ -351,26 +352,14 @@ func languageDirective(locale string) string {
 // duplicate keys are dropped.
 func (a *Agent) promptVariants() []string {
 	modelID := a.state.EffectiveModelID(a.cfg)
-	modelSlug := prompts.ModelSlug(modelID)
-	apiModelSlug := ""
-	family := ""
+	candidates := []string{prompts.ModelSlug(modelID)}
 	if rm, err := a.cfg.ResolveLLM(modelID); err == nil {
-		apiModelSlug = prompts.ModelSlug(rm.Model)
-		family = prompts.Family(rm.ProviderType, rm.Model)
+		candidates = append(candidates, prompts.ModelSlug(rm.Model))
+		candidates = append(candidates, prompts.Families(rm.ProviderType, rm.Model)...)
 	}
 	var variants []string
-	for _, v := range []string{modelSlug, apiModelSlug, family} {
-		if v == "" {
-			continue
-		}
-		dup := false
-		for _, existing := range variants {
-			if existing == v {
-				dup = true
-				break
-			}
-		}
-		if !dup {
+	for _, v := range candidates {
+		if v != "" && !slices.Contains(variants, v) {
 			variants = append(variants, v)
 		}
 	}

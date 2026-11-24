@@ -162,6 +162,23 @@ func waitForMiniAppsSelector(t *testing.T, browserCtx context.Context, selector 
 	t.Fatalf("%s never appeared\npage was showing:\n%s", selector, miniAppsScreenText(browserCtx))
 }
 
+func waitForMiniAppsEnabled(t *testing.T, browserCtx context.Context, selector string) {
+	t.Helper()
+	script := `(() => { const element = document.querySelector(` + jsString(selector) + `); return !!element && !element.disabled; })()`
+	deadline := time.Now().Add(miniAppsBrowserStepTimeout)
+	for time.Now().Before(deadline) {
+		var enabled bool
+		if err := chromedp.Run(browserCtx, chromedp.Evaluate(script, &enabled)); err != nil {
+			t.Fatalf("polling for enabled %s: %v", selector, err)
+		}
+		if enabled {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s did not become enabled\npage was showing:\n%s", selector, miniAppsScreenText(browserCtx))
+}
+
 func jsString(value string) string {
 	raw, _ := json.Marshal(value)
 	return string(raw)
