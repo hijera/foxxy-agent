@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -58,13 +58,8 @@ const usageUpdate = (used: number, size: number) =>
   `event: usage_update\ndata: ${JSON.stringify({ sessionUpdate: "usage_update", used, size })}\n\n`;
 
 describe("consumeComposerSseReader context usage", () => {
-  it("usage_update replaces the displayed current context after compaction", async () => {
-    seq = 0;
-    const p = harness(readerFromChunks([usageUpdate(42000, 128000), DONE]));
-    await consumeComposerSseReader(p);
-
-    expect(p.getContextUsage()).toEqual([{ used: 42000, size: 128000 }]);
-  });
+  // "usage_update replaces the displayed current context after compaction"
+  // lives in consumeComposerSse.order.test.ts; it was asserted twice.
 
   it("ignores a usage_update without a positive window size", async () => {
     seq = 0;
@@ -95,6 +90,53 @@ describe("consumeComposerSseReader chronological ordering", () => {
       "tool_call",
       "assistant_message",
     ]);
+  });
+
+  it("keeps reasoning in the middle of an answer from splitting its text bubble", async () => {
+    seq = 0;
+    const p = harness(
+      readerFromChunks([
+        text("The answer starts "),
+        reasoning("a late thought"),
+        text("and finishes on the same line."),
+        DONE,
+      ]),
+    );
+    await consumeComposerSseReader(p);
+
+    const items = p.getItems();
+    expect(items.map((x) => x.type)).toEqual([
+      "thinking",
+      "assistant_message",
+    ]);
+    expect(items[1]).toMatchObject({
+      content: "The answer starts and finishes on the same line.",
+    });
+  });
+
+  it("keeps reasoning after an action below it and the next text in a new bubble", async () => {
+    seq = 0;
+    const p = harness(
+      readerFromChunks([
+        text("The answer starts "),
+        toolCall("call_1"),
+        reasoning("a late thought"),
+        text("and finishes below the action."),
+        DONE,
+      ]),
+    );
+    await consumeComposerSseReader(p);
+
+    const items = p.getItems();
+    expect(items.map((x) => x.type)).toEqual([
+      "assistant_message",
+      "tool_call",
+      "thinking",
+      "assistant_message",
+    ]);
+    expect(items[3]).toMatchObject({
+      content: "and finishes below the action.",
+    });
   });
 
   it("puts text after an action into a new bubble below it", async () => {
@@ -155,5 +197,38 @@ describe("consumeComposerSseReader chronological ordering", () => {
       );
     expect(bubbles).toHaveLength(1);
     expect(bubbles[0]?.content).toBe("Hello world");
+  });
+});
+
+describe("consumeComposerSseReader tool row timing", () => {
+  // The last frame never gets its blank line, so only the tail flush at the end
+  // of the stream parses it - the shape a reconnect replay leaves behind. The
+  // pending update is a progress ping, not a state change, so the row's start
+  // time must survive it.
+  it("keeps a pending tool ping replayed from the tail buffer from resetting the row's start time", async () => {
+    seq = 0;
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const p = harness(
+      readerFromChunks([
+        `age: 12000\nevent: tool_call\ndata: ${JSON.stringify({
+          toolCallId: "call_1",
+          title: "edit",
+          status: "pending",
+        })}\n\n`,
+        `age: 5000\nevent: tool_call_update\ndata: ${JSON.stringify({
+          toolCallId: "call_1",
+          status: "pending",
+        })}`,
+      ]),
+    );
+    const res = await consumeComposerSseReader(p);
+    vi.restoreAllMocks();
+    // Callers drain the RAF-batched tool queue once the stream ends (see App.tsx).
+    res.flushToolQueue();
+
+    const call = p.getItems().find((x) => x.type === "tool_call");
+    expect(call?.type === "tool_call" && call.startedAtMs).toBe(now - 12000);
+    expect(call?.type === "tool_call" && call.status).toBe("pending");
   });
 });

@@ -968,6 +968,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - Status `in_progress` shows label `thinking...` and a running clock.
   - Status `completed` shows label `thinking` with the measured duration (none when nothing was measured) and preserves the text for review.
   - Multiple `thinking` blocks may appear in one turn (reasoning can resume after tool calls).
+  - A reasoning delta that arrives after answer text belongs to that same answer: the disclosure row moves above its assistant bubble, and later text continues in that bubble rather than opening another one. Tool calls still separate the text before and after them into chronological bubbles.
 - `tool_call`
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`**, **`thinking-dur`** for duration or **`-`**).
   - The label is what the agent is doing, not the function it called: the tool id is translated through the **`tool.name.*`** catalogue (**`reading a file`** / **`читаю файл`**, **`running a command`** / **`выполняю команду`**). A tool with no entry - an MCP server's own tools - keeps its raw id. **`read`** serves files and directories from one tool, so it says **`browsing a directory`** / **`смотрю каталог`** only when the arguments prove it (**`recursive`**, **`show_hidden`**, or a path ending in a separator).

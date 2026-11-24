@@ -256,11 +256,11 @@ export async function consumeComposerSseReader(
     onSettingsOnly,
   } = p;
 
-      // Chronological transcript model: tool_call / thinking rows are appended in
-      // arrival order, and the assistant bubble "rotates" — once a row lands after
-      // the bubble has text, the next delta starts a fresh bubble below that row.
-      // Without this, one bubble accumulates all text and every action renders
-      // above it (i.e. bunched right after the user message).
+      // Chronological transcript model: tool_call rows are appended in arrival
+      // order, and the assistant bubble "rotates" — once a tool lands after the
+      // bubble has text, the next delta starts a fresh bubble below that row.
+      // Reasoning stays attached to the answer it belongs to instead of splitting
+      // the answer's text around a late reasoning delta.
       let currentAssistantId = assistantId;
       let currentAssistantHasContent = false;
       let pendingBubbleRotation = false;
@@ -397,9 +397,9 @@ export async function consumeComposerSseReader(
       };
 
       /**
-       * Records that a tool_call / thinking row was appended after the current
-       * bubble. Rotation is lazy: the new bubble is only created once more text
-       * actually arrives, so a turn ending on a tool call leaves no empty bubble.
+       * Records that a row was appended after the current bubble. Rotation is lazy:
+       * the new bubble is only created once more text actually arrives, so a turn
+       * ending on a tool call leaves no empty bubble.
        */
       const markRowAppendedAfterAssistant = () => {
         if (currentAssistantHasContent) pendingBubbleRotation = true;
@@ -484,9 +484,7 @@ export async function consumeComposerSseReader(
         if (!activeThinkingId) {
           activeThinkingId = newId("r");
           activeThinkingStarted = freezeAt;
-          // Reasoning that resumes after assistant text belongs below it.
           if (toolQueue.length > 0) flushToolQueue();
-          markRowAppendedAfterAssistant();
         }
         const id = activeThinkingId;
         // Queued tool rows came first in the stream; they land before a new
@@ -503,7 +501,22 @@ export async function consumeComposerSseReader(
             content: "",
             startedAtMs: freezeAt,
           };
-          let next = known ? prev : [...prev, newRow];
+          let next = prev;
+          if (!known) {
+            const answerIdx = pendingBubbleRotation
+              ? -1
+              : prev.findIndex(
+                  (it) =>
+                    it.type === "assistant_message" &&
+                    it.id === currentAssistantId,
+                );
+            next = [...prev];
+            if (answerIdx >= 0) {
+              next.splice(answerIdx, 0, newRow);
+            } else {
+              next.push(newRow);
+            }
+          }
           next = next.map((it) =>
             it.type === "thinking" && it.id === id
               ? { ...it, content: it.content + delta }
@@ -1255,6 +1268,16 @@ export async function consumeComposerSseReader(
                     finishedAtMs: now,
                     ...(images !== undefined ? { images } : {}),
                     ...(artifacts !== undefined ? { artifacts } : {}),
+                  });
+                } else if (status === "pending") {
+                  // A pending update is a progress ping (streamed file
+                  // arguments carry _meta.foxxycode.toolInputProgress), not a
+                  // state change: throttled to 5Hz, it must not reset the
+                  // row's startedAtMs on every frame - including a ping the
+                  // tail buffer replays after a reconnect.
+                  toolQueue.push({
+                    toolCallId: u.toolCallId,
+                    status,
                   });
                 } else {
                   toolQueue.push({

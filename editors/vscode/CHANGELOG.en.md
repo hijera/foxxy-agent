@@ -8,7 +8,12 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-20
+## Unreleased — 2026-11-24
+
+**Thinking no longer splits answer text.**
+When reasoning arrives after an answer has started, the remaining text continues in the same message. Streaming no longer breaks a line or Markdown passage into separate bubbles, and the panel does not need a reload to repair the transcript.
+
+## 0.3.54 — 2026-11-20
 
 **Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
 
