@@ -8,6 +8,14 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Selective port: mode restoration when switching sessions — 2026-11-24
+
+Sources: upstream `2dda4dbf12e215cebfcab23511e536250ecc78ce` (`fix(ui): keep mode and model per session`) and the shared settings-read part of `3c495d7a126c4757da6ba71bc76a1fd450c99637` (`fix(ui): settle the opened session's settings by the server's answer, not by History`). Checked against `upstream/main` at `aa36eb3fbaa53546461c6bb5348565b34ff7652b`.
+
+- Ported the settings-only read used when a running session's transcript is restored from its stream shadow, and the shared settings mirror used by transcript and settings-only reads. Settings now follow the viewed session independently of the transcript paint fence.
+- Kept FoxxyCode's top-level `mode` snapshot and once-per-open selection guards. Added the fork-specific reset of those guards for Back/Forward hash navigation, which does not pass through `pickSession`.
+- Regression coverage in `external/ui/src/ui/App.sessionSelection.test.tsx`: a hand-picked Ask mode survives leaving and reopening its session, and two simultaneously running Plan/Ask sessions restore their own mode on every switch without waiting for a permission or turn event.
+
 ## Sync through upstream 1.2.72 — 2026-11-19
 
 Checkpoint: `b9f75122ff13706b8716b162b88a2bfb36a6203b` (commit of annotated tag `1.2.72`), following `706eeeecf6d9e4f17f1f509acc7f7a3e89d28d25` (`1.2.70`). Implementation: `ad5eae0d3d85038c56a3eba0e84db9e7c008cc4b`, based on current `origin/main` `3e5b721c5ea71b8c732fa7c9d87b7251185c5dc1`. All eight commits are accounted for: seven adapted changes and one redundant integration merge. No remaining work in this range.

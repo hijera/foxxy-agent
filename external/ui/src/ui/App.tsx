@@ -1656,6 +1656,11 @@ export function App() {
    * "the user picked a new mode while the turn was running".
    */
   const modeEditSeqRef = useRef(0);
+  // A Mode pick this tab PATCHed to its session and the server has not answered
+  // yet, per session. While one is in flight, no settings snapshot may move the
+  // Mode back over the pick: the write's answer mirrors through
+  // applySessionSettings and settles the chip and the version together.
+  const modeWritesInFlightRef = useRef(new Map<string, number>());
   /** Current mode, readable from callbacks that outlive their render. */
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -2574,7 +2579,14 @@ export function App() {
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
-      viewedSessionIdRef.current = p.sessionId.trim();
+      const nextSid = p.sessionId.trim();
+      if (viewedSessionIdRef.current.trim() !== nextSid) {
+        // A Back/Forward navigation opens a session without pickSession. Its
+        // stored selection must be restored just as it is on a sidebar pick.
+        appliedSelectionSidRef.current = "";
+        userTouchedSelectionSidRef.current = "";
+      }
+      viewedSessionIdRef.current = nextSid;
       setSessionId(p.sessionId);
       setSessionLoading(true);
       void markFoxxyCodeSessionActivityRead(p.sessionId);
@@ -3589,6 +3601,63 @@ export function App() {
    * merges line up. Older pages never take part: they sit above the live
    * window in `olderTranscript` (issue #338).
    */
+  /** Apply the settings carried by any messages read of the viewed session. */
+  function mirrorSettingsRead(
+    sid: string,
+    data: {
+      settings?: unknown;
+      model?: string;
+      selectedModelId?: string;
+      selectedReasoning?: string;
+      mode?: string;
+    },
+  ) {
+    const snap = parseSessionSettings(data.settings);
+    const held =
+      settingsVersionRef.current.sid === sid
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!snap || isNewerSettings(held, sid, snap)) {
+      setOpenSessionSelection({
+        sid,
+        model: snap
+          ? snap.model
+          : (data.model || data.selectedModelId || "").trim(),
+        reasoning: snap
+          ? snap.reasoning
+          : (data.selectedReasoning || "").trim(),
+        choices: snap?.reasoningChoices ?? [],
+        mode: (data.mode || "").trim(),
+      });
+    }
+    if (snap) {
+      applySessionSettings(snap);
+    }
+  }
+
+  /** Read settings alone when a running session's transcript comes from its shadow. */
+  async function readViewedSettings(sid: string, signal?: AbortSignal) {
+    const key = sid.trim();
+    try {
+      const res = await fetchJSON<{
+        settings?: unknown;
+        model?: string;
+        selectedModelId?: string;
+        selectedReasoning?: string;
+        mode?: string;
+      }>(`/foxxycode/sessions/${encodeURIComponent(key)}/messages?limit=1`, {
+        headers: key === sessionId ? headers : { [HDR]: key },
+        signal: signal ?? null,
+      });
+      if (viewedSessionIdRef.current.trim() !== key || !res.ok || !res.data) {
+        return;
+      }
+      mirrorSettingsRead(key, res.data);
+    } catch {
+      // A later transcript read or settings event can still settle the selectors.
+    }
+  }
+
   async function loadMessages(
     idOverride?: string,
     opts?: LoadMessagesOpts,
@@ -3718,6 +3787,11 @@ export function App() {
       }
       return null;
     }
+    if (viewingNow === sid) {
+      // Settings are independent of the transcript paint fence: opening a live
+      // session must restore its selectors even while its stream owns the rows.
+      mirrorSettingsRead(sid, res.data);
+    }
     if (viewingNow === sid && canApplySnapshot()) {
       // The backend may have switched the profile itself (a plan run, or the
       // model calling plan_exit). The SSE `mode` frame is the primary signal;
@@ -3736,36 +3810,6 @@ export function App() {
         ) {
           setMode(serverMode);
         }
-      }
-      // The whole snapshot: the mode, the permission mode, the overrides for
-      // the next turns, and the version the next send names.
-      const snap = parseSessionSettings(res.data.settings);
-      // Stash the session's own selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). It is the
-      // snapshot's: the top-level model and selectedReasoning name what a
-      // running turn holds, and a turn override taken for the session's
-      // model would become it with the next message. A read whose snapshot
-      // is older than the one this tab already applied - the events stream
-      // got ahead of a slow read - says nothing new and moves nothing back.
-      const held =
-        settingsVersionRef.current.sid === sid
-          ? settingsVersionRef.current.version
-          : 0;
-      if (!snap || isNewerSettings(held, sid, snap)) {
-        setOpenSessionSelection({
-          sid,
-          model: snap
-            ? snap.model
-            : (res.data.model || res.data.selectedModelId || "").trim(),
-          reasoning: snap
-            ? snap.reasoning
-            : (res.data.selectedReasoning || "").trim(),
-          choices: snap?.reasoningChoices ?? [],
-          mode: (res.data.mode || "").trim(),
-        });
-      }
-      if (snap) {
-        applySessionSettings(snap);
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
@@ -4773,6 +4817,13 @@ export function App() {
         }
         setSessionFadingOut(false);
         setItems([...shadowSnap]);
+        // No transcript read happens on this path, but the selectors still
+        // belong to the session being opened rather than the one just left.
+        // Detached: a settings read that hangs must not hold the rest of the
+        // open (the spinner, the stats and the stream rejoin) hostage. It
+        // re-checks the viewed session after its await, and the lifecycle
+        // signal cancels it when this open is superseded.
+        void readViewedSettings(sessionId, lifecycle.signal);
       } else {
         // freshLoad when no shadow: prevents stale itemsRef from a previous session
         // bleeding into this session (e.g. React StrictMode double-invoke of effects).
@@ -6661,7 +6712,10 @@ export function App() {
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
-    if (snap.mode) {
+    // A Mode pick of this tab is being written to the session right now: that
+    // pick is the newest truth, and a snapshot that raced with the write would
+    // silently undo it (the write's answer settles the chip in its own turn).
+    if (snap.mode && !modeWritesInFlightRef.current.get(snap.sessionId)) {
       setMode(snap.mode);
     }
     if (snap.model && llmModelIds.includes(snap.model)) {
@@ -6790,16 +6844,23 @@ export function App() {
       if (isClientDraftSessionId(sid)) {
         return;
       }
-      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: m }),
-      }).catch(() => {
-        // The mode is already applied locally; a lost write must not surface as
-        // an unhandled rejection.
+      // Through patchSessionSettings like every other pick: the write's answer
+      // mirrors the snapshot and bumps the settings version, so a read that is
+      // slower than the write cannot put the old mode back. Until the answer
+      // lands, modeWritesInFlightRef holds the chip still over any snapshot
+      // the write raced with; a lost write keeps the pick applied locally.
+      const inflight = modeWritesInFlightRef.current;
+      inflight.set(sid, (inflight.get(sid) ?? 0) + 1);
+      void patchSessionSettings(sid, { mode: m }).finally(() => {
+        const left = modeWritesInFlightRef.current.get(sid) ?? 0;
+        if (left <= 1) {
+          modeWritesInFlightRef.current.delete(sid);
+        } else {
+          modeWritesInFlightRef.current.set(sid, left - 1);
+        }
       });
     },
-    [sessionId, headers],
+    [sessionId, patchSessionSettings],
   );
 
   // The backend switched the profile on its own (a plan run, or the model

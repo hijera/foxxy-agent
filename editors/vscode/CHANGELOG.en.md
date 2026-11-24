@@ -8,7 +8,11 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-20
+## Unreleased — 2026-11-24
+
+**Session mode is restored when switching.** A session's Mode (Plan, Ask and the rest) now survives going away and coming back: it is restored from the stored profile when switching between running sessions and on browser Back/Forward navigation. A mode picked while the settings are still loading is no longer undone by a slow read.
+
+## 0.3.54 — 2026-11-20
 
 **Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
 
