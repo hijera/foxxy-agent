@@ -87,8 +87,8 @@ make build TAGS="gateway.pachca"
 # All gateways
 make build TAGS="gateway"
 
-# Combined with HTTP, UI, scheduler, memory
-make build TAGS="http ui scheduler memory gateway"
+# Combined with HTTP, UI, scheduler, memory, miniapps
+make build TAGS="http ui scheduler memory miniapps gateway"
 ```
 
 A bot enabled in `config.yaml` but not compiled into the binary is a startup error of `foxxycode serve` naming the tag; all other subcommands are unaffected.
@@ -345,7 +345,7 @@ services:
     restart: unless-stopped
 ```
 
-> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The **published GHCR image still ships without it** (CI sets `BUILD_TAGS=http,scheduler,ui,memory`), so with `docker-compose.yml` you must build a custom image (`BUILD_TAGS=http,ui,scheduler,memory,gateway`) and point `FOXXYCODE_IMAGE` at it. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/getting-started/docker.md](../getting-started/docker.md#run-another-mode-messenger-gateway).
+> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The published GHCR image ships the same set (CI builds `BUILD_TAGS=http,scheduler,ui,memory,miniapps,cli,browser,gateway,swarm`), so `docker-compose.yml` runs the stock image with gateway mode available and needs no custom build or `FOXXYCODE_IMAGE` override. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/getting-started/docker.md](../getting-started/docker.md#run-another-mode-messenger-gateway).
 
 ---
 

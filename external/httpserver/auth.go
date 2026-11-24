@@ -226,7 +226,10 @@ func isDocsPattern(pattern string) bool {
 // isSSETokenPattern reports whether a route may authenticate via ?access_token= (EventSource).
 func isSSETokenPattern(pattern string) bool {
 	return pattern == "GET /foxxycode/sessions/{id}/composer-stream" ||
-		pattern == "GET /foxxycode/events"
+		pattern == "GET /foxxycode/events" ||
+		pattern == "GET /foxxycode/miniapp-runs/{run_id}/events" ||
+		pattern == "GET /foxxycode/miniapp-distillations/{job_id}/events" ||
+		pattern == "GET /foxxycode/miniapp-command-installs/{job_id}/events"
 }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>" header.

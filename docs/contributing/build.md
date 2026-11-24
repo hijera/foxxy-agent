@@ -28,7 +28,7 @@ python scripts/build.py
 **Non-interactive** (CI or scripts):
 
 ```bash
-# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli browser gateway swarm")
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm")
 python scripts/build.py --target cli --preset full
 
 # Lean ACP-only binary (no npm step)
@@ -62,8 +62,9 @@ python scripts/build.py --target all --preset full
 | IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
-**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory cli browser gateway` - the
-set the release CLI archives ship, matching the **`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
+**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory miniapps cli browser gateway` - the
+wizard's full-feature set; the release CLI archives ship it with **`swarm`** added, the
+**`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
 (like full, but only the Telegram adapter via **`gateway.telegram`**), **`desktop`** (swaps in **`desktop`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
 requires **`http`**).
 
@@ -72,10 +73,10 @@ Run **`python scripts/build.py --help`** for the full flag list (Russian descrip
 
 Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enable`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
 
-The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
+The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, and **Mini Apps** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every supported full-release feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser gateway"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway"
 ```
 
 Output: **`build/foxxycode`**.
@@ -85,13 +86,13 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
+go build -tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
 ```
 
-The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
+The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,miniapps,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Fork-owned SPA styles
 
@@ -132,14 +133,14 @@ layouts, then rebuild the binary as described above.
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** first.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`** first.
 
 - **root** - **`/usr/local/bin/foxxycode`**
 - **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser gateway swarm"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 make install
 ```
 
@@ -175,7 +176,7 @@ Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory,cli \
+  -tags=http,ui,scheduler,memory,miniapps,cli \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=$(make -s print-version)" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -186,13 +187,13 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser gateway swarm"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
 
 ```bash
-go build -tags=http,ui,scheduler,memory,cli ...
+go build -tags=http,ui,scheduler,memory,miniapps,cli ...
 ```
 
 Order does not matter for these tags.
@@ -200,7 +201,7 @@ Order does not matter for these tags.
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm"   # build/foxxycode-android-arm64, -amd64
+make android TAGS="http ui scheduler memory miniapps cli browser gateway swarm"   # build/foxxycode-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -303,7 +304,7 @@ Output: **`dist/foxxycode_<version>_linux_<arch>.deb`** and **`.rpm`**. Knobs:
 | Variable | Default | What |
 |----------|---------|------|
 | **`PKG_ARCHS`** | host **`GOARCH`** | architectures to package, e.g. **`"amd64 arm64"`** |
-| **`PKG_TAGS`** | **`FULL_TAGS`** (**`http ui scheduler memory cli browser gateway swarm`**) | build tags for the packaged binary |
+| **`PKG_TAGS`** | **`FULL_TAGS`** (**`http ui scheduler memory miniapps cli browser gateway swarm`**) | build tags for the packaged binary |
 | **`DIST_DIR`** | **`dist`** | where the packages land |
 
 ```bash
@@ -408,7 +409,7 @@ the connection survives cancellation of the reload context.
 For a fresh Go run without reusing test results, use:
 
 ```bash
-go test -count=1 "-tags=http,ui,scheduler,memory,cli,browser,gateway,swarm" ./...
+go test -count=1 "-tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway,swarm" ./...
 ```
 
 Build the embedded SPA first (`make ui-build`); `make test` also runs the UI suite.
@@ -813,4 +814,4 @@ land in **`dist/security/`**. Runner, gate knobs and triage:
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, Mini Apps), clone the repo and use **`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`** (or **`go build -tags=...`** as above).

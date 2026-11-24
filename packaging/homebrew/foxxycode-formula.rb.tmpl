@@ -41,7 +41,7 @@ class Foxxycode < Formula
     end
 
     ldflags = "-X github.com/hijera/foxxycode-agent/internal/version.Version=#{version}"
-    tags = %w[http ui scheduler memory cli browser gateway swarm]
+    tags = %w[http ui scheduler memory miniapps cli browser gateway swarm]
     system "go", "build", *std_go_args(ldflags:, tags:), "./cmd/foxxycode"
 
     man1.install "packaging/man/foxxycode.1"

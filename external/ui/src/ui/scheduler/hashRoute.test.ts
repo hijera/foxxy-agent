@@ -3,6 +3,7 @@ import {
   appNavHrefDocs,
   appNavHrefHome,
   appNavHrefHistory,
+  appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSchedulerJob,
   appNavHrefSchedulerJobRuns,
@@ -16,6 +17,7 @@ import {
   schedulerEditorFromParsedHash,
   setDocsHash,
   setHistoryHash,
+  setMiniAppsHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerJobRunsHash,
@@ -35,6 +37,28 @@ describe("parseAppHash", () => {
   test("parses standalone history", () => {
     setHash("#/history");
     expect(parseAppHash()).toEqual({ branch: "history" });
+  });
+
+  test("parses Mini Apps catalog and selected app routes", () => {
+    setHash("#/miniapps");
+    expect(parseAppHash()).toEqual({ branch: "miniapps", appId: null });
+    setHash("#/miniapps/build%2Fhello");
+    expect(parseAppHash()).toEqual({
+      branch: "miniapps",
+      appId: "build/hello",
+    });
+    // A pasted address with a malformed escape keeps the literal text: the
+    // router must not come down on it.
+    setHash("#/miniapps/%zz");
+    expect(parseAppHash()).toEqual({ branch: "miniapps", appId: "%zz" });
+    setHash("#/s/%zz");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "%zz",
+      historyOpen: false,
+      tasksOpen: false,
+      taskId: null,
+    });
   });
 
   test("parses home hash with history sidebar query only", () => {
@@ -196,6 +220,13 @@ describe("parseAppHash", () => {
 });
 
 describe("hash writers", () => {
+  test("setMiniAppsHash writes catalog and selected app paths", () => {
+    setHash("");
+    setMiniAppsHash();
+    expect(window.location.hash).toBe("#/miniapps");
+    setMiniAppsHash("build/hello");
+    expect(window.location.hash).toBe("#/miniapps/build%2Fhello");
+  });
   test("a settings row is written as ?id= and dropped with the list", () => {
     expect(appNavHrefSettingsSection("providers", "demo")).toBe(
       "#/settings/providers?id=demo",
@@ -316,6 +347,8 @@ describe("appNavHref helpers", () => {
     expect(appNavHrefSettings()).toBe("#/settings");
     expect(appNavHrefScheduler()).toBe("#/scheduler");
     expect(appNavHrefSchedulerNew()).toBe("#/scheduler/new");
+    expect(appNavHrefMiniApps()).toBe("#/miniapps");
+    expect(appNavHrefMiniApps("build/hello")).toBe("#/miniapps/build%2Fhello");
   });
 
   test("session path encodes id and falls back to home when empty", () => {

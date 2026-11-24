@@ -76,6 +76,7 @@ func (m *Manager) closeSession(sessionID string) {
 
 // Browser wraps a live chromedp context for a single session.
 type Browser struct {
+	closeOnce   sync.Once
 	allocCtx    context.Context
 	allocCancel context.CancelFunc
 	ctx         context.Context
@@ -218,12 +219,23 @@ const browserExitGrace = 5 * time.Second
 // deleted and, if the session reopens straight away, a profile still held by the
 // browser that was supposed to be closed.
 func (b *Browser) close() {
+	b.closeOnce.Do(b.closeBrowser)
+}
+
+func (b *Browser) closeBrowser() {
 	// Captured first, while Chrome is still running: after it exits, which of the
 	// processes naming it as their parent are really its children can no longer
 	// be told apart from a stranger that was handed its pid.
 	tree := platform.CaptureProcessTree(b.chromePID)
 	defer tree.Release()
 
+	// Graceful shutdown lets Chrome flush its profile before its allocator is
+	// killed. Otherwise Unix cleanup can race children still writing Default/.
+	if b.ctx != nil && b.ctx.Err() == nil {
+		ctx, cancel := context.WithTimeout(b.ctx, browserExitGrace)
+		_ = chromedp.Cancel(ctx)
+		cancel()
+	}
 	if b.ctxCancel != nil {
 		b.ctxCancel()
 	}

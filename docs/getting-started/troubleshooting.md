@@ -85,7 +85,7 @@ For access from other machines bind wider and require a token: `foxxycode serve 
 **Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 ```
 
 `ui` needs Node.js and npm (the Makefile runs `ui-build` first). `foxxycode serve --dry-run` reports a surface this binary was not built with without starting anything. Tag reference: [Build from source](../contributing/build.md#build-tags-reference).
@@ -331,7 +331,7 @@ In a Termux session that was open during the install, `foxxycode` is found only 
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm"
+  make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
   ```
 
 - **Updates from scripts.** `foxxycode update -y --no-restart` installs without starting FoxxyCode again, for a CI step with no console to run in.

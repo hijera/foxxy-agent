@@ -1,6 +1,6 @@
 Feature: Escape closes the screen the rail opened
   Every item of the rail but Sign out opens a screen over the chat: History,
-  Scheduler, Swarm, Docs and Settings. Escape closes the one on screen the way
+  Scheduler, Mini Apps, Swarm, Docs and Settings. Escape closes the one on screen the way
   its close control does, and the address goes back to the chat. It undoes one
   step at a time: a menu, a picker, a tip or a search box with text in it takes
   the key before the screen does, and a screen with a step of its own - an open

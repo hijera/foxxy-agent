@@ -59,6 +59,9 @@ var streamTruncationScripts = map[string]string{
 // codexStreamTruncationScripts are the Codex Responses counterparts, named the
 // same way the steps name them.
 var codexStreamTruncationScripts = map[string]string{
+	"sends keepalive frames before completing": ": keep-alive\n\n\ndata: \n\nevent: ping\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello from server\"}\n\n" +
+		": keep-alive\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
 	"cuts the stream after text deltas": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
 		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" fr\"}\n\n",
 
@@ -289,7 +292,7 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the stream after a whole tool call|cuts the stream inside tool call arguments|cuts the last frame inside its JSON)$`, s.aProviderPointedAtTruncatingStub)
-	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap|cuts an event inside its JSON after text deltas)$`, s.aCodexProviderPointedAtStub)
+	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|sends keepalive frames before completing|stops the response at its output cap|cuts an event inside its JSON after text deltas)$`, s.aCodexProviderPointedAtStub)
 	sc.Step(`^a streaming completion is requested$`, s.aTruncationStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a truncation error$`, s.theCallFailsWithATruncationError)
 	sc.Step(`^the partial response preserves text "([^"]*)"$`, s.thePartialResponsePreservesText)

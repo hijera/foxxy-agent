@@ -5,7 +5,7 @@ import type { NavItemId } from "./navOverflow";
  * Escape and the screens of the rail.
  *
  * Every item of the rail but Sign out opens a screen over the chat - History,
- * Scheduler, Swarm, Docs, Settings - and Escape closes the one on screen, the
+ * Scheduler, Mini Apps, Swarm, Docs, Settings - and Escape closes the one on screen, the
  * way its close control does (the swarm screen, which has none, the way its
  * backdrop does). The rule is written here once, over a table App fills in
  * for every screen (`RailScreens`), rather than as a handler in each screen:
@@ -40,7 +40,8 @@ const RAIL_SCREEN_DEPTH: Record<RailScreenId, number> = {
   settings: 1,
   swarm: 2,
   scheduler: 3,
-  history: 4,
+  miniapps: 4,
+  history: 5,
 };
 
 /** Every screen of the rail, the topmost first. */

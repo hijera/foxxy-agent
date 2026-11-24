@@ -50,7 +50,7 @@ make brew-formula VERSION=0.2.63
 version and the SHA-256 of that tag's source archive and writes **`dist/formula/foxxycode.rb`**. It
 downloads the archive to hash it, so the version has to be a published tag.
 
-The formula builds what the release binaries carry - **`http ui scheduler memory cli gateway swarm`** - so a
+The formula builds what the release binaries carry - **`http ui scheduler memory miniapps cli browser gateway swarm`** - so a
 `brew install` and a release archive are the same feature set. That is why **`node`** is a build
 dependency beside **`go`**: the embedded SPA is generated rather than committed, and **`go:embed`**
 needs those files to exist before the binary that carries them is linked. It runs **`npm ci`**, not
