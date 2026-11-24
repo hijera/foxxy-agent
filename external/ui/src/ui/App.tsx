@@ -2574,7 +2574,14 @@ export function App() {
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
-      viewedSessionIdRef.current = p.sessionId.trim();
+      const nextSid = p.sessionId.trim();
+      if (viewedSessionIdRef.current.trim() !== nextSid) {
+        // A Back/Forward navigation opens a session without pickSession. Its
+        // stored selection must be restored just as it is on a sidebar pick.
+        appliedSelectionSidRef.current = "";
+        userTouchedSelectionSidRef.current = "";
+      }
+      viewedSessionIdRef.current = nextSid;
       setSessionId(p.sessionId);
       setSessionLoading(true);
       void markFoxxyCodeSessionActivityRead(p.sessionId);
@@ -3589,6 +3596,61 @@ export function App() {
    * merges line up. Older pages never take part: they sit above the live
    * window in `olderTranscript` (issue #338).
    */
+  /** Apply the settings carried by any messages read of the viewed session. */
+  function mirrorSettingsRead(
+    sid: string,
+    data: {
+      settings?: unknown;
+      model?: string;
+      selectedModelId?: string;
+      selectedReasoning?: string;
+      mode?: string;
+    },
+  ) {
+    const snap = parseSessionSettings(data.settings);
+    const held =
+      settingsVersionRef.current.sid === sid
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!snap || isNewerSettings(held, sid, snap)) {
+      setOpenSessionSelection({
+        sid,
+        model: snap
+          ? snap.model
+          : (data.model || data.selectedModelId || "").trim(),
+        reasoning: snap
+          ? snap.reasoning
+          : (data.selectedReasoning || "").trim(),
+        choices: snap?.reasoningChoices ?? [],
+        mode: (data.mode || "").trim(),
+      });
+    }
+    if (snap) {
+      applySessionSettings(snap);
+    }
+  }
+
+  /** Read settings alone when a running session's transcript comes from its shadow. */
+  async function readViewedSettings(sid: string) {
+    try {
+      const res = await fetchJSON<{
+        settings?: unknown;
+        model?: string;
+        selectedModelId?: string;
+        selectedReasoning?: string;
+        mode?: string;
+      }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
+        headers: sid === sessionId ? headers : { [HDR]: sid },
+      });
+      if (viewedSessionIdRef.current.trim() !== sid || !res.ok || !res.data) {
+        return;
+      }
+      mirrorSettingsRead(sid, res.data);
+    } catch {
+      // A later transcript read or settings event can still settle the selectors.
+    }
+  }
+
   async function loadMessages(
     idOverride?: string,
     opts?: LoadMessagesOpts,
@@ -3718,6 +3780,11 @@ export function App() {
       }
       return null;
     }
+    if (viewingNow === sid) {
+      // Settings are independent of the transcript paint fence: opening a live
+      // session must restore its selectors even while its stream owns the rows.
+      mirrorSettingsRead(sid, res.data);
+    }
     if (viewingNow === sid && canApplySnapshot()) {
       // The backend may have switched the profile itself (a plan run, or the
       // model calling plan_exit). The SSE `mode` frame is the primary signal;
@@ -3736,36 +3803,6 @@ export function App() {
         ) {
           setMode(serverMode);
         }
-      }
-      // The whole snapshot: the mode, the permission mode, the overrides for
-      // the next turns, and the version the next send names.
-      const snap = parseSessionSettings(res.data.settings);
-      // Stash the session's own selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). It is the
-      // snapshot's: the top-level model and selectedReasoning name what a
-      // running turn holds, and a turn override taken for the session's
-      // model would become it with the next message. A read whose snapshot
-      // is older than the one this tab already applied - the events stream
-      // got ahead of a slow read - says nothing new and moves nothing back.
-      const held =
-        settingsVersionRef.current.sid === sid
-          ? settingsVersionRef.current.version
-          : 0;
-      if (!snap || isNewerSettings(held, sid, snap)) {
-        setOpenSessionSelection({
-          sid,
-          model: snap
-            ? snap.model
-            : (res.data.model || res.data.selectedModelId || "").trim(),
-          reasoning: snap
-            ? snap.reasoning
-            : (res.data.selectedReasoning || "").trim(),
-          choices: snap?.reasoningChoices ?? [],
-          mode: (res.data.mode || "").trim(),
-        });
-      }
-      if (snap) {
-        applySessionSettings(snap);
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
@@ -4773,6 +4810,12 @@ export function App() {
         }
         setSessionFadingOut(false);
         setItems([...shadowSnap]);
+        // No transcript read happens on this path, but the selectors still
+        // belong to the session being opened rather than the one just left.
+        await readViewedSettings(sessionId);
+        if (lifecycle.signal.aborted) {
+          return;
+        }
       } else {
         // freshLoad when no shadow: prevents stale itemsRef from a previous session
         // bleeding into this session (e.g. React StrictMode double-invoke of effects).

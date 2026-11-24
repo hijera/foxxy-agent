@@ -15,7 +15,13 @@ import { initLocale } from "./i18n/i18n";
  */
 
 const SESS = "sess_selection";
+const PLAN = "sess_parallel_plan";
+const CHAT = "sess_parallel_chat";
 const MODEL = "rpa/qwen3.8-27b";
+
+let storedModes: Record<string, string>;
+let heldTurnSids: Set<string>;
+let openTurns: Map<string, ReadableStreamDefaultController<Uint8Array>>;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -47,9 +53,21 @@ function eventsStream() {
 let releaseModels: (() => void) | null = null;
 let holdModels = false;
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const path = String(input);
   if (path === "/foxxycode/events") return eventsStream();
+  if (path === "/v1/responses") {
+    const sid = new Headers(init?.headers).get("X-FoxxyCode-Session-ID") ?? "";
+    if (!heldTurnSids.has(sid)) return emptyStream();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start: (c) => {
+          openTurns.set(sid, c);
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  }
   if (path === "/v1/models") {
     const answer = () =>
       json({
@@ -72,7 +90,9 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     return answer();
   }
   if (path.startsWith("/foxxycode/sessions?")) {
-    return json({ sessions: [{ id: SESS, title: SESS }] });
+    return json({
+      sessions: [SESS, PLAN, CHAT].map((id) => ({ id, title: id })),
+    });
   }
   const match = path.match(/^\/foxxycode\/sessions\/([^/]+)(.*)$/);
   if (match) {
@@ -84,7 +104,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
         selectedModelId: MODEL,
         // The profile the session was left at on the server: the values a read
         // would put back over whatever the reader picks in between.
-        mode: "agent",
+        mode: storedModes[sid] ?? "agent",
         selectedReasoning: "high",
         messages: [{ role: "user", content: `prompt in ${sid}` }],
       });
@@ -99,7 +119,13 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       });
     if (suffix === "/stats") return json({ stats: {} });
     if (suffix === "/background-tasks") return json({ data: [], running: 0 });
-    if (suffix === "/activity") return json({ sessionId: sid, turnActive: false });
+    if (suffix === "/activity")
+      return json({ sessionId: sid, turnActive: openTurns.has(sid) });
+    if (!suffix && init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body)) as { mode?: string };
+      if (body.mode) storedModes[sid] = body.mode;
+      return json({});
+    }
     if (!suffix) return json({});
   }
   if (path === "/foxxycode/config") return json({});
@@ -113,6 +139,9 @@ beforeEach(() => {
   eventsController = null;
   releaseModels = null;
   holdModels = false;
+  storedModes = { [SESS]: "agent", [PLAN]: "plan", [CHAT]: "ask" };
+  heldTurnSids = new Set();
+  openTurns = new Map();
   initLocale("en");
   localStorage.clear();
   document.cookie = "foxxycode_llm_reasoning=; Path=/; Max-Age=0";
@@ -122,12 +151,60 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const controller of openTurns.values()) controller.close();
+  openTurns.clear();
   cleanup();
   vi.unstubAllGlobals();
 });
 
 const reasoningChip = () =>
   screen.getByRole("button", { name: "Reasoning level" });
+const modeChip = () => screen.getByRole("button", { name: "Mode" });
+const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
+
+function mount(hash: string) {
+  history.replaceState(null, "", hash);
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+}
+
+async function mountSession(sid: string) {
+  mount(`/#/s/${sid}`);
+  await screen.findByText(`prompt in ${sid}`);
+  await settle();
+}
+
+async function goTo(hash: string) {
+  await act(async () => {
+    history.replaceState(null, "", hash);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+}
+
+async function navigate(sid: string) {
+  await goTo(`/#/s/${sid}`);
+  await screen.findByText(`prompt in ${sid}`);
+  await settle();
+}
+
+async function pickMode(name: string) {
+  fireEvent.click(modeChip());
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+  await waitFor(() => expect(modeChip()).toHaveTextContent(name));
+}
+
+async function startHeldTurn(sid: string, text: string) {
+  heldTurnSids.add(sid);
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+    target: { value: text },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(openTurns.has(sid)).toBe(true));
+  await settle();
+}
 
 test("a Mode picked before the session's own arrives is kept", async () => {
   holdModels = true;
@@ -177,4 +254,34 @@ test("a later transcript read does not put the stored level back", async () => {
   });
   await new Promise((r) => setTimeout(r, 50));
   expect(reasoningChip()).toHaveTextContent("Low");
+});
+
+test("a hand-picked mode is restored after leaving and reopening its session", async () => {
+  await mountSession(SESS);
+  await pickMode("Ask");
+  expect(storedModes[SESS]).toBe("ask");
+
+  await navigate(PLAN);
+  expect(modeChip()).toHaveTextContent("Plan");
+
+  await navigate(SESS);
+  await waitFor(() => expect(modeChip()).toHaveTextContent("Ask"));
+});
+
+test("two running sessions each show their own mode on every switch", async () => {
+  await mountSession(PLAN);
+  await startHeldTurn(PLAN, "plan in parallel");
+
+  await navigate(CHAT);
+  expect(modeChip()).toHaveTextContent("Ask");
+  await startHeldTurn(CHAT, "chat in parallel");
+
+  // Each way back keeps the live transcript from its stream shadow. The
+  // session's settings still have to be read: no turn end or permission answer
+  // should be necessary to make the chip catch up.
+  await goTo(`/#/s/${PLAN}`);
+  await waitFor(() => expect(modeChip()).toHaveTextContent("Plan"));
+
+  await goTo(`/#/s/${CHAT}`);
+  await waitFor(() => expect(modeChip()).toHaveTextContent("Ask"));
 });
