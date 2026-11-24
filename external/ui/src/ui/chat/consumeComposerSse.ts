@@ -1269,6 +1269,16 @@ export async function consumeComposerSseReader(
                     ...(images !== undefined ? { images } : {}),
                     ...(artifacts !== undefined ? { artifacts } : {}),
                   });
+                } else if (status === "pending") {
+                  // A pending update is a progress ping (streamed file
+                  // arguments carry _meta.foxxycode.toolInputProgress), not a
+                  // state change: throttled to 5Hz, it must not reset the
+                  // row's startedAtMs on every frame - including a ping the
+                  // tail buffer replays after a reconnect.
+                  toolQueue.push({
+                    toolCallId: u.toolCallId,
+                    status,
+                  });
                 } else {
                   toolQueue.push({
                     toolCallId: u.toolCallId,

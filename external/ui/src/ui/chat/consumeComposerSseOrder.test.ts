@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -202,5 +202,38 @@ describe("consumeComposerSseReader chronological ordering", () => {
       );
     expect(bubbles).toHaveLength(1);
     expect(bubbles[0]?.content).toBe("Hello world");
+  });
+});
+
+describe("consumeComposerSseReader tool row timing", () => {
+  // The last frame never gets its blank line, so only the tail flush at the end
+  // of the stream parses it - the shape a reconnect replay leaves behind. The
+  // pending update is a progress ping, not a state change, so the row's start
+  // time must survive it.
+  it("keeps a pending tool ping replayed from the tail buffer from resetting the row's start time", async () => {
+    seq = 0;
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const p = harness(
+      readerFromChunks([
+        `age: 12000\nevent: tool_call\ndata: ${JSON.stringify({
+          toolCallId: "call_1",
+          title: "edit",
+          status: "pending",
+        })}\n\n`,
+        `age: 5000\nevent: tool_call_update\ndata: ${JSON.stringify({
+          toolCallId: "call_1",
+          status: "pending",
+        })}`,
+      ]),
+    );
+    const res = await consumeComposerSseReader(p);
+    vi.restoreAllMocks();
+    // Callers drain the RAF-batched tool queue once the stream ends (see App.tsx).
+    res.flushToolQueue();
+
+    const call = p.getItems().find((x) => x.type === "tool_call");
+    expect(call?.type === "tool_call" && call.startedAtMs).toBe(now - 12000);
+    expect(call?.type === "tool_call" && call.status).toBe("pending");
   });
 });
