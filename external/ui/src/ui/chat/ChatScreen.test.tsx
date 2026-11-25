@@ -1,3 +1,6 @@
+import { ConfirmProvider } from "../components/useConfirm";
+import { setEditsPresentation } from "../changes/editsPresentation";
+import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -5,6 +8,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  within,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -13,7 +17,10 @@ import type { TokenUsage } from "./types";
 import type { TranscriptItem } from "./types";
 import type { BackgroundTask } from "../tasks/types";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  document.cookie = "foxxycode_edits_presentation=; Path=/; Max-Age=0";
+});
 
 test("new background permission prompts follow the reader at the bottom, but polling does not", () => {
   const common = {
@@ -995,10 +1002,10 @@ test("the live line of a running turn names the running tasks and opens the Task
 test("the transcript ends with the conversation: the way to the tasks is the header control", () => {
   render(turnLineScreen({ generating: false }));
   expect(screen.queryByTestId("bgtask-chip")).toBeNull();
-  expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
+  expect(screen.getByTestId("chat-views-tasks")).toBeInTheDocument();
 });
 
-test("the header control opens the Tasks panel and puts it away again", () => {
+test("the Tasks button opens the Tasks panel and puts it away again", () => {
   const onOpen = vi.fn();
   const onClose = vi.fn();
   const { rerender } = render(
@@ -1008,7 +1015,7 @@ test("the header control opens the Tasks panel and puts it away again", () => {
       onCloseBackgroundTasks: onClose,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);
   rerender(
     turnLineScreen({
@@ -1018,9 +1025,171 @@ test("the header control opens the Tasks panel and puts it away again", () => {
       backgroundTasksOpen: true,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+/** What git reports for the session's folder: n changed files. */
+function stubSessionChanges(n: number, vcs = "git") {
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/changes")) {
+      return new Response(
+        JSON.stringify({
+          sessionId: "sess_turn",
+          vcs,
+          files: Array.from({ length: n }, (_, i) => ({
+            path: `f${i}.txt`,
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            truncated: false,
+          })),
+          totals: { files: n, additions: n, deletions: 0 },
+          skipped: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("{}", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+for (const [vcs, name] of [
+  ["git", "the workspace change count opens Edits by default"],
+  ["svn", "the SVN workspace change count opens Edits by default"],
+] as const) {
+  test(name, async () => {
+    stubSessionChanges(2, vcs);
+    const onOpenEdits = vi.fn();
+    const workspaceCtx = { ...repoCtx, is_git_repo: vcs === "git", is_svn_repo: vcs === "svn" };
+    render(<ConfirmProvider>{turnLineScreen({ ...workspaceProps(true), workspaceCtx, onOpenEdits })}</ConfirmProvider>);
+    const bar = screen.getByTestId("workspace-bar");
+    const edits = await within(bar).findByTestId("workspace-bar-edits");
+    expect(edits.textContent).toBe("+2−0");
+    expect(screen.queryByTestId("session-changes-card")).toBeNull();
+    fireEvent.click(edits);
+    expect(onOpenEdits).toHaveBeenCalledWith();
+  });
+}
+
+test.each(["vscode", "intellij"])("the %s chat hides the Files button", (host) => {
+  document.documentElement.dataset.embed = host;
+  try {
+    render(turnLineScreen({ generating: false, onOpenBackgroundTasks: vi.fn() }));
+    expect(screen.getByTestId("chat-views-tasks")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-views-files")).toBeNull();
+  } finally {
+    delete document.documentElement.dataset.embed;
+  }
+});
+
+// The changed-files card sits under the transcript while Git reports changes.
+test("the changes card is shown when Git reports edits and Ctrl+S toggles it", async () => {
+  setEditsPresentation("card");
+  stubSessionChanges(0);
+  const { unmount } = render(<ConfirmProvider>{turnLineScreen(workspaceProps(true))}</ConfirmProvider>);
+  await screen.findByTestId("workspace-bar");
+  await act(async () => new Promise((r) => setTimeout(r, 20)));
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
+  unmount();
+  stubSessionChanges(2);
+  render(<ConfirmProvider>{turnLineScreen(workspaceProps(true))}</ConfirmProvider>);
+  const changes = await screen.findByTestId("session-changes-card");
+  expect(document.getElementById("messages")).toContainElement(changes);
+  fireEvent.keyDown(window, { ctrlKey: true, code: "KeyS", key: "ы" });
+  expect(screen.queryByTestId("session-changes-card")).toBeNull();
+  fireEvent.keyDown(window, { ctrlKey: true, code: "KeyS", key: "ы" });
+  expect(screen.getByTestId("session-changes-card")).toBeInTheDocument();
+  vi.unstubAllGlobals();
+});
+
+const repoCtx = {
+  path: "/home/me/src/foxxycode-agent",
+  name: "foxxycode-agent",
+  is_git_repo: true,
+  is_worktree: false,
+  repo_root: "/home/me/src/foxxycode-agent",
+  branch: "feat/session-changes",
+  branches: ["main", "feat/session-changes"],
+};
+
+function workspaceProps(locked: boolean) {
+  return {
+    generating: false,
+    onOpenEdits: () => {},
+    workspaceCtx: repoCtx,
+    workspaceLocked: locked,
+    worktreePref: false,
+    onWorkspacePickFolder: () => {},
+    onWorkspacePickBranch: () => {},
+    onWorktreeToggle: () => {},
+  };
+}
+
+// The composer names the repository and branch. Changes are reviewed from the transcript.
+test("a running chat names its repository and reviews changes below the transcript", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AppearanceThemePicker />
+      {turnLineScreen({ ...workspaceProps(true), onOpenEdits })}
+    </ConfirmProvider>,
+  );
+  const picker = screen.getByLabelText("Show changes");
+  expect(picker).toHaveValue("workspace");
+  fireEvent.change(picker, { target: { value: "card" } });
+  expect(document.cookie).toContain("foxxycode_edits_presentation=card");
+  const bar = screen.getByTestId("workspace-bar");
+  expect(within(bar).queryByTestId("workspace-bar-edits")).toBeNull();
+  expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("foxxycode-agent");
+  expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
+  const edits = await screen.findByTestId("changes-card-open");
+  expect(edits.textContent).toContain("+2−0");
+  fireEvent.click(edits);
+  expect(onOpenEdits).toHaveBeenCalledWith();
+  // The plate is the card's top: right before it, the card joined to it, and
+  // the card has no folder chips.
+  const card = document.querySelector(".composer-card")!;
+  expect(bar.nextElementSibling).toBe(card);
+  expect(card).toHaveClass("composer-card--joined");
+  expect(bar).not.toContainElement(edits);
+  expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-files")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+// The plate is git's: a running chat in a folder outside any repository has
+// no branch and no count to show, so it has no plate at all.
+test("a running chat in a folder with no git has no plate over the composer", () => {
+  stubSessionChanges(0);
+  const plain = { path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false };
+  render(turnLineScreen({ ...workspaceProps(true), workspaceCtx: plain }));
+  expect(screen.queryByTestId("workspace-bar")).toBeNull();
+  expect(document.querySelector(".composer-card")).not.toHaveClass("composer-card--joined");
+  vi.unstubAllGlobals();
+});
+
+// Before the first message the plate over the composer is a choice: the
+// folder and the branch are picks, the worktree a checkbox, and git's count
+// waits for the chat to start.
+test("before the chat starts the folder, branch and worktree are picks on the plate", () => {
+  stubSessionChanges(2);
+  render(turnLineScreen(workspaceProps(false)));
+  const plate = screen.getByTestId("workspace-bar");
+  expect(plate).toHaveClass("workspace-bar--pick");
+  expect(within(plate).getByTestId("composer-workspace-chip").tagName).toBe("BUTTON");
+  expect(within(plate).getByTestId("composer-branch-chip").tagName).toBe("BUTTON");
+  expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
+  vi.unstubAllGlobals();
 });
 
 test("the turn has ended and its tasks have not: the tail keeps the dots and the count", () => {

@@ -1,12 +1,8 @@
 # Plan: workspace file viewer panel
 
-> **Upstream design record, not yet ported.** This is coddy-agent's plan for a file
-> viewer; FoxxyCode has no such surface and nothing here describes code in this
-> repository. It is kept because the wave that brought it is tracked in
-> `UPSTREAM_SYNC.md`, and because a later port should start from the design that
-> was actually taken rather than reconstruct it. Like every file under
-> `docs/plans/`, it is a record of a decision and is not rewritten to match later
-> renames.
+> **Historical design record.** The port of Coddy 1.2.73 implements the
+> later Files window described in the [web UI guide](../surfaces/web-ui.md#workspace-files).
+> This document preserves the earlier proposal.
 
 Status: design record written 2026-09-08 on branch `claude/rpa-file-viewer-ui-2bf4d3`,
 not implemented. Cross-reviewed by Codex (`gpt-5.6-sol`), Cursor Agent (`auto`) and

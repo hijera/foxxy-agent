@@ -7,7 +7,17 @@
 
 # FoxxyCode plugin changes
 
-## Unreleased — 2026-11-20
+## Unreleased — 2026-11-22
+
+**Edits window actions.** Clicking a filename keeps you in the preview. The file's ⋮ menu offers Open in IDE and Copy path. The review opens without an IDE notification. The window starts with its previews folded and loads each diff when opened. Open Edits expanded in Appearance starts in the larger window and opens the first preview.
+
+**Composer alignment.** Pasting long text no longer separates the caret from the last visible character when lines wrap.
+
+**File preview and binary review fixes.** Short legacy-encoded text previews preserve their final characters. Git review retains original binary bytes, so changes to CRLF byte pairs are not hidden.
+
+**Workspace files and edit review.** Open files from the chat, review Git and Subversion changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The rounded review buttons use colored outlines that follow the editor's light or dark color scheme. Moving the pointer over a button highlights it and shows a hand cursor. The working copy counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.
+
+## 0.3.54 — 2026-11-20
 
 **Coddy compaction.** The Coddy 1.2.72 engine replaces OpenCode and can also summarize short chats on demand. Existing OpenCode configurations switch automatically and show a migration notice at startup or in `--test-config`. Existing summaries and chat history are preserved.
 

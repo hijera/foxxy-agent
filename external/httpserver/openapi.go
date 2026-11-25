@@ -2176,6 +2176,196 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/changes": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List working copy changes for the session's folder",
+					"description": "List changes whoever made them: the agent, a shell command or an editor next to it. Git uses **`HEAD`** (including staged changes) and SVN uses the working copy's local **`BASE`** revision. The closest checkout takes precedence, with Git winning a tie. " +
+						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
+						"SVN uses the configured client, lists file entries reported by local status, and excludes directory operations, replacements, conflicts, and externals. Both backends honor ignored paths. " +
+						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
+						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
+						"Unversioned files are read up to 500 of them and 2 MB each. **`skipped`** counts unversioned entries omitted by the backend's review limits. In a Git repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, **`svn`**, or empty when the list has no VCS. " +
+						"This is what the SPA's edits window and the count above the composer read.",
+					"operationId": "foxxycodeSessionChangesList",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "include", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Comma-separated extras: `patch`, `content`.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Working copy changes",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"vcs": map[string]interface{}{
+												"type":        "string",
+												"enum":        []interface{}{"git", "svn", ""},
+												"description": "Version control for the working copy, empty for a plain folder.",
+											},
+											"skipped": map[string]interface{}{
+												"type":        "integer",
+												"description": "Unversioned entries omitted by the backend's review limits.",
+											},
+											"files": map[string]interface{}{
+												"type":  "array",
+												"items": sessionChangeFileSchema(),
+											},
+											"totals": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"files":     map[string]string{"type": "integer"},
+													"additions": map[string]string{"type": "integer"},
+													"deletions": map[string]string{"type": "integer"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one changed file of the session's folder",
+					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
+						"**`path`** is matched against the working copy change set. An unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file on Windows.",
+					"operationId": "foxxycodeSessionChangeFile",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Path relative to the session's folder, as listed by GET .../changes.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "One changed file",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": sessionChangeFileSchema(),
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/open-in-ide": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Open a working-copy diff in the local editor",
+					"description": "Broadcasts an open_diff event with both text snapshots through the local IDE stream. The path must be in the session's working copy changes.",
+					"operationId": "foxxycodeSessionChangeOpenInIDE",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object", "required": []string{"path"},
+									"properties": map[string]interface{}{"path": map[string]string{"type": "string"}},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]string{"description": "Native diff dispatched"},
+						"400": errorResponseRef(), "403": errorResponseRef(), "404": errorResponseRef(),
+						"409": errorResponseRef(), "415": errorResponseRef(), "422": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/revert": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Discard uncommitted changes of the session's folder",
+					"description": "Restores the selected files or all reviewable files. Git restores tracked content and index entries from **`HEAD`** and cleans up empty folders left by deleted additions. SVN restores tracked files through a file-scoped revert to **`BASE`**. Both delete selected additions and leave ignored paths in place. " +
+						"The body says what it means: **`{\"paths\":[...]}`** with at least one path as **GET .../changes** lists them, or **`{\"all\":true}`**; an empty, malformed or ambiguous body (both keys, an empty or null list, an unknown key, anything after the object) is **400** and nothing is discarded. **`all`** also clears index entries that differ from **`HEAD`** where the disk does not. " +
+						"For one path, pass its **revision** to reject only the reviewed contents. A different revision or a path outside the current review set yields **409** and nothing of the request is applied. A folder with no supported working copy is **400**. " +
+						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the discard holds the session turn lock. " +
+						"A **`session_changes`** event is published on **`GET /foxxycode/events`** so every watcher of the session reads its working copy again.",
+					"operationId": "foxxycodeSessionChangesRevert",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"minItems":    1,
+											"description": "Files to discard, relative to the session's folder. Not with `all`.",
+										},
+										"revision": map[string]string{
+											"type": "string", "description": "Optional revision from the reviewed file. Requires exactly one path.",
+										},
+										"all": map[string]interface{}{
+											"type":        "boolean",
+											"description": "Discard every change git reports for the folder.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Changes discarded",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"at":        map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/rewind/undo": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Undo the last rewind of the session",
@@ -2539,7 +2729,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"foxxycode.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the FoxxyCode server process that owns the wait; clients re-read **GET /foxxycode/sessions** or **GET /foxxycode/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"foxxycode.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the FoxxyCode server process that owns the wait; clients re-read **GET /foxxycode/sessions** or **GET /foxxycode/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"foxxycode.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /foxxycode/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /foxxycode/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"foxxycode.session_changes\", sessionId, at}`**) after **POST /foxxycode/sessions/{id}/changes/revert** discarded changes of the session's folder, so every Edits view of the session reads **GET /foxxycode/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"foxxycode.session_rewound\", sessionId, messagesRev}`**) after a **POST /foxxycode/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"foxxycode.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /foxxycode/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"foxxycode.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /foxxycode/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /foxxycode/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"foxxycode.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /foxxycode/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -5097,6 +5287,7 @@ func openAPISpec() map[string]interface{} {
 	}
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
+	mergeWorkspaceViewerOpenAPI(doc)
 	return doc
 }
 
@@ -5133,6 +5324,48 @@ func errorResponseRef() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"$ref": "#/components/schemas/ErrorEnvelope",
 				},
+			},
+		},
+	}
+}
+
+// sessionChangeFileSchema describes one file in a session change set. Patch,
+// before and after are absent unless the caller asked for them via `include`.
+func sessionChangeFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]string{
+				"type":        "string",
+				"description": "Workspace-relative path.",
+			},
+			"status": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"added", "modified", "deleted"},
+				"description": "How the working copy differs from HEAD: added (HEAD does not hold it), modified, or deleted.",
+			},
+			"additions": map[string]string{"type": "integer"},
+			"deletions": map[string]string{"type": "integer"},
+			"binary": map[string]string{
+				"type":        "boolean",
+				"description": "No line diff exists; additions, deletions and patch are empty.",
+			},
+			"revision": map[string]string{"type": "string", "description": "Opaque revision of both raw file snapshots."},
+			"truncated": map[string]string{
+				"type":        "boolean",
+				"description": "The patch was cut short at 256 KB; the line counts still cover the whole file.",
+			},
+			"patch": map[string]string{
+				"type":        "string",
+				"description": "Unified diff. Present with include=patch.",
+			},
+			"before": map[string]string{
+				"type":        "string",
+				"description": "Decoded content at HEAD. Present with include=content.",
+			},
+			"after": map[string]string{
+				"type":        "string",
+				"description": "Decoded content in the working copy. Present with include=content.",
 			},
 		},
 	}

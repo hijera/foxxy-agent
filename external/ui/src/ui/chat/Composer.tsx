@@ -9,9 +9,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
-import { WorkspaceChips } from "./WorkspaceChips";
+import { WorkspaceBar } from "./WorkspaceBar";
+import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -94,7 +96,6 @@ import {
   shouldShowLlmFilter,
 } from "./llmModelMenu";
 import { fileTypeIcon } from "../messages/fileTypeIcon";
-import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import {
   getSendMode,
@@ -308,8 +309,17 @@ export type QueueMode = "steer" | "after_turn";
  * list is published to every client on every change of the queue. The bytes
  * come back only to the client that takes the message back.
  */
-export type QueuedImage = { name?: string; mimeType?: string; sizeBytes?: number };
-export type QueuedMessage = { id: string; text: string; mode?: QueueMode; imageParts?: QueuedImage[] };
+export type QueuedImage = {
+  name?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+};
+export type QueuedMessage = {
+  id: string;
+  text: string;
+  mode?: QueueMode;
+  imageParts?: QueuedImage[];
+};
 
 /** The mode a queued message goes in when Tab sends it instead of Enter. */
 export function oppositeQueueMode(mode: QueueMode): QueueMode {
@@ -342,6 +352,14 @@ type PickerFloatRect = {
  * a menu opens so its items are not clipped by the viewport edge.
  */
 const MENU_HEIGHT_ESTIMATE = 260;
+
+// Outline treatment per session mode (styles.css .composer-tab.mode-*); anything
+// unknown falls back to the agent look.
+const MODE_TAB_CLASS: Record<string, string> = {
+  agent: "mode-agent",
+  plan: "mode-plan",
+  ask: "mode-ask",
+};
 
 /**
  * pickMenuDir chooses whether an anchored composer menu opens downward or upward
@@ -420,7 +438,9 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
-  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  compactionSettings?:
+    | { enabled: boolean; autoEnabled: boolean; threshold: number }
+    | undefined;
   onContextCompacted?: (() => void) | undefined;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
@@ -478,6 +498,10 @@ export function Composer(props: {
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
+  /** A plate joined to the top edge of the card (the plate of a running chat,
+   *  naming where it works): under the queue and the banners, flush with the
+   *  card. Without one, a chat that has not started gets the plate of picks. */
+  cardTop?: ReactNode;
 }) {
   const { t, tp } = useT();
   const [attachHint, setAttachHint] = useState("");
@@ -500,6 +524,7 @@ export function Composer(props: {
   const llmChipRef = useRef<HTMLButtonElement | null>(null);
   const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
+  const [dragOverCard, setDragOverCard] = useState(false);
   const pastedSeqRef = useRef({ n: 0 });
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | "permission" | null>(
     null,
@@ -546,7 +571,9 @@ export function Composer(props: {
    * key it was sent with is remembered: a message sent with Tab still goes in
    * the other mode once the answer is in, as it does in the console.
    */
-  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(null);
+  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(
+    null,
+  );
   /**
    * Whether the first-use question is already answered. A double click on one
    * of its two buttons would otherwise queue the draft twice: the draft is
@@ -815,7 +842,10 @@ export function Composer(props: {
     if (argDraft.kind === "flag") {
       return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
     }
-    return filterLlmModels(orderLlmModels(props.llmModels ?? []), argDraft.prefix);
+    return filterLlmModels(
+      orderLlmModels(props.llmModels ?? []),
+      argDraft.prefix,
+    );
   }, [argDraft, props.llmModels]);
   const argOpen =
     argDraft.open &&
@@ -1712,7 +1742,7 @@ export function Composer(props: {
       return;
     }
     const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
-    inner.style.paddingRight = `${16 + sw}px`;
+    inner.style.paddingRight = `${44 + sw}px`;
     inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
     setComposerScrollTop(ta.scrollTop);
   }, []);
@@ -1762,7 +1792,8 @@ export function Composer(props: {
       case "reasoning":
       case "effort":
         return reasoningChipRef.current
-          ? () => toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
+          ? () =>
+              toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
           : null;
       case "permissions":
         return props.onPermissionModeChange && permissionChipRef.current
@@ -2632,9 +2663,7 @@ export function Composer(props: {
                   onClick={() => applyAtChoice(row)}
                 >
                   <span className="slash-row-line">
-                    <span
-                      className={`mention-kind mention-kind--${row.kind}`}
-                    >
+                    <span className={`mention-kind mention-kind--${row.kind}`}>
                       {mentionKindLabel(row.kind)}
                     </span>
                     <span className="slash-row-name">
@@ -2831,6 +2860,52 @@ export function Composer(props: {
         : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
+  // The plate over the card: the one a running chat hands in (cardTop), or,
+  // before the chat starts, the folder, branch and worktree as picks on it.
+  const plate: ReactNode = props.cardTop ?? (
+    props.workspaceCtx && props.onWorkspacePickFolder && !props.workspaceLocked ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        pick={{
+          worktreePref: props.worktreePref ?? false,
+          onPickFolder: props.onWorkspacePickFolder,
+          svnFolderPref: props.svnFolderPref ?? false,
+          onPickSvnBranch: props.onWorkspacePickSvnBranch ?? (() => {}),
+          onSvnFolderToggle: props.onSvnFolderToggle ?? (() => {}),
+          onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+          onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+          opensUp: !props.isEmpty,
+        }}
+      />
+    ) : null
+  );
+
+  const enhanceButton = (
+    <button
+              type="button"
+              className="composer-enhance-btn"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
+              data-testid="composer-enhance-btn"
+              disabled={enhancing || props.generating || idleSendDisabled}
+              onClick={() => void enhancePrompt()}
+            >
+              <svg
+                className={
+                  enhancing
+                    ? "composer-enhance-icon is-spinning"
+                    : "composer-enhance-icon"
+                }
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                width="12"
+                height="12"
+                aria-hidden="true"
+              >
+                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+              </svg>
+            </button>
+  );
   return (
     <>
       <footer
@@ -2875,10 +2950,21 @@ export function Composer(props: {
                   type="button"
                   className="composer-queue-mode"
                   data-testid={`composer-queue-mode-${q.id}`}
-                  title={q.mode === "after_turn" ? t("composer.queueModeAfterTurnTitle") : t("composer.queueModeSteerTitle")}
-                  onClick={() => props.onSetQueuedMode?.(q.id, oppositeQueueMode(q.mode ?? "steer"))}
+                  title={
+                    q.mode === "after_turn"
+                      ? t("composer.queueModeAfterTurnTitle")
+                      : t("composer.queueModeSteerTitle")
+                  }
+                  onClick={() =>
+                    props.onSetQueuedMode?.(
+                      q.id,
+                      oppositeQueueMode(q.mode ?? "steer"),
+                    )
+                  }
                 >
-                  {q.mode === "after_turn" ? t("composer.queueModeAfterTurn") : t("composer.queueModeSteer")}
+                  {q.mode === "after_turn"
+                    ? t("composer.queueModeAfterTurn")
+                    : t("composer.queueModeSteer")}
                 </button>
                 <button
                   type="button"
@@ -2982,47 +3068,53 @@ export function Composer(props: {
             </button>
           </div>
         ) : null}
-        <div className="composer-card" ref={composerCardRef}>
-          <div className="composer-context-row">
-            <div className="composer-context-scroll">
-            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-              <WorkspaceChips
-                context={props.workspaceCtx ?? null}
-                worktreePref={props.worktreePref ?? false}
-                svnFolderPref={props.svnFolderPref ?? false}
-                onPickFolder={props.onWorkspacePickFolder}
-                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                onPickSvnBranch={props.onWorkspacePickSvnBranch ?? (() => {})}
-                onSvnFolderToggle={props.onSvnFolderToggle ?? (() => {})}
-                opensUp={!props.isEmpty}
-                locked={props.workspaceLocked ?? false}
-              />
-            ) : null}
-            </div>
-            <button
-              type="button"
-              className="composer-enhance-btn"
-              aria-label={t("composer.enhance")}
-              title={t("composer.enhance")}
-              data-testid="composer-enhance-btn"
-              disabled={enhancing || props.generating || idleSendDisabled}
-              onClick={() => void enhancePrompt()}
+        {plate}
+        <div
+          className={[
+            "composer-card",
+            dragOverCard ? "composer-card--dragover" : "",
+            plate ? "composer-card--joined" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          ref={composerCardRef}
+          onDragOver={(ev) => {
+            const dt = ev.dataTransfer;
+            if (!dt || !Array.from(dt.types || []).includes("Files")) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(true);
+          }}
+          onDragLeave={(ev) => {
+            const to = ev.relatedTarget;
+            if (to instanceof Node && ev.currentTarget.contains(to)) {
+              return;
+            }
+            setDragOverCard(false);
+          }}
+          onDrop={(ev) => {
+            const files = ev.dataTransfer
+              ? Array.from(ev.dataTransfer.files || [])
+              : [];
+            if (files.length === 0) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(false);
+            if (!props.llmModelMultimodal) {
+              showAttachHint();
+              return;
+            }
+            setAttachedFiles((prev) => [...prev, ...files]);
+          }}
+        >
+          {(props.editingFiles && props.editingFiles.length > 0) ||
+          attachedFiles.length > 0 ? (
+            <div
+              className="composer-attachments"
+              aria-label={t("composer.attachedFilesAriaLabel")}
             >
-              <svg
-                className={enhancing ? "composer-enhance-icon is-spinning" : "composer-enhance-icon"}
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                width="12"
-                height="12"
-                aria-hidden="true"
-              >
-                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-              </svg>
-            </button>
-          </div>
-          {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (
-            <div className="composer-attachments" aria-label={t("composer.attachedFilesAriaLabel")}>
               {(props.editingFiles || []).map((f, idx) => {
                 const { svg } = fileTypeIcon(f.mimeType, f.name);
                 return (
@@ -3068,15 +3160,13 @@ export function Composer(props: {
               {attachHint}
             </p>
           ) : null}
-          <div
-            className={
-              dropActive
-                ? "composer-field-wrap composer-drop-active"
-                : "composer-field-wrap"
-            }
-            ref={composerFieldWrapRef}
-          >
-            <div className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}>
+          <div className="composer-field-wrap" ref={composerFieldWrapRef}>
+            {/* The wand stands in the field's top right corner, so the field
+                starts at the top of the card; the text keeps clear of it. */}
+            {enhanceButton}
+            <div
+              className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
+            >
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
                   <div
@@ -3368,7 +3458,12 @@ export function Composer(props: {
                     !ev.metaKey
                   ) {
                     ev.preventDefault();
-                    queueDraft(props.queueMode ? oppositeQueueMode(props.queueMode) : undefined, true);
+                    queueDraft(
+                      props.queueMode
+                        ? oppositeQueueMode(props.queueMode)
+                        : undefined,
+                      true,
+                    );
                     return;
                   }
                   const enterAction = composerEnterAction(

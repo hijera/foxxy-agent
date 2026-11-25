@@ -23,7 +23,7 @@
   overflow: auto;
   border-radius: var(--foxxycode-glass-panel-radius, 16px);
   box-shadow: var(--foxxycode-glass-panel-shadow);
-  background: var(--foxxycode-surface-elevated, var(--surface));
+  background: var(--foxxycode-surface-elevated);
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   padding: 24px;
 }
@@ -240,7 +240,7 @@
   max-width: calc(100vw - 24px);
   border-radius: var(--foxxycode-glass-panel-radius, 14px);
   box-shadow: var(--foxxycode-glass-panel-shadow, 0 12px 32px rgba(0, 0, 0, 0.35));
-  background: var(--foxxycode-surface-elevated, var(--surface));
+  background: var(--foxxycode-surface-elevated);
   border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
   padding: 16px;
   pointer-events: auto;

@@ -140,23 +140,15 @@ describe("phone composer", () => {
     expectDecl(llm, "max-width", /\S/);
   });
 
-  test("the context chips are one sideways-scrolling strip and do not squeeze", () => {
-    expectDecl(declarations(phone, ".composer-context-row"), "flex-wrap", /^nowrap$/);
-    const strip = declarations(phone, ".composer-context-scroll");
-    expectDecl(strip, "display", /^flex$/);
-    expectDecl(strip, "flex", /^1 1 auto$/);
-    expectDecl(strip, "min-width", /^0$/);
-    expectDecl(strip, "overflow-x", /^auto$/);
-    expectDecl(strip, "scrollbar-width", /^none$/);
-    expectDecl(declarations(phone, ".composer-context-chips > *"), "flex-shrink", /^0$/);
-  });
-
-  test("on a wide shell the strip is not a box at all, so the row wraps as before", () => {
-    expectDecl(declarations(topLevel, ".composer-context-scroll"), "display", /^contents$/);
-  });
-
-  test("the enhance button is no longer pulled out of the row on a phone", () => {
-    expect(declarations(phone, ".composer-enhance-btn")).not.toMatch(/position\s*:\s*absolute/);
+  // A finger needs a target of its own: on a phone and on any touch screen the
+  // picks of the plate are tall.
+  test("the plate's picks are finger-sized on a touch screen or a phone", () => {
+    const touch = mediaBlocks(
+      new RegExp(`^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\),\\s*\\(any-hover:\\s*none\\)\\s*and\\s*\\(any-pointer:\\s*coarse\\)\\s*$`),
+    );
+    for (const sel of [".workspace-bar-pick", ".workspace-bar-check"]) {
+      expectDecl(declarations(touch, sel), "min-height", /^(3[4-9]|4\d)px$/);
+    }
   });
 });
 

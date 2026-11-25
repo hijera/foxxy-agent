@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -8,121 +8,131 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { EnvironmentChip } from "./EnvironmentChip";
+import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
+
 import { initLocale, setLocale } from "../i18n/i18n";
 
-// The chip reads the local config for configured remotes; an empty answer keeps the menu at
-// "Local" + the add form, which is the state this test is about.
-function stubConfigFetch() {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => ({}),
-    })) as unknown as typeof fetch,
-  );
-}
-
-beforeEach(() => {
-  stubConfigFetch();
+beforeEach(async () => {
   initLocale("en");
+  await setLocale("en");
 });
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  setLocale("en");
-});
+const Switcher = () => <EnvironmentSwitcher className="rail-hit" wide={false} />;
 
-describe("EnvironmentChip", () => {
-  it("renders the menu in English by default", () => {
-    render(<EnvironmentChip />);
-    fireEvent.click(screen.getByTestId("composer-env-btn"));
-    const menu = screen.getByTestId("composer-env-menu");
-    expect(menu.textContent).toContain("Local (this origin)");
-    expect(menu.textContent).toContain("Connect to…");
+// The item stands at the foot of the desktop rail: its menu opens beside the
+// rail, its foot level with the item's, and grows upward into the room above.
+describe("EnvironmentSwitcher menu direction", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({ ok: true, status: 200, json: async () => ({}) }) as Response,
+      ),
+    );
   });
 
-  it("renders the chip and menu in Russian", () => {
-    setLocale("ru");
-    render(<EnvironmentChip />);
-    const btn = screen.getByTestId("composer-env-btn");
-    expect(btn.getAttribute("aria-label")).toBe("Окружение");
-    expect(btn.textContent).toContain("Локальное");
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
+  const rect = (top: number, left = 12, width = 40): DOMRect =>
+    ({
+      left,
+      top,
+      bottom: top + 40,
+      right: left + width,
+      width,
+      height: 40,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  it("opens beside the rail from the foot of it, growing upward", async () => {
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    const top = window.innerHeight - 60;
+    btn.getBoundingClientRect = () => rect(top);
     fireEvent.click(btn);
-    const menu = screen.getByTestId("composer-env-menu");
-    expect(menu.textContent).toContain("Локальное (этот origin)");
-    expect(menu.textContent).toContain("Подключиться к…");
-    // No English leaks left in the menu (the tail this change closes).
-    expect(menu.textContent).not.toContain("Local (this origin)");
-    expect(menu.textContent).not.toContain("Add remote");
+    const menu = await screen.findByTestId("env-menu");
+    expect(menu).toHaveClass("opens-right");
+    expect(menu).toHaveClass("opens-up");
+    expect(menu.style.left).toBe("62px");
+    expect(menu.style.bottom).toBe("20px");
+    expect(menu.style.top).toBe("");
+    expect(parseFloat(menu.style.maxHeight)).toBe(top + 40 - 12);
   });
 
-  // The menu opens from a click, so the focus stays on the chip: Escape has
+  // The menu opens from a click, so the focus stays on the item: Escape has
   // to reach the menu from there too.
-  it("closes on Escape with the focus still on the chip", async () => {
-    render(<EnvironmentChip />);
-    const btn = screen.getByTestId("composer-env-btn");
-    btn.getBoundingClientRect = () => new DOMRect(0, 0, 100, 48);
+  it("closes on Escape with the focus still on the item", async () => {
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    btn.getBoundingClientRect = () => rect(window.innerHeight - 60);
     fireEvent.click(btn);
-    await screen.findByTestId("composer-env-menu");
+    await screen.findByTestId("env-menu");
     expect(fireEvent.keyDown(btn, { key: "Escape" })).toBe(false);
-    expect(screen.queryByTestId("composer-env-menu")).toBeNull();
+    expect(screen.queryByTestId("env-menu")).toBeNull();
   });
 
-  // In the swarm header of a relay the chip is the last thing on the right, so
-  // a menu hung from its left edge ran past the window at 1280 px.
-  it("stays inside the window when the chip is near the right edge", async () => {
-    render(<EnvironmentChip />);
-    const btn = screen.getByTestId("composer-env-btn");
-    const right = window.innerWidth - 80;
-    btn.getBoundingClientRect = () =>
-      new DOMRect(right - 76, 0, 76, 48);
+  it("stays inside the window when the item is near the right edge", async () => {
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    btn.getBoundingClientRect = () => rect(window.innerHeight - 60, window.innerWidth - 60);
     fireEvent.click(btn);
-    const menu = await screen.findByTestId("composer-env-menu");
+    const menu = await screen.findByTestId("env-menu");
     const width = Math.min(300, window.innerWidth - 24);
     const left = parseFloat(menu.style.left);
     expect(left + width).toBeLessThanOrEqual(window.innerWidth - 12);
     expect(left).toBeGreaterThanOrEqual(12);
   });
 
-  // A menu that opens downward carries only the downward class: with both
-  // classes the CSS sets top and bottom on the fixed menu, and its height
-  // collapses to zero.
-  it("opens downward and upward with one direction class each", async () => {
-    render(<EnvironmentChip />);
-    const btn = screen.getByTestId("composer-env-btn");
+  it("hangs from the item's top when the item is in the upper half of the window", async () => {
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    btn.getBoundingClientRect = () => rect(48);
+    fireEvent.click(btn);
+    const menu = await screen.findByTestId("env-menu");
+    expect(menu).toHaveClass("opens-down");
+    expect(menu.style.top).toBe("48px");
+    expect(menu.style.bottom).toBe("");
+  });
+});
 
-    btn.getBoundingClientRect = () => new DOMRect(0, 0, 100, 48);
-    fireEvent.click(btn);
-    const down = await screen.findByTestId("composer-env-menu");
-    expect(down.classList.contains("opens-down")).toBe(true);
-    expect(down.classList.contains("opens-up")).toBe(false);
-    fireEvent.click(btn);
-
-    btn.getBoundingClientRect = () =>
-      new DOMRect(0, window.innerHeight - 60, 100, 48);
-    fireEvent.click(btn);
-    const up = await screen.findByTestId("composer-env-menu");
-    expect(up.classList.contains("opens-up")).toBe(true);
-    expect(up.classList.contains("opens-down")).toBe(false);
+// The icon says where the page works: a laptop for this browser's own server,
+// two chevrons for another host, with the host's dot on it.
+describe("EnvironmentSwitcher icon", () => {
+  afterEach(() => {
+    cleanup();
+    setEnv({ mode: "local" });
   });
 
-  it("localizes the add-remote form without changing its test ids", () => {
-    setLocale("ru");
-    render(<EnvironmentChip />);
-    fireEvent.click(screen.getByTestId("composer-env-btn"));
-    fireEvent.click(screen.getByTestId("composer-env-add"));
+  it("is the laptop with a green dot on the local server", () => {
+    setEnv({ mode: "local" });
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    expect(btn.getAttribute("data-env")).toBe("local");
+    expect(btn.querySelector(".rail-env-status")?.getAttribute("data-state")).toBe("local");
+    expect(btn.getAttribute("aria-label")).toBe("Environment: Local");
+    expect(btn.parentElement?.querySelector(".rail-tip")?.textContent).toBe("Environment: Local");
+  });
 
-    const menu = screen.getByTestId("composer-env-menu");
-    expect(menu.textContent).toContain("Подключиться к серверу");
-    expect(menu.textContent).toContain("Подключиться");
-    expect(menu.textContent).toContain("Отмена");
-    // The URL field keeps its literal example: the same syntax in every locale.
-    expect(
-      screen.getByTestId("composer-env-add-url").getAttribute("placeholder"),
-    ).toBe("https://box.example:12345");
+  it("is the two chevrons on a remote host, named in the tooltip", () => {
+    setEnv({ mode: "remote", baseUrl: "http://box.lan:12345", token: "", name: "box" });
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
+    expect(btn.getAttribute("data-env")).toBe("remote");
+    expect(btn.getAttribute("aria-label")).toBe("Environment: box");
+    const paths = Array.from(btn.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+    expect(paths).toEqual(["M4 5l6 5-6 5", "M20 9l-6 5 6 5"]);
+  });
+
+  it("names the environment beside the icon on the wide rail", () => {
+    setEnv({ mode: "local" });
+    render(<EnvironmentSwitcher className="rail-hit" wide={true} />);
+    expect(screen.getByTestId("nav-environment").textContent).toBe("Local");
   });
 });
 
@@ -224,11 +234,11 @@ function remoteRow(name: string): HTMLElement {
 }
 
 async function openEnvMenu() {
-  fireEvent.click(screen.getByTestId("composer-env-btn"));
-  return screen.findByTestId("composer-env-menu");
+  fireEvent.click(screen.getByTestId("nav-environment"));
+  return screen.findByTestId("env-menu");
 }
 
-describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
+describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
   const realLocation = window.location;
   beforeEach(() => {
     localStorage.clear();
@@ -248,7 +258,7 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
   it("shows a relay that accepts the saved token as reachable", async () => {
     localStorage.setItem("foxxycode_env_tokens", JSON.stringify({ [RELAY]: "client" }));
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     await openEnvMenu();
     await waitFor(() =>
       expect(
@@ -259,21 +269,21 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
 
   it("says a relay without a token needs one and offers to enter it", async () => {
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     const menu = await openEnvMenu();
     await within(menu).findByText(/swarm\.auth_token/);
     expect(
       remoteRow("office-relay").querySelector(".env-status")?.getAttribute("data-state"),
     ).toBe("down");
     fireEvent.click(within(menu).getByRole("button", { name: /token/i }));
-    expect(screen.getByTestId("composer-env-add-url")).toHaveValue(RELAY);
+    expect(screen.getByTestId("env-add-url")).toHaveValue(RELAY);
   });
 
   // With swarm.cors off the browser gets no answer at all, which used to look
   // exactly like a machine that is off.
   it("names the CORS setting and this page's origin when the browser is kept from the answer", async () => {
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }], cors: false });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     const menu = await openEnvMenu();
     const hint = await within(menu).findByText(/swarm\.cors/);
     expect(hint.textContent).toContain(window.location.origin);
@@ -286,7 +296,7 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
       remotes: [{ name: "office-relay", url: RELAY, token: "from-config" }],
       relayToken: "from-config",
     });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     await openEnvMenu();
     await waitFor(() =>
       expect(
@@ -304,7 +314,7 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
     stubLocation();
     localStorage.setItem("foxxycode_env_tokens", JSON.stringify({ [RELAY]: "client" }));
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     const menu = await openEnvMenu();
     const node = await within(menu).findByRole("menuitem", { name: /worker-a/ });
     expect(within(menu).getByRole("menuitem", { name: /worker-b/ })).toBeTruthy();
@@ -339,7 +349,7 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
       }
       return relayNet(url, init);
     };
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     const menu = await openEnvMenu();
     await within(menu).findByRole("menuitem", { name: /^office/ });
     const agent = await within(menu).findByRole("menuitem", { name: /^gpu-box/ });
@@ -358,12 +368,12 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
   // the composer happened to mount again.
   it("reads the configured remotes again when the menu opens", async () => {
     network = fleet({ remotes: [] });
-    render(<EnvironmentChip />);
+    render(<Switcher />);
     const first = await openEnvMenu();
     await waitFor(() =>
       expect(within(first).queryByRole("menuitem", { name: /office-relay/ })).toBeNull(),
     );
-    fireEvent.click(screen.getByTestId("composer-env-btn"));
+    fireEvent.click(screen.getByTestId("nav-environment"));
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
     const second = await openEnvMenu();
     expect(
@@ -373,19 +383,19 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
 });
 
 // With a relay's agents and the hints under remotes that cannot be reached the
-// menu outgrew the window from the start screen and hid "Connect to...".
-describe("EnvironmentChip menu height", () => {
+// menu outgrew the window and hid "Connect to...".
+describe("EnvironmentSwitcher menu height", () => {
   afterEach(() => cleanup());
 
-  it("takes the room between the chip and the window's edge, and scrolls past it", async () => {
+  it("takes the room between the item and the window's edge, and scrolls past it", async () => {
     network = () => new TypeError("offline");
-    render(<EnvironmentChip />);
-    const btn = screen.getByTestId("composer-env-btn");
+    render(<Switcher />);
+    const btn = screen.getByTestId("nav-environment");
     btn.getBoundingClientRect = () =>
       ({ left: 40, top: 300, bottom: 328, right: 160, width: 120, height: 28, x: 40, y: 300, toJSON: () => ({}) }) as DOMRect;
     fireEvent.click(btn);
-    const menu = await screen.findByTestId("composer-env-menu");
+    const menu = await screen.findByTestId("env-menu");
     expect(menu).toHaveClass("opens-down");
-    expect(parseFloat(menu.style.maxHeight)).toBe(window.innerHeight - 328 - 8 - 12);
+    expect(parseFloat(menu.style.maxHeight)).toBe(window.innerHeight - 300 - 12);
   });
 });

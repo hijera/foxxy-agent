@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
@@ -20,6 +21,7 @@ import {
 afterEach(() => {
   cleanup();
   setSendMode(DEFAULT_SEND_MODE);
+  localStorage.removeItem("foxxycode.chat-layout");
   delete document.documentElement.dataset.embed;
 });
 
@@ -482,6 +484,36 @@ test("composer highlights only the active slash draft at caret", () => {
   expect(chip).toHaveTextContent("/find-skil");
 });
 
+test("composer mirror keeps the prompt inset when a pasted draft gets a scrollbar", () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  Object.defineProperty(ta, "offsetWidth", { configurable: true, value: 720 });
+  Object.defineProperty(ta, "clientWidth", { configurable: true, value: 705 });
+  fireEvent.change(ta, {
+    target: {
+      value: '[{"title":"Текущие остатки на счетах","url":"/reportserver?report_name=acc_prepay"}]',
+    },
+  });
+
+  const mirror = document.querySelector(".composer-mirror-inner") as HTMLElement;
+  expect(mirror.style.paddingRight).toBe("59px");
+});
+
 test("no slash chip and no menu after API returns zero commands for prefix", async () => {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
@@ -935,7 +967,9 @@ function stubMatchMediaMobile(isMobile: boolean) {
   }));
 }
 
-test("desktop: Ctrl+Enter calls onSend", () => {
+// The card holds the field and the bar, nothing above the field: the wand
+// stands in the field's top right corner, so the placeholder starts at the top.
+test("the improve-prompt button stands in the field's corner and the card has no chip row", () => {
   stubMatchMediaMobile(false);
   setSendMode("ctrl_enter");
   const onSend = vi.fn();
@@ -950,30 +984,89 @@ test("desktop: Ctrl+Enter calls onSend", () => {
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
-  expect(onSend).toHaveBeenCalledTimes(1);
-  expect(onSend).toHaveBeenCalledWith("hello");
+  const button = screen.getByTestId("composer-enhance-btn");
+  expect(button).toHaveAttribute("title", "Enhance prompt");
+  expect(button.parentElement).toHaveClass("composer-field-wrap");
+  expect(button.closest(".composer-bar")).toBeNull();
+  expect(document.querySelector(".composer-context-row")).toBeNull();
+  // The environment is an item of the nav rail, not a chip of the composer.
+  expect(screen.queryByTestId("nav-environment")).toBeNull();
   vi.unstubAllGlobals();
 });
 
-test("desktop: Shift+Enter does not call onSend", () => {
+const pickCtx = {
+  path: "/w/demo",
+  name: "demo",
+  is_git_repo: true,
+  is_worktree: false,
+  repo_root: "/w/demo",
+  branch: "main",
+  branches: ["main", "feat/x"],
+};
+
+// Before the chat starts, where it will work is still a choice: the plate over
+// the card offers the folder and the branch as picks and the worktree as a
+// checkbox. Git's count waits for a session.
+test("before a chat starts the folder, branch and worktree are picks on the plate over the card", () => {
   stubMatchMediaMobile(false);
-  const onSend = vi.fn();
+  const onWorkspacePickBranch = vi.fn();
   render(
     <Composer
-      value="hello"
-      isEmpty={false}
+      value=""
+      isEmpty={true}
       mode="agent"
       modes={["agent", "plan"]}
       onModeChange={() => {}}
       onChange={() => {}}
-      onSend={onSend}
+      onSend={() => {}}
+      workspaceCtx={pickCtx}
+      onWorkspacePickFolder={() => {}}
+      onWorkspacePickBranch={onWorkspacePickBranch}
+      onWorktreeToggle={() => {}}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", shiftKey: true });
-  expect(onSend).not.toHaveBeenCalled();
+  const plate = screen.getByTestId("workspace-bar");
+  expect(plate).toHaveClass("workspace-bar--pick");
+  const card = document.querySelector(".composer-card")!;
+  expect(plate.nextElementSibling).toBe(card);
+  expect(card).toHaveClass("composer-card--joined");
+  const folder = within(plate).getByTestId("composer-workspace-chip");
+  expect(folder.tagName).toBe("BUTTON");
+  expect(folder.textContent).toBe("demo");
+  const branch = within(plate).getByTestId("composer-branch-chip");
+  expect(branch.textContent).toBe("main");
+  expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
+  fireEvent.click(branch);
+  fireEvent.click(screen.getByTestId("workspace-branch-row-feat/x"));
+  expect(onWorkspacePickBranch).toHaveBeenCalledWith("feat/x", false);
+  vi.unstubAllGlobals();
+});
+
+// The worktree choice is the browser's for every folder, but a folder with no
+// git index has no branch to switch: the plate offers the folder alone, even
+// with the worktree checkbox switched on.
+test("a folder in no repository: the plate offers the folder alone", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      worktreePref={true}
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      workspaceCtx={{ path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false }}
+      onWorkspacePickFolder={() => {}}
+    />,
+  );
+  const plate = screen.getByTestId("workspace-bar");
+  expect(within(plate).getByTestId("composer-workspace-chip").textContent).toBe("plain");
+  expect(within(plate).queryByTestId("composer-branch-chip")).toBeNull();
+  expect(within(plate).queryByTestId("composer-worktree-checkbox")).toBeNull();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
   vi.unstubAllGlobals();
 });
 
@@ -1564,26 +1657,6 @@ test("in the VS Code embed the page resolves the drop itself", async () => {
     expect.objectContaining({ method: "POST" }),
   );
   vi.unstubAllGlobals();
-});
-
-test("enhance button shares the composer context row with workspace controls", () => {
-  render(
-    <Composer
-      value="fix memory thing"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-
-  const button = screen.getByTestId("composer-enhance-btn");
-  expect(button).toHaveAttribute("title", "Enhance prompt");
-  expect(button.closest(".composer-context-row")).not.toBeNull();
-  expect(button.closest(".composer-field-wrap")).toBeNull();
-  expect(button.closest(".composer-bar")).toBeNull();
 });
 
 // --- @path:N-M line-range picker ---
@@ -2903,4 +2976,24 @@ describe("cwd-scoped requests follow the chat workspace", () => {
     );
     vi.unstubAllGlobals();
   });
+});
+
+test("a saved classic preference opens the current layout", () => {
+  localStorage.setItem("foxxycode.chat-layout", "classic");
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={vi.fn()}
+      onChange={vi.fn()}
+      onSend={vi.fn()}
+      workspaceCtx={pickCtx}
+      onWorkspacePickFolder={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByTestId("composer-enhance-btn").closest(".composer-field-wrap")).toBeTruthy();
+  expect(screen.getByTestId("workspace-bar")).toContainElement(screen.getByTestId("composer-workspace-chip"));
 });

@@ -33,12 +33,6 @@ test("IME confirmation does not send", () => {
   const {onSend, ta} = mount(false, false);
   fireEvent.keyDown(ta, {key:"Enter", isComposing:true}); expect(onSend).not.toHaveBeenCalled();
 });
-test("the workspace strip keeps enhance outside its scrolling box", () => {
-  mount(true,true);
-  expect(document.querySelector(".composer-context-scroll")).not.toBeNull();
-  expect(document.querySelector(".composer-context-scroll .composer-enhance-btn")).toBeNull();
-});
-
 test("Shift+Enter leaves the newline to the browser and does not send", () => {
   const { onSend, ta } = mount(false, true);
   expect(fireEvent.keyDown(ta, { key: "Enter", shiftKey: true })).toBe(true);

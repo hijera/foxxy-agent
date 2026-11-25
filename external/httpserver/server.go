@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,9 +40,10 @@ var errInvalidSessionHeader = errors.New("invalid X-FoxxyCode-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	cfgAt atomic.Pointer[config.Config]
-	mgr   *session.Manager
-	log   *slog.Logger
+	workspaceMediaKey string
+	cfgAt             atomic.Pointer[config.Config]
+	mgr               *session.Manager
+	log               *slog.Logger
 	// logLevel backs the process logger's slog.LevelVar so PUT /foxxycode/config can
 	// flip verbosity at runtime (debug.enable forces debug level). Nil when the server
 	// was constructed by a caller that did not hand one in (tests).
@@ -191,6 +193,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		lv = logLevel[0]
 	}
 	s := &Server{
+		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
 		log:                  log,
 		logLevel:             lv,

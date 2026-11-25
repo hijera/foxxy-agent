@@ -14,15 +14,8 @@ export type SessionRowMenuItem = {
 };
 
 /**
- * What can be done to one conversation, behind the row's ⋮. The items that take
- * it out of the list stand together, apart from the one that only moves it.
- *
- * The row used to carry an icon per action, which cost the title a button's
- * width for each one and made a mis-click a delete. One control opens the list
- * instead, and the list has room for the words.
- *
- * It is rendered into the document rather than into the drawer: the drawer is
- * `overflow: hidden` and would cut the menu off at its edge.
+ * A row's actions behind its ⋮. The portal keeps the menu visible when the
+ * drawer or file header clips its contents.
  */
 export function SessionRowMenu(props: {
   open: boolean;
@@ -31,6 +24,8 @@ export function SessionRowMenu(props: {
   anchor: DOMRect | null;
   items: SessionRowMenuItem[];
   ariaLabel: string;
+  focusFirst?: boolean;
+  className?: string;
 }) {
   const { open, onClose } = props;
 
@@ -73,7 +68,7 @@ export function SessionRowMenu(props: {
         }}
       />
       <div
-        className="session-row-menu"
+        className={props.className ? `session-row-menu ${props.className}` : "session-row-menu"}
         role="menu"
         aria-label={props.ariaLabel}
         style={
@@ -87,10 +82,11 @@ export function SessionRowMenu(props: {
             : undefined
         }
       >
-        {props.items.map((item) => (
+        {props.items.map((item, index) => (
           <button
             key={item.key}
             type="button"
+            autoFocus={props.focusFirst && index === 0}
             className={`session-row-menu-item${item.startsGroup ? " starts-group" : ""}${item.danger ? " is-danger" : ""}`}
             role="menuitem"
             data-testid={item.testId}

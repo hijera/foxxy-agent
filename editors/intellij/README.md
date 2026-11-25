@@ -11,6 +11,9 @@ foxxycode SPA, so nothing is re-implemented natively.
 The `foxxycode` binary is **built from source and bundled with the plugin** — no download step. The Go
 source is the **repo root** (this plugin lives at `editors/intellij/`); there is no nested copy.
 
+In a local chat, open Edits from the Git or Subversion counts above the composer and select a text file to review it in the source editor. **Settings → Appearance → Show changes** can put a card of changed files below the transcript.
+
+
 ## How it works
 
 ```
@@ -112,6 +115,10 @@ The first time you open the **FoxxyCode** tool window, a multi-step welcome wiza
    shows the embedded UI.
 2. In the UI's **Settings**, set a provider API key (or define `OPENAI_API_KEY` in the environment
    before launching the IDE), then chat, schedule jobs, browse skills, use plan mode, etc.
+
+### Review changes in the editor
+
+Applied edits appear with native editor inlays above each changed block. The inlays use compact buttons with a checkmark for Accept and an undo arrow for Reject, tinted for the active editor color scheme. Hovering over a button highlights it and shows a hand cursor. **Accept** keeps the block and clears its review marker. **Reject** restores that block through a normal editor command, with Undo available. **Show diff** opens the full native comparison. A deleted file or a snapshot that differs from the editor opens directly in the comparison when selected in **Edits**. A proposed edit still asks for permission to run the tool.
 
 Reconfigure anytime in **Settings | Tools | FoxxyCode**: optional binary path override (leave empty to
 use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extra `foxxycode http` args, and **"Match

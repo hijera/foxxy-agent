@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { remoteApiRequest, snapshotEnv, subscribeEnv } from "./remoteEnv";
+import { acquireObjectUrl } from "../files/objectUrl";
 
 /**
  * apiImageRequest says how the bytes of an image the server named have to be
@@ -26,46 +27,33 @@ export function useApiImageSrc(url: string | undefined): string | undefined {
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const request = url ? apiImageRequest(url) : null;
   const target = request?.url ?? "";
-  const [loaded, setLoaded] = useState<{ target: string; src: string } | null>(null);
+  const [loaded, setLoaded] = useState<{ env: typeof env; target: string; src: string } | null>(null);
 
   useEffect(() => {
     if (!url || !target) return;
     const req = apiImageRequest(url);
     if (!req) return;
-    const abort = new AbortController();
-    let objectUrl: string | null = null;
+    const lease = acquireObjectUrl(url);
+    let cancelled = false;
     void (async () => {
       try {
         // The mapped request is absolute and passes the fetch shim untouched;
         // a relative base URL would be mapped by the shim a second time, so
         // that one goes as the plain path and is mapped there once.
-        const res = req.url.startsWith("/")
-          ? await fetch(url, { signal: abort.signal })
-          : await fetch(req.url, { ...req.init, signal: abort.signal });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        if (abort.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob);
-        setLoaded({ target: req.url, src: objectUrl });
+        const objectUrl = await lease.promise;
+        if (cancelled) return;
+        setLoaded({ env, target: req.url, src: objectUrl });
       } catch {
         // Aborted, or unreadable: the image stays without a src.
       }
     })();
     return () => {
-      abort.abort();
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-        // The URL just released must not be left in the state an <img> reads:
-        // a revoked blob URL renders broken, where this hook promises no src at
-        // all until a refetch arrives. The effect that revoked it is also the
-        // one whose env changed while the request target did not, so without
-        // this the same src is served over and over.
-        setLoaded((cur) => (cur && cur.src === objectUrl ? null : cur));
-      }
+      cancelled = true;
+      lease.release();
     };
   }, [url, target, env]);
 
   if (!url) return undefined;
   if (!request) return url;
-  return loaded?.target === target ? loaded.src : undefined;
+  return loaded?.env === env && loaded.target === target ? loaded.src : undefined;
 }

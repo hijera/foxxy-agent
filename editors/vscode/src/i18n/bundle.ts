@@ -74,12 +74,11 @@ const en = {
   // Native inline diffs
   "diff.notify.proposed.title": "FoxxyCode wants to edit {0}",
   "diff.notify.proposed.content": "Review the inline diff and accept or reject the change.",
-  "diff.notify.applied.title": "FoxxyCode edited {0}",
-  "diff.notify.applied.content": "The change was applied. You can revert it or open the full diff.",
+  "diff.notify.applied.title": "Changes in {0}",
   "diff.action.accept": "Accept",
   "diff.action.reject": "Reject",
+  "diff.review.stale": "This block changed. Open the diff again before rejecting it.",
   "diff.action.showDiff": "Show diff",
-  "diff.action.revert": "Revert",
   "diff.window.before": "Before",
   "diff.window.after": "After",
 };
@@ -142,12 +141,11 @@ const ru: Record<MessageKey, string> = {
 
   "diff.notify.proposed.title": "FoxxyCode хочет изменить {0}",
   "diff.notify.proposed.content": "Просмотрите inline-дифф и примите или отклоните изменение.",
-  "diff.notify.applied.title": "FoxxyCode изменил {0}",
-  "diff.notify.applied.content": "Изменение применено. Можно откатить или открыть полный дифф.",
+  "diff.notify.applied.title": "Изменения в {0}",
   "diff.action.accept": "Принять",
   "diff.action.reject": "Отклонить",
+  "diff.review.stale": "Блок изменился. Откройте дифф заново перед отклонением.",
   "diff.action.showDiff": "Показать дифф",
-  "diff.action.revert": "Откатить",
   "diff.window.before": "До",
   "diff.window.after": "После",
 };

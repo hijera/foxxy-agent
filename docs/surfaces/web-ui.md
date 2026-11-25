@@ -43,10 +43,59 @@ Short commands and their output form one continuous card without an extra surrou
 - **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
 - **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
 
-## Composer context row
+## Chat layout
 
-- **Wrapping**: the workspace chips wrap on wider windows. On phones they share one horizontally scrolling strip; the improve-prompt button stays outside it and remains reachable.
-- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of that row, next to the environment / folder / branch / worktree controls — not in the textarea or the lower composer bar. On a phone it stays at the end of the row, outside the horizontally scrolling chip strip. Its label is translated (**`composer.enhance`**), it is disabled for a blank draft and while a request or generation is active, calls **`POST /foxxycode/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and shows an inline error.
+The chat places the environment menu in the rail, **Background tasks** in the chat header, and the workspace bar above the composer. In the browser, the header also has **Files**. Before the first prompt, the workspace bar lets you pick the folder, branch, or worktree. During a chat, it names the workspace and branch and opens **Edits** from the working copy's line counts.
+
+![The chat header and workspace bar](../assets/chat-layout-modern-dark-1280.png)
+
+*The line counts on the workspace bar open Edits.*
+
+## Workspace files
+
+In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
+
+Text previews use the shared file-encoding detector. A short legacy-encoded file keeps its final non-ASCII characters; a UTF-8 character crossing the streaming sample boundary is read completely before detection.
+
+![Workspace tree and file previews in tabs](../assets/workspace-files-window-dark-1280.png)
+
+*Files shows the workspace tree beside the selected preview.*
+
+## The edits window
+
+Open **Edits** by clicking the additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. Both presentations show uncommitted changes from Git or Subversion, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the window and a file row opens its diff.
+
+By default, Edits opens at its regular size with all previews folded. **Settings → Appearance → Open Edits expanded** starts it at the larger size and loads the first file’s preview. The browser or editor panel remembers the choice. The window’s expand button changes its size for the current opening.
+
+![Edits before a file preview has been opened](../assets/session-edits-collapsed-dark-1280.png)
+
+*The regular opening shows file headers and line counts. Select a file to load its preview.*
+
+Selecting a file in the tree opens that file’s preview. Clicking a file heading folds or unfolds its diff. Previews load when opened. To open every preview explicitly, use **Expand all diffs** in the window menu. The file's **⋮** menu contains **Copy path**. In a local IntelliJ or VS Code panel, the same menu offers **Open in IDE** for text diffs. The action opens the source editor with **Accept** and **Reject** above each changed block without a notification. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview remains available for remote sessions and when the IDE cannot receive the request.
+
+Git uses HEAD and Subversion uses the working copy's local BASE revision. The nearest checkout takes precedence, with Git used when both share a root. Subversion review uses the configured client and covers file changes reported by local status. Directory operations, files inside entirely unversioned directories, replacements, conflicts, and externals stay outside the review and bulk discard scope.
+
+In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
+
+Text diffs normalize CRLF after decoding, so Windows line endings do not turn a one-line edit into a whole-file replacement. Binary snapshots and review revisions retain the original bytes: a changed CRLF byte pair inside a binary file remains a change, without a text patch.
+
+![Changed-files card below the transcript](../assets/session-changes-card-dark-1280.png)
+
+![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
+
+*The Edits window shows the diff and review actions for each file.*
+
+![Open in IDE and Copy path in the Edits file menu](../assets/session-edits-file-menu-dark-1280.png)
+
+*The file menu offers the IDE handoff and path copying.*
+
+![The Open Edits expanded switch in Appearance](../assets/appearance-edits-start-expanded-dark-1280.png)
+
+*Enable Open Edits expanded to use the larger window and show the first preview on the next opening.*
+
+![Edits showing a Subversion working copy](../assets/session-changes-svn-dark-1280.png)
+
+*An SVN working copy uses the same per-file review controls.*
 
 ## Settings sections: General & Appearance
 
@@ -55,7 +104,7 @@ schema-derived config tabs:
 
 - **General** — composer **send mode** and the live **status line** toggle.
   The default tab.
-- **Appearance** — theme, the app-wide **Language** picker (see below), the
+- **Appearance** — theme, **Show changes**, the app-wide **Language** picker, the
   **Animations and translucency** switch, and the "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
@@ -331,7 +380,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ## Environment (local / remote server)
 
-- **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). The menu hangs from the chip's left edge and stays inside the window: in the swarm header of a relay the chip is the last control on the right. It is as tall as the room between the chip and the window's edge and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window.
+- **Environment menu.** Open the environment switcher from the rail. The menu lists Local, configured remotes and **Connect to…**.
 - **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step); there is no per-select token prompt. Between two remotes the app starts over on the new one in place, without reloading the page (**`EnvScope`**, **`onEnvironmentSwitch`**); to or from Local the page reloads. A **bearer token** comes from the remote's `httpserver.remotes` entry when it carries one, else it is entered in **`Connect to…`** (name / URL / token) and remembered per-remote in the browser. A remote that refuses its token and has none in the configuration offers **Enter token**, which opens that form filled in for it.
 - **Where each environment was left:** switching the environment starts the app over, so the route is remembered per environment (**`foxxycode_env_routes`**): back on Local the app opens the conversation Local was left in, a remote opens where it was left or at its home, and a relay's map never follows the app to a plain agent.
 - **Reachability dots:** each remote is probed on menu open (**`env/remoteProbe.ts`**) - **green** when it answers and accepts the token, **red** when it does not, **amber** while probing; **Local** is always green. A red remote says why on a line under it: it does not answer, it refuses the token (an agent's **`httpserver.auth_token`**, a relay's **`swarm.auth_token`**), or the browser keeps its answer from the page, which is how a CORS setting that leaves this origin out looks from a browser (the line names the origin and the two keys). An agent is asked for **`GET /v1/models`**; a relay, which serves no **`/v1`**, is recognised by its public **`GET /swarm/info`** and its token is checked on **`GET /swarm/nodes`**, and a no-CORS request tells a remote that answers from one that does not.
@@ -385,7 +434,7 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 Footer links
 
 - **Top bar.** The brand drops its second word and shows **FoxxyCode** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
-- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Workspace bar.** Folder and branch controls sit above the composer. The environment switcher sits in the top bar and the improve-prompt button sits in the text field.
 - **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
 - **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
 - **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
@@ -528,7 +577,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
-### Per-session workspace (folder / branch / worktree / svn chips)
+### Per-session workspace (folder / branch / worktree / svn)
 
 ![The Open folder dialog with New folder and Show hidden on the left of the footer](../assets/ui-folder-picker/folder-picker-after-dark-1280.png)
 
@@ -542,10 +591,10 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *The Open folder dialog on a phone, opened where History opens*
 
-- A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN chip** plus its **branch-folder checkbox**.
+- A workspace bar renders above the composer card (**`WorkspaceBar.tsx`**). Before the first prompt its picks (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**) offer the **folder** (workspace basename, full path in tooltip), **branch** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN branch** plus its **branch-folder checkbox**. Once the chat starts, the bar names the folder and branch instead, and its line counts open **Edits**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/foxxycode/slash-commands`**, **`/foxxycode/mentions`**, **`POST /foxxycode/mentions/check`**, **`/foxxycode/workspace/file`**) carries **`cwd=<folder>`** next to **`X-FoxxyCode-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.foxxycode/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder; Skills also sends it with marketplace sync, install and update, so those actions never fall back to the server default after a folder was picked.
-- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
+- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the picks give way to read-only folder and branch labels, and the server answers **409** to **`POST .../workspace`**; a turn already in flight answers **409** as well.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
 - **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
@@ -1182,7 +1231,7 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 - **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (an agent run shows **Show transcript** instead), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome, the exit code and the duration (`Failed · Exit code 2 · Duration 10s`; no exit code for an agent run: the pool's code for it is synthetic). Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
 - **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so a pointer naming a task on an early row of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is the **Tasks** control at the right edge of the sticky chat header (`chat-header-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-expanded`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- The **opener** is the **Tasks** control at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-pressed`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
 - On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
 - A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel, which the **Tasks** control in the chat header opens. Driven by the same poll.
 - The **open card** of an agent task shows a **Show transcript** button in place of a command (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
