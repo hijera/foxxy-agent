@@ -1742,7 +1742,7 @@ export function Composer(props: {
       return;
     }
     const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
-    inner.style.paddingRight = `${16 + sw}px`;
+    inner.style.paddingRight = `${44 + sw}px`;
     inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
     setComposerScrollTop(ta.scrollTop);
   }, []);

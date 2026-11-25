@@ -484,6 +484,36 @@ test("composer highlights only the active slash draft at caret", () => {
   expect(chip).toHaveTextContent("/find-skil");
 });
 
+test("composer mirror keeps the prompt inset when a pasted draft gets a scrollbar", () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  Object.defineProperty(ta, "offsetWidth", { configurable: true, value: 720 });
+  Object.defineProperty(ta, "clientWidth", { configurable: true, value: 705 });
+  fireEvent.change(ta, {
+    target: {
+      value: '[{"title":"Текущие остатки на счетах","url":"/reportserver?report_name=acc_prepay"}]',
+    },
+  });
+
+  const mirror = document.querySelector(".composer-mirror-inner") as HTMLElement;
+  expect(mirror.style.paddingRight).toBe("59px");
+});
+
 test("no slash chip and no menu after API returns zero commands for prefix", async () => {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
