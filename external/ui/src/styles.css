@@ -1632,8 +1632,8 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
 }
 
-/* The filter control sits in the search row - both narrow the list below - so
-   that row is what the menu hangs off. */
+/* The filter control sits in the search row - both narrow the list below. Its
+   menu is portaled out of the drawer and placed from the control's rectangle. */
 .sessions-search-row {
   position: relative;
 }
@@ -1777,9 +1777,36 @@ a.rail-brand {
   overflow-y: auto;
 }
 
-.sessions-filter-menu.opens-left .sessions-filter-submenu {
+.sessions-filter-submenu.opens-left {
   left: auto;
   right: calc(100% + 4px);
+}
+
+/* Neither side of the menu has the room - a phone, where the drawer is the
+   width of the screen and the trigger sits at its right edge - so the choices
+   fold out under their row, inside the menu, indented under the question they
+   answer. The menu scrolls as a whole rather than nest a second scroller. */
+.sessions-filter-submenu.opens-inline {
+  position: static;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  margin: 2px 0 4px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sessions-filter-menu.has-inline-submenu {
+  overflow-y: auto;
+}
+
+.sessions-filter-submenu.opens-inline .sessions-filter-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sessions-filter-item {
@@ -16559,14 +16586,21 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 .tool-artifact-card {
+  /* The badge's numbers place the actions trigger too, so the two stay level
+     and mirror each other across the card whatever size either takes. */
+  --artifact-badge-inset: 10px;
+  --artifact-badge-size: 28px;
+  --artifact-trigger-size: 28px;
   position: relative;
   display: grid;
   grid-template-rows: 1fr auto;
-  width: 168px;
-  height: 176px;
+  width: 134px;
+  height: 140px;
   box-sizing: border-box;
+  /* Clips a thumbnail to the corners; the actions menu is portalled out of
+     the card for that reason. */
   overflow: hidden;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
@@ -16582,12 +16616,12 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .inline-artifact-extension {
   position: absolute;
-  top: 9px;
-  left: 10px;
+  top: var(--artifact-badge-inset);
+  left: var(--artifact-badge-inset);
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: var(--artifact-badge-size);
+  height: var(--artifact-badge-size);
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--foxxycode-blend-base));
   border-radius: 6px;
@@ -16608,16 +16642,47 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .inline-artifact-card--image .tool-artifact-meta { padding: 4px; margin: 0 -4px -4px; border-radius: 5px; background: color-mix(in srgb, #000 56%, transparent); }
 
-.inline-artifact-menu-trigger { position: absolute; z-index: 2; top: 5px; right: 5px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--bg) 74%, transparent); color: var(--text); cursor: pointer; opacity: 0; }
+/* The badge mirrored across the card: level with it and as far from the right
+   edge as the badge is from the left, centred on the badge's box when the
+   trigger is larger (a phone's touch target). The dots are an svg centred in
+   its viewBox; the "⋮" glyph sat wherever the platform's font put its ink. */
+.inline-artifact-menu-trigger {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
+  right: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
+  display: grid;
+  place-items: center;
+  width: var(--artifact-trigger-size);
+  height: var(--artifact-trigger-size);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
 
 .tool-artifact-card:hover .inline-artifact-menu-trigger,
-.inline-artifact-menu-trigger:focus-visible, .inline-artifact-menu-trigger[aria-expanded="true"] { opacity: 1; }
+.tool-artifact-card:focus-within .inline-artifact-menu-trigger,
+.inline-artifact-menu-trigger:focus-visible,
+.inline-artifact-menu-trigger[aria-expanded="true"] { opacity: 1; }
 
-.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: min(180px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--foxxycode-glass-panel-border); border-radius: 10px; background: var(--foxxycode-tip-bg); box-shadow: var(--foxxycode-tip-shadow); }
+/* A screen without hover would never show it. */
+@media (hover: none) {
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
 
-.inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; }
+.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: min(180px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--foxxycode-glass-panel-border); border-radius: 10px; background: var(--foxxycode-tip-bg); box-shadow: var(--foxxycode-tip-shadow); }
+
+.inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 
 .inline-artifact-menu button:hover:not(:disabled), .inline-artifact-menu button:focus-visible { background: color-mix(in srgb, var(--text) 9%, var(--foxxycode-blend-base)); }
+
+.inline-artifact-menu button:disabled { opacity: 0.45; cursor: default; }
 
 .tool-artifact-icon {
   display: grid;
@@ -16670,6 +16735,14 @@ html:not([data-theme="light"]) .context-breakdown-error {
   margin: 12px 0 16px;
 }
 
+/* The 16px are for the paragraph after the cards. The answer's foot keeps its
+   own margin, and both together stood it twice as far from the cards as from
+   a paragraph. */
+.inline-artifacts:last-child,
+.inline-artifacts--before-foot {
+  margin-bottom: 0;
+}
+
 .inline-artifact-card {
   display: grid;
 }
@@ -16685,13 +16758,12 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 @media (max-width: 599px) {
   .tool-artifact-card {
-    width: min(148px, calc(50vw - 28px));
-    height: 164px;
+    --artifact-trigger-size: 32px;
+    width: min(118px, calc(50vw - 28px));
+    height: 132px;
   }
 
   .inline-artifact-menu-trigger {
-    width: 32px;
-    height: 32px;
     opacity: 1;
   }
 }

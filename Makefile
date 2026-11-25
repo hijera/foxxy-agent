@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check android check-android bench-cli-startup bench-cli-startup-real security sec-trivy sec-semgrep sec-report
+.PHONY: build build-acp build-desktop brand icon site-schema site-schema-check test test-matrix test-race test-cache test-perf print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules ui-test ui-typecheck check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete docs docs-check docs-fast site site-check skills-vendor skills-vendor-check android check-android bench-cli-startup bench-cli-startup-real security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -394,16 +394,20 @@ test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
 # AppSec gate (issue #374): trivy (dependency vulnerabilities, secrets;
-# misconfig report-only) and semgrep (SAST) over the checkout. One script is
-# the only scanner invocation — CI's security.yaml calls `make security`, so
-# local runs and the pipeline share versions, flags and thresholds. A binary
-# on PATH is used when present; otherwise the pinned docker image runs
-# (SEC_DOCKER=0 forbids the fallback). Reports and the severity summary land
-# in dist/security/. SEC_FAIL_TRIVY (default CRITICAL, vuln+secret only) and
-# SEC_FAIL_SEMGREP (default off — report only until the backlog shrinks) set
-# the gate. Guide: docs/contributing/security-scanning.md.
+# misconfig report-only), semgrep (SAST) and govulncheck (Go vulnerabilities
+# the code reaches, the pinned toolchain's standard library included) over the
+# checkout. One script is the only scanner invocation — CI's security.yaml
+# calls `make security`, so local runs and the pipeline share versions, flags
+# and thresholds. A binary on PATH is used when present; otherwise the pinned
+# docker image runs (SEC_DOCKER=0 forbids the fallback). Reports and the
+# severity summary land in dist/security/. SEC_FAIL_TRIVY (default CRITICAL,
+# vuln+secret only), SEC_FAIL_SEMGREP (default off — report only until the
+# backlog shrinks) and SEC_FAIL_GOVULNCHECK (default symbol: a vulnerable
+# function the code calls) set the gate. govulncheck builds with every shipped
+# tag but ui, whose embedded assets a fresh checkout does not hold. Guide:
+# docs/contributing/security-scanning.md.
 security:
-	scripts/security-scan.sh
+	GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
 
 sec-trivy:
 	SEC_SCANNERS=trivy scripts/security-scan.sh
@@ -411,10 +415,14 @@ sec-trivy:
 sec-semgrep:
 	SEC_SCANNERS=semgrep scripts/security-scan.sh
 
+sec-govulncheck:
+	SEC_SCANNERS=govulncheck GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
+
 # Same scans with the gate off: findings never fail this target, operational
 # errors (missing tool, dead docker, crashed scan) still do.
 sec-report:
-	SEC_FAIL_TRIVY=off SEC_FAIL_SEMGREP=off scripts/security-scan.sh
+	SEC_FAIL_TRIVY=off SEC_FAIL_SEMGREP=off SEC_FAIL_GOVULNCHECK=off \
+		GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
 
 # Console startup timings: the first frame timed in a real pty (pexpect + pyte,
 # examples/cli/requirements.txt), with an empty, a real and a synthetic skill
@@ -517,8 +525,8 @@ lint-windows: ui-build
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
-	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full|matrix; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
+	@echo "Enabled .githooks — 'git commit' now runs the linter and Prettier over the staged SPA files (scripts/checks.sh)."
+	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full|matrix; skip lint with FOXXYCODE_HOOK_LINT=0, Prettier with FOXXYCODE_HOOK_FORMAT=0; bypass once with --no-verify."
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.

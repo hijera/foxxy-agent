@@ -152,7 +152,10 @@ The fork keeps a few more things out of the frozen message's way. The editor sta
 Providers report the cached share of a request as
 **`usage.prompt_tokens_details.cached_tokens`** (OpenAI-compatible) or
 **`cache_read_input_tokens`** (Anthropic). FoxxyCode carries it as
-**`llm.Response.CachedInputTokens`** and logs it per call:
+**`llm.Response.CachedInputTokens`**, a part of **`llm.Response.InputTokens`**, which counts the
+whole prompt the way OpenAI's **`prompt_tokens`** does: Anthropic's **`input_tokens`**,
+**`cache_creation_input_tokens`** and **`cache_read_input_tokens`** are added together. It logs
+both per call:
 
 ```
 export FOXXYCODE_LOG_LEVEL=debug   # or logger.levels: {agent: debug}

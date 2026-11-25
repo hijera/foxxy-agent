@@ -107,7 +107,7 @@ How FoxxyCode is built, tested, documented and released.
 - [Brand assets](contributing/brand.md) - The one vector every icon and the social preview are generated from, make brand, and the lock file that fails when an export goes stale.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
-- [AppSec scanning](contributing/security-scanning.md) - Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
+- [AppSec scanning](contributing/security-scanning.md) - Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.

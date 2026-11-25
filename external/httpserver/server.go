@@ -797,6 +797,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				"finish_reason": "stop",
 			}},
 		}
+		if usage := bridge.CompletionUsage(); usage != nil {
+			resp["usage"] = usage
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 		return
@@ -883,6 +886,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"model":    model,
 		"metadata": meta,
 		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
+	}
+	if usage := completionUsageFromResponse(directRes).openAI(); usage != nil {
+		resp["usage"] = usage
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

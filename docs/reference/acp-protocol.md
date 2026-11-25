@@ -543,6 +543,18 @@ After **`session/new`** and **`session/load`**, FoxxyCode lists its slash comman
 
 Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
 
+### `token_usage` - Model token counters
+
+Sent after every completed model call: `inputTokens`, `outputTokens` and `totalTokens` accumulated over the turn. `inputTokens` is the whole prompt, the part served from the provider's prompt cache included; that part is `cachedInputTokens`, also accumulated over the turn and omitted when the provider reported none.
+
+### `usage_update` - Context occupancy
+
+Sent when the context window occupancy changes (a model call, manual or automatic compaction): `used` and `size` in tokens.
+
+### `provider_usage` - Account quota
+
+Reports the account quota behind the session's model.
+
 ### `memory_run` - Memory subagent run
 
 When `memory.enable` is true, every user turn starts a **memory subagent**: a child agent run in the background task pool with its own session bundle and task log ([Long-term memory](../features/memory.md)). This update reports that run and nothing of its text: `started` once the task is launched, `finished` once it settled while the turn was still running (a run that outlives the turn sends nothing more), `skipped` when no run could start. It is neither persisted nor replayed by `session/load`; the run's record is the task (kind `agent`, `agent.system` true) and the child transcript it names.

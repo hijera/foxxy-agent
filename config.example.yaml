@@ -504,18 +504,26 @@ tools:
 #     user: "pasha"
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
-#   public_docs: false      # keep /docs + /openapi.* open when auth is on
+#   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   stream_tickets_only: false  # SSE must use POST /foxxycode/stream-tickets instead of ?access_token=<auth token>
-#   allow_insecure: false   # silence the non-loopback-without-auth startup warning
+#   allow_insecure: false   # silence the warnings about a server without a credential: a non-loopback
+#                           # bind, and cors.allow_loopback or "*" (and their --dry-run findings)
+#   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
+#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*";
+#   # allow_loopback admits every page served from the browser's own machine (localhost,
+#   # *.localhost, 127.0.0.0/8, [::1]) on any port - a laptop's own foxxycode serve, whatever its
+#   # port. Neither "*" nor allow_loopback is safe without a token or the sign-in form.
 #   cors:
 #     enable: false
+#     allow_loopback: false
 #     allowed_origins: ["http://localhost:12345"]
 #   # Remote foxxycode serve servers and swarm relays offered in the UI environment selector and
 #   # resolved by `foxxycode --remote <name>`. An entry may carry the token to present (usually a
 #   # ${ENV} reference): every browser that reads this config receives it, which is the choice
 #   # of whoever writes it here. Without one, the UI keeps the token in the browser per remote
-#   # and the console reads --remote-token or FOXXYCODE_REMOTE_TOKEN. A relay also has to list the
-#   # page's origin in its swarm.cors.allowed_origins.
+#   # and the console reads --remote-token or FOXXYCODE_REMOTE_TOKEN. A relay also has to admit the
+#   # page's origin in its swarm.cors: listed in allowed_origins, or allow_loopback for a page
+#   # served from the browser's own machine.
 #   remotes:
 #     - name: "prod box"
 #       url: "https://box.example:12345"
@@ -671,7 +679,8 @@ tools:
 #     - "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
 #   cors:
 #     enable: true
-#     allowed_origins: ["http://localhost:5173"]
+#     allow_loopback: true    # a laptop's web UI on any loopback port
+#     allowed_origins: ["https://ui.example"]
 #   tls:
 #     cert_file: "/etc/foxxycode/relay.crt"
 #     key_file: "/etc/foxxycode/relay.key"

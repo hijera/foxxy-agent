@@ -13,6 +13,12 @@
 
 **Composer alignment.** Pasting long text no longer separates the caret from the last visible character when lines wrap.
 
+**Remote environments on one computer.** The `cors.allow_loopback` setting lets a web UI on any loopback address and port call a remote FoxxyCode or relay. CORS guidance now names this toggle alongside exact origins, and configuration checks warn when open access has no credential.
+
+**History menus and shared file cards.** On phones, History filter choices fold out inside the menu instead of leaving the screen. A file card's actions menu opens outside the clipped card, preserves keyboard focus, stays inside the window and closes when its trigger is covered. Downloads and action errors remain independent.
+
+**Token accounting and Codex resilience.** Non-streaming OpenAI-compatible responses include usage, including cached tokens; Anthropic prompt totals include cache reads and writes. Codex keep-alive frames no longer look like truncated JSON, and streams without Content-Type remain protected by the idle guard.
+
 **File preview and binary review fixes.** Short legacy-encoded text previews preserve their final characters. Git review retains original binary bytes, so changes to CRLF byte pairs are not hidden.
 
 **Workspace files and edit review.** Open files from the chat, review Git and Subversion changes in the native diff viewer, and accept or reject individual files. Accept or reject individual changed blocks directly in the source editor. The rounded review buttons use colored outlines that follow the editor's light or dark color scheme. Moving the pointer over a button highlights it and shows a hand cursor. The working copy counts above the composer open Edits. Appearance can move the changes to a card below the transcript. The editor's project tree provides access to workspace files.

@@ -28,9 +28,18 @@ test("the dot names background work when the row has no turn running", () => {
       { id: "turn", title: "Answering", turnActive: true },
     ],
   });
-  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute("aria-label", "Background tasks running");
-  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute("title", "Background tasks running");
-  expect(screen.getByTestId("session-activity-turn")).toHaveAttribute("aria-label", "Turn running");
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute(
+    "aria-label",
+    "Background tasks running",
+  );
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute(
+    "title",
+    "Background tasks running",
+  );
+  expect(screen.getByTestId("session-activity-turn")).toHaveAttribute(
+    "aria-label",
+    "Turn running",
+  );
 });
 
 const row = (id: string, title: string): SessionRow => ({
@@ -41,8 +50,12 @@ const row = (id: string, title: string): SessionRow => ({
 test("an empty archived history exposes its saved status and returns to active chats", () => {
   const onArchiveFilterChange = vi.fn();
   renderDrawer({ sessions: [], archiveFilter: "only", onArchiveFilterChange });
-  expect(screen.getByTestId("sessions-active-status")).toHaveTextContent("Archived");
-  expect(screen.getByTestId("sessions-empty")).toHaveTextContent("No chats match the selected status");
+  expect(screen.getByTestId("sessions-active-status")).toHaveTextContent(
+    "Archived",
+  );
+  expect(screen.getByTestId("sessions-empty")).toHaveTextContent(
+    "No chats match the selected status",
+  );
   expect(screen.queryByText("No history yet")).toBeNull();
   fireEvent.click(screen.getByTestId("sessions-reset-status"));
   expect(onArchiveFilterChange).toHaveBeenCalledWith("exclude");
@@ -50,7 +63,9 @@ test("an empty archived history exposes its saved status and returns to active c
 
 test("the default empty history does not offer an archive reset", () => {
   renderDrawer({ sessions: [] });
-  expect(screen.getByTestId("sessions-empty")).toHaveTextContent("No history yet");
+  expect(screen.getByTestId("sessions-empty")).toHaveTextContent(
+    "No history yet",
+  );
   expect(screen.queryByTestId("sessions-reset-status")).toBeNull();
 });
 
@@ -281,9 +296,9 @@ test("permission marker wins when a row reports both pending states", () => {
 
   expect(screen.getByTestId("session-permission-both")).toBeInTheDocument();
   expect(screen.queryByTestId("session-question-both")).toBeNull();
-  expect(screen.getAllByRole("img", { name: /pending|required/i })).toHaveLength(
-    1,
-  );
+  expect(
+    screen.getAllByRole("img", { name: /pending|required/i }),
+  ).toHaveLength(1);
 });
 
 test("finished and failed rows carry a state dot that distinguishes unseen errors", () => {
@@ -311,9 +326,7 @@ test("finished and failed rows carry a state dot that distinguishes unseen error
   expect(screen.getByTestId("session-error-unseen-error")).not.toHaveClass(
     "is-seen",
   );
-  expect(screen.getByTestId("session-error-seen-error")).toHaveClass(
-    "is-seen",
-  );
+  expect(screen.getByTestId("session-error-seen-error")).toHaveClass("is-seen");
   expect(screen.queryByTestId("session-unread-seen-error")).toBeNull();
 });
 
@@ -476,9 +489,7 @@ test("a collapsed workspace group survives navigation and temporary absence", ()
     { id: "workspace", title: "Report", cwd: "/srv/reports" },
   ] as SessionRow[];
   const first = renderDrawer({ sessions, groupMode: "workspace" });
-  const toggle = screen.getByTestId(
-    "session-group-toggle-cwd:/srv/reports",
-  );
+  const toggle = screen.getByTestId("session-group-toggle-cwd:/srv/reports");
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   first.unmount();
@@ -567,10 +578,14 @@ test("hovering a section opens it and closes the one before it", () => {
   renderDrawer();
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-group"));
+  pointer(screen.getByTestId("sessions-filter-section-group"), "pointerover", {
+    y: 0,
+  });
   expect(screen.getByTestId("sessions-filter-group-tag")).toBeInTheDocument();
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-sort"));
+  pointer(screen.getByTestId("sessions-filter-section-sort"), "pointerover", {
+    y: 0,
+  });
   expect(screen.queryByTestId("sessions-filter-group-tag")).toBeNull();
   expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
 });
@@ -616,7 +631,13 @@ test("sort is reported up for the server to apply", () => {
 test("one environment is no choice at all, so the section stays out", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "local",
+        label: "Local",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -629,7 +650,13 @@ test("an environment row switches where the history is read from", () => {
   const onPick = vi.fn();
   renderDrawer({
     environments: [
-      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "local",
+        label: "Local",
+        active: true,
+        onPick: () => {},
+      },
       { kind: "switch", key: "nas02", label: "nas02", active: false, onPick },
     ],
   });
@@ -643,9 +670,27 @@ test("an environment row switches where the history is read from", () => {
 test("environment origins and remote switches keep independent menu semantics", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
-      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: false,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "switch",
+        key: "nas02",
+        label: "nas02",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -683,8 +728,20 @@ test("environment origins and remote switches keep independent menu semantics", 
 test("environment summary names only the remote when All is selected", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
-      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "switch",
+        key: "nas02",
+        label: "nas02",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -700,8 +757,20 @@ test("environment summary names only the remote when All is selected", () => {
 test("environment summary uses the origin and defaults only to All locally", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: false, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: false,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -714,8 +783,20 @@ test("environment summary uses the origin and defaults only to All locally", () 
   cleanup();
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: false,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -828,9 +909,9 @@ test("a row pins and unpins from its menu", () => {
 test("a pinned row stands under the heading, unmarked, and offers to let it go", () => {
   const onPin = vi.fn();
   renderDrawer({ sessions: [{ id: "a", title: "A", pinned: true }], onPin });
-  expect(
-    screen.getByTestId("session-group-pinned"),
-  ).toContainElement(screen.getByTestId("session-row-a"));
+  expect(screen.getByTestId("session-group-pinned")).toContainElement(
+    screen.getByTestId("session-row-a"),
+  );
   expect(document.querySelector(".session-pin-mark")).toBeNull();
 
   fireEvent.click(screen.getByTestId("session-menu-a"));
@@ -1154,7 +1235,14 @@ test("grouped by folder, a row leaves its folder to the heading", () => {
 test("grouped any other way, a row still names its folder", () => {
   for (const groupMode of ["none", "time", "tag"] as const) {
     const { unmount } = renderDrawer({
-      sessions: [{ id: "a", title: "A", cwd: "/srv/one", updatedAt: "2026-09-15T09:00:00" }],
+      sessions: [
+        {
+          id: "a",
+          title: "A",
+          cwd: "/srv/one",
+          updatedAt: "2026-09-15T09:00:00",
+        },
+      ],
       groupMode,
     });
     expect(screen.getByTestId("session-cwd-a")).toHaveTextContent("one");
@@ -1177,9 +1265,9 @@ test("a row carries the error of the change it refused, and only that row", () =
   // Beside the link, not inside it: the link is named by the conversation,
   // not by the error of the last thing done to it.
   expect(note.closest("a")).toBeNull();
-  expect(screen.getByTestId("session-row-b").querySelector("a")?.textContent).not.toContain(
-    "not archived",
-  );
+  expect(
+    screen.getByTestId("session-row-b").querySelector("a")?.textContent,
+  ).not.toContain("not archived");
   expect(screen.queryByTestId("session-row-error-a")).toBeNull();
   expect(screen.queryByTestId("sessions-error")).toBeNull();
 });

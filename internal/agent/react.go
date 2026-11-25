@@ -787,7 +787,7 @@ func (a *Agent) runReActLoop(
 			runErr = err
 		}
 	}()
-	var totalInputTokens, totalOutputTokens int
+	var totalInputTokens, totalOutputTokens, totalCachedInputTokens int
 	var lastStatsWrite time.Time
 	// Session-global index for the turn this loop is running, resolved once so every
 	// mid-turn stats write lands on the same row instead of appending a new one.
@@ -1780,14 +1780,16 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
+		totalCachedInputTokens += response.CachedInputTokens
 		// All three counters are cumulative for this turn. Sending the last call's
 		// input/output next to a cumulative total would make Input + Output != Total in
 		// every client that renders the three together.
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
-			SessionUpdate: acp.UpdateTypeTokenUsage,
-			InputTokens:   totalInputTokens,
-			OutputTokens:  totalOutputTokens,
-			TotalTokens:   totalInputTokens + totalOutputTokens,
+			SessionUpdate:     acp.UpdateTypeTokenUsage,
+			InputTokens:       totalInputTokens,
+			OutputTokens:      totalOutputTokens,
+			TotalTokens:       totalInputTokens + totalOutputTokens,
+			CachedInputTokens: totalCachedInputTokens,
 		})
 		a.progress.finishCall(response.OutputTokens)
 

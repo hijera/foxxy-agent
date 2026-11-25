@@ -121,7 +121,7 @@ func EnvironmentProxyResolver() func(target *url.URL) (ProxyRoute, error) {
 			return route, nil
 		}
 	}
-	env := httpproxy.FromEnvironment().ProxyFunc()
+	env := environmentProxyConfig().ProxyFunc()
 	return func(target *url.URL) (ProxyRoute, error) {
 		p, err := env(target)
 		if p == nil {

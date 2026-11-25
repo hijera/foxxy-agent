@@ -1329,12 +1329,13 @@
         },
         "allow_insecure": {
           "type": "boolean",
-          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "description": "Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them.",
           "default": false
         },
         "cors": {
           "type": "object",
-          "description": "Cross-origin policy so a browser UI on another origin can call this API.",
+          "title": "CORS",
+          "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one.",
           "additionalProperties": false,
           "properties": {
             "enable": {
@@ -1346,6 +1347,11 @@
               "type": "boolean",
               "deprecated": true,
               "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote foxxycode serve, where the web UI comes from the laptop's own foxxycode serve and its port moves. Narrower than \"*\", and like \"*\" only as safe as the token or sign-in behind the API.",
+              "default": false
             },
             "allowed_origins": {
               "type": "array",
@@ -1459,6 +1465,11 @@
               "type": "boolean",
               "deprecated": true,
               "description": "Deprecated alias of `enable`, the spelling FoxxyCode used before 0.3.x. It is still read, `enable` wins when both are set, and the next save writes `enable`."
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own foxxycode serve took. Narrower than \"*\"; the client token still applies.",
+              "default": false
             },
             "allowed_origins": {
               "type": "array",

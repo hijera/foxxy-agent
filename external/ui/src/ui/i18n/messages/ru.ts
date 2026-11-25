@@ -82,7 +82,8 @@ export const messagesRu: Record<string, string> = {
 
   "settings.save.saved": "Сохранено",
   "settings.schema.agent.queue_mode.label": "Режим очереди",
-  "settings.schema.agent.queue_mode.desc": "Определяет, что делает Enter с сообщением, написанным во время хода. В режиме steer сообщение встраивается в текущий ход на ближайшем шаге, в режиме after_turn запускает отдельный промпт после ответа. Tab отправляет в другом режиме. Если режим не задан, браузер и консоль спросят при первом таком сообщении.",
+  "settings.schema.agent.queue_mode.desc":
+    "Определяет, что делает Enter с сообщением, написанным во время хода. В режиме steer сообщение встраивается в текущий ход на ближайшем шаге, в режиме after_turn запускает отдельный промпт после ответа. Tab отправляет в другом режиме. Если режим не задан, браузер и консоль спросят при первом таком сообщении.",
   "mcp.error.load": "Не удалось загрузить серверы MCP: {message}",
   "nav.ariaLabel": "Навигация",
   "nav.useNarrowSidebar": "Узкая боковая панель",
@@ -109,16 +110,21 @@ export const messagesRu: Record<string, string> = {
   "composer.queueSend": "Поставить сообщение в очередь",
   "composer.queueLabel": "Сообщения в очереди",
   "composer.queueRemove": "Убрать из очереди",
-  "composer.queueFull": "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
-  "composer.attachReadFailed": "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
+  "composer.queueFull":
+    "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
+  "composer.attachReadFailed":
+    "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueModeSteer": "В текущий ход",
   "composer.queueModeAfterTurn": "После хода",
   "composer.queueChoiceLabel": "Режим очереди по умолчанию",
-  "composer.queueChoiceQuestion": "Как отправлять сообщения во время работы с помощью {key}?",
+  "composer.queueChoiceQuestion":
+    "Как отправлять сообщения во время работы с помощью {key}?",
   "composer.queueChoiceSteer": "В текущий ход",
   "composer.queueChoiceAfterTurn": "После этого хода",
-  "composer.queueModeSteerTitle": "Попадёт в текущий ход на ближайшем шаге. Нажмите, чтобы отправить после ответа.",
-  "composer.queueModeAfterTurnTitle": "Запустит отдельный промпт после ответа. Нажмите, чтобы отправить в текущий ход.",
+  "composer.queueModeSteerTitle":
+    "Попадёт в текущий ход на ближайшем шаге. Нажмите, чтобы отправить после ответа.",
+  "composer.queueModeAfterTurnTitle":
+    "Запустит отдельный промпт после ответа. Нажмите, чтобы отправить в текущий ход.",
   "composer.queueImages.one": "{count} картинка во вложении",
   "composer.queueImages.few": "{count} картинки во вложении",
   "composer.queueImages.many": "{count} картинок во вложении",
@@ -167,7 +173,8 @@ export const messagesRu: Record<string, string> = {
   "composer.editingHint": "При отправке разговор откатится к этому сообщению",
   "composer.cancelEdit": "Отменить правку (Esc)",
   "composer.messageEdited": "Сообщение изменено.",
-  "composer.undoEditHint": "Отмена вернёт разговор как был, изменения в файлах не откатываются",
+  "composer.undoEditHint":
+    "Отмена вернёт разговор как был, изменения в файлах не откатываются",
   "composer.undoEdit": "Отменить",
   "composer.undoDismiss": "Скрыть",
   "composer.stopGeneration": "Остановить генерацию",
@@ -261,6 +268,10 @@ export const messagesRu: Record<string, string> = {
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее.",
   "env.banner.corsEither":
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это foxxycode serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее или включите там {relayLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
+  "env.banner.corsEitherLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это foxxycode serve, — либо включите {relayLoopback} / {agentLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
   "env.banner.switchLocal": "Переключиться на локальное",
   "env.error.cannotReach":
     "Не удалось связаться с удалённым {host} — возможно, оно выключено или указан неверный URL, либо ответ заблокирован CORS (включите httpserver.cors на удалённой стороне).",
@@ -294,8 +305,10 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.automate": "автоматизировать",
   "chat.heroVerb.refactor": "рефакторить",
   "chat.heroVerb.plan": "спланировать",
-  "chat.subagentReadOnly.notice": "Только для чтения: транскрипт субагента {name}.",
-  "chat.subagentReadOnly.noticeUnnamed": "Только для чтения: транскрипт субагента.",
+  "chat.subagentReadOnly.notice":
+    "Только для чтения: транскрипт субагента {name}.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Только для чтения: транскрипт субагента.",
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
@@ -534,10 +547,11 @@ export const messagesRu: Record<string, string> = {
     "Не принимает токен. Нужен токен из его httpserver.auth_token.",
   "env.hint.relayToken":
     "Релей не принимает токен. Нужен его клиентский токен из swarm.auth_token.",
-  "env.hint.configToken":
-    "Токен этой записи в httpserver.remotes не принят.",
+  "env.hint.configToken": "Токен этой записи в httpserver.remotes не принят.",
   "env.hint.cors":
     "Ответ заблокирован CORS. Разрешите {origin} в swarm.cors.allowed_origins (релей) или httpserver.cors.allowed_origins (foxxycode serve).",
+  "env.hint.corsLoopback":
+    "Ответ заблокирован CORS. Эта страница открыта с loopback-адреса: включите swarm.cors.allow_loopback (релей) или httpserver.cors.allow_loopback (foxxycode serve) либо разрешите {origin} точно в allowed_origins.",
   "env.relay": "релей",
   "env.nodeOffline": "не в сети",
   "workspace.detached": "отсоединённая",
@@ -711,7 +725,7 @@ export const messagesRu: Record<string, string> = {
   "settings.backToList": "К списку",
   "settings.backToSections": "К разделам",
   "settings.buildTagMissing":
-    "В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS=\"http ui browser\"), чтобы включить.",
+    'В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS="http ui browser"), чтобы включить.',
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
@@ -730,7 +744,8 @@ export const messagesRu: Record<string, string> = {
   "settings.add": "Добавить",
   "settings.showKey": "Показать",
   "settings.hideKey": "Скрыть",
-  "settings.proxy.edit": "Настроить прокси: протокол, хост, порт, логин и пароль",
+  "settings.proxy.edit":
+    "Настроить прокси: протокол, хост, порт, логин и пароль",
   "settings.proxy.dialogTitle": "Прокси",
   "settings.proxy.protocol": "Протокол",
   "settings.proxy.scheme.http": "HTTP",
@@ -799,7 +814,8 @@ export const messagesRu: Record<string, string> = {
     "api.neuraldeep.tech — зеркало для остального мира",
   "settings.neuralDeepApiBase.unknown":
     "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
-  "settings.neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
+  "settings.neuralDeepAuth.error.signInFailed":
+    "Не удалось войти в NeuralDeep.",
   "settings.neuralDeepAuth.error.incompleteResponse":
     "Хаб вернул неполный ответ входа.",
   "settings.neuralDeepAuth.hubMismatch":
@@ -810,7 +826,8 @@ export const messagesRu: Record<string, string> = {
   "settings.neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "settings.neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
-  "settings.neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "settings.neuralDeepAuth.enterCode":
+    "Введите этот одноразовый код на странице NeuralDeep:",
   "settings.neuralDeepAuth.openSignInPage": "Открыть страницу входа",
   "settings.neuralDeepAuth.waiting": "Ожидание подтверждения…",
   "settings.neuralDeepAuth.hubClientNotice":
@@ -819,7 +836,8 @@ export const messagesRu: Record<string, string> = {
   "settings.neuralDeepAuth.signOut": "Выйти",
   "settings.neuralDeepAuth.waitingForHub": "Ожидание NeuralDeep…",
   "settings.neuralDeepAuth.signIn": "Войти через NeuralDeep",
-  "settings.neuralDeepAuth.enterProviderName": "Введите имя провайдера перед входом.",
+  "settings.neuralDeepAuth.enterProviderName":
+    "Введите имя провайдера перед входом.",
 
   "settings.mcp.description.start":
     "Серверы Model Context Protocol из трёх уровней:",
@@ -852,7 +870,8 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.discovery.desc.afterAsk":
     "его серверы не запускаются и к ним не обращаются, пока вы не одобрите именно это объявление для этой рабочей папки (кнопка-щит в списке ниже); правка одобренной записи спрашивает заново. Серверы, добавленные здесь, одобрены самим фактом ввода. Записи из",
   "settings.mcp.discovery.desc.and": "и",
-  "settings.mcp.discovery.desc.end": "принадлежат вам и через гейт не проходят.",
+  "settings.mcp.discovery.desc.end":
+    "принадлежат вам и через гейт не проходят.",
   "settings.mcp.discovery.label": "Серверы проекта",
   "settings.subagents.legend": "Определения",
   "settings.subagents.desc.start": "Определения из",
@@ -863,23 +882,31 @@ export const messagesRu: Record<string, string> = {
     "Политика выше применяется после сохранения; одобрение отдельного определения срабатывает сразу.",
   "settings.subagents.workspace": "Одобрения записываются для",
   "settings.subagents.loading": "Загружаем определения…",
-  "settings.subagents.empty": "Из этой рабочей папки не видно ни одного определения субагента.",
+  "settings.subagents.empty":
+    "Из этой рабочей папки не видно ни одного определения субагента.",
   "settings.subagents.error.load": "Не удалось загрузить каталог субагентов.",
-  "settings.subagents.pendingHint.one": "{count} определение ждёт вашего одобрения.",
-  "settings.subagents.pendingHint.few": "{count} определения ждут вашего одобрения.",
-  "settings.subagents.pendingHint.many": "{count} определений ждут вашего одобрения.",
-  "settings.subagents.pendingHint.other": "{count} определения ждут вашего одобрения.",
-  "settings.subagents.descriptionWithheld": "Описание скрыто, пока вы не одобрите этот файл.",
+  "settings.subagents.pendingHint.one":
+    "{count} определение ждёт вашего одобрения.",
+  "settings.subagents.pendingHint.few":
+    "{count} определения ждут вашего одобрения.",
+  "settings.subagents.pendingHint.many":
+    "{count} определений ждут вашего одобрения.",
+  "settings.subagents.pendingHint.other":
+    "{count} определения ждут вашего одобрения.",
+  "settings.subagents.descriptionWithheld":
+    "Описание скрыто, пока вы не одобрите этот файл.",
   "settings.subagents.scope.builtin": "встроенный",
   "settings.subagents.scope.user": "ваш",
   "settings.subagents.scope.project": "из проекта",
   "settings.subagents.badge.hidden": "скрытый",
   "settings.subagents.badge.needsApproval": "нужно одобрение",
-  "settings.subagents.trust.approveTitle": "Одобрить запуск «{name}» в этой рабочей папке",
+  "settings.subagents.trust.approveTitle":
+    "Одобрить запуск «{name}» в этой рабочей папке",
   "settings.subagents.trust.approvedTitle":
     "Одобрено для этой рабочей папки ({digest}) — нажмите, чтобы отозвать",
   "settings.subagents.trust.approveAria": "Одобрить субагента {name}",
-  "settings.subagents.trust.withdrawAria": "Отозвать одобрение субагента {name}",
+  "settings.subagents.trust.withdrawAria":
+    "Отозвать одобрение субагента {name}",
   "settings.subagents.trust.note.declaredBy": "Объявлен в",
   "settings.subagents.trust.note.travels":
     ", и этот файл приходит вместе с чекаутом. Одобрение привязывается к его нынешнему содержимому:",
@@ -890,7 +917,8 @@ export const messagesRu: Record<string, string> = {
   "settings.subagents.fact.mode": "режим",
   "settings.subagents.fact.modeInherits": "режим родителя",
   "settings.subagents.fact.permissions": "разрешения",
-  "settings.subagents.fact.permissionsInherits": "наследуются, не шире родительских",
+  "settings.subagents.fact.permissionsInherits":
+    "наследуются, не шире родительских",
   "settings.subagents.fact.tools": "инструменты",
   "settings.subagents.fact.toolsAll": "всё, что доступно запустившей сессии",
   "settings.subagents.fact.denies": "запрещает",
@@ -1098,7 +1126,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.trust.conflict": "конфликт id",
   "scheduler.trust.invalid": "ошибка",
   "scheduler.trust.review": "Проверить и одобрить",
-  "scheduler.trust.reviewAria": "Проверить и одобрить проектное задание {jobId}",
+  "scheduler.trust.reviewAria":
+    "Проверить и одобрить проектное задание {jobId}",
   "scheduler.trust.approveTitle": "Одобрить задание для этой папки",
   "scheduler.trust.withdrawTitle": "Отозвать одобрение",
   "scheduler.trust.from": "Проектное задание из {workspace}",
@@ -1150,7 +1179,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.cron.empty": "Введите cron-выражение (5 полей, UTC).",
   "scheduler.cron.invalid": "Некорректное cron-выражение",
   "scheduler.confirmDelete": "Удалить задачу планировщика «{jobId}»?",
-  "scheduler.confirmDeleteBody": "Задача и её расписание будут удалены навсегда.",
+  "scheduler.confirmDeleteBody":
+    "Задача и её расписание будут удалены навсегда.",
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
@@ -1245,11 +1275,13 @@ export const messagesRu: Record<string, string> = {
   "tool.name.foxxycode_scheduler_job_patch": "правлю задачу планировщика",
   "tool.name.foxxycode_scheduler_job_replace": "заменяю задачу планировщика",
   "tool.name.foxxycode_scheduler_job_delete": "удаляю задачу планировщика",
-  "tool.name.foxxycode_scheduler_job_pause": "приостанавливаю задачу планировщика",
+  "tool.name.foxxycode_scheduler_job_pause":
+    "приостанавливаю задачу планировщика",
   "tool.name.foxxycode_scheduler_job_resume": "возобновляю задачу планировщика",
   "tool.name.foxxycode_scheduler_job_cancel": "отменяю задачу планировщика",
   "tool.name.foxxycode_scheduler_job_run": "запускаю задачу планировщика",
-  "tool.name.foxxycode_scheduler_job_runs": "смотрю запуски задачи планировщика",
+  "tool.name.foxxycode_scheduler_job_runs":
+    "смотрю запуски задачи планировщика",
 
   "toolAction.running": "Выполняется\u2026",
   "toolAction.done": "Готово",
@@ -1319,7 +1351,8 @@ export const messagesRu: Record<string, string> = {
   "messages.attachedFiles": "Прикреплённые файлы",
   "messages.editMessage": "Редактировать сообщение",
   "messages.undoEdit": "Отменить правку",
-  "messages.undoEditTitle": "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
+  "messages.undoEditTitle":
+    "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
   "messages.diffView": "Просмотр diff",
   "messages.patchedFile": "Изменённый файл",
   "messages.compactionLabel": "контекст сжат",
@@ -1375,8 +1408,10 @@ export const messagesRu: Record<string, string> = {
   "prompts.noAnswer": "(нет ответа)",
   "prompts.skip": "Пропустить",
   "prompts.continue": "Продолжить",
-  "prompts.questionInactive": "Этот вопрос больше не активен. Отправьте новое сообщение, чтобы продолжить.",
-  "prompts.answerSubmitFailed": "Не удалось отправить ответ. Выбор сохранён; попробуйте ещё раз.",
+  "prompts.questionInactive":
+    "Этот вопрос больше не активен. Отправьте новое сообщение, чтобы продолжить.",
+  "prompts.answerSubmitFailed":
+    "Не удалось отправить ответ. Выбор сохранён; попробуйте ещё раз.",
   "prompts.otherPlaceholder": "Другое…",
   "prompts.otherAriaLabel": "Другое, введите ответ",
   "prompts.optionsAriaLabel": "Варианты {index}",
@@ -1472,7 +1507,8 @@ export const messagesRu: Record<string, string> = {
   "app.confirmDeleteDraftBody":
     "Этот чат ни разу не отправлялся, на сервере ничего не сохранено.",
   "app.confirmDeleteChat": "Удалить чат?",
-  "app.confirmDeleteChatBody": "Чат и всё его содержимое будут удалены навсегда.",
+  "app.confirmDeleteChatBody":
+    "Чат и всё его содержимое будут удалены навсегда.",
   "app.delete": "Удалить",
   "app.requestInterrupted":
     "Предыдущий запрос был прерван. Проверьте сохранённый результат и отправьте новое сообщение, чтобы продолжить.",
@@ -1507,8 +1543,7 @@ export const messagesRu: Record<string, string> = {
     "В этом чате ещё нет фоновых задач. Агент запускает их, когда команда достаточно долгая, чтобы выполнять её отдельно.",
   "tasks.sectionFinished": "Завершённых: {count}",
   "tasks.clearFinished": "Очистить",
-  "tasks.olderOnDisk":
-    "Ещё задач на диске: {count} — они не показаны в списке",
+  "tasks.olderOnDisk": "Ещё задач на диске: {count} — они не показаны в списке",
   "tasks.backToList": "← К списку задач",
   "tasks.stopTitle": "Остановить задачу",
   "tasks.stopAriaLabel": "Остановить {label}",
@@ -1662,7 +1697,7 @@ export const messagesRu: Record<string, string> = {
   // Настройки -> Субагенты: каталог определений
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
-    "Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.foxxycode/agents и файлы .agents/agents и .foxxycode/agents, пришедшие вместе с чекаутом. При значении \"ask\" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой foxxycode agents trust <name> на машине, где работает foxxycode. Изменённый одобренный файл потребует одобрения снова.",
+    'Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.foxxycode/agents и файлы .agents/agents и .foxxycode/agents, пришедшие вместе с чекаутом. При значении "ask" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой foxxycode agents trust <name> на машине, где работает foxxycode. Изменённый одобренный файл потребует одобрения снова.',
   "subagents.catalog.workspace": "Рабочее пространство",
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
@@ -1706,7 +1741,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.runs": "Запуски",
   "scheduler.openRuns": "Открыть запуски задачи {jobId}",
   "scheduler.runsTitle": "Запуски задачи {jobId}",
-  "scheduler.runsEmpty": "Запусков ещё не было. Запустите задачу сейчас или дождитесь расписания.",
+  "scheduler.runsEmpty":
+    "Запусков ещё не было. Запустите задачу сейчас или дождитесь расписания.",
   "scheduler.runsJobHeading": "Задача",
   "scheduler.lastRun.running": "Выполняется",
   "scheduler.field.agent": "agent (необязательно)",
@@ -1729,12 +1765,16 @@ export const messagesRu: Record<string, string> = {
   "changes.skipped.other": "{count} нового файла не показаны.",
   "changes.discardFileTitle": "Вернуть {name} к последнему коммиту",
   "changes.discardFileConfirm": "Отменить правки в {name}?",
-  "changes.discardRestoreMessage": "Файл вернётся к содержимому последнего коммита. Это нельзя отменить.",
-  "changes.discardDeleteMessage": "Файла не было в последнем коммите, поэтому он будет удалён. Это нельзя отменить.",
+  "changes.discardRestoreMessage":
+    "Файл вернётся к содержимому последнего коммита. Это нельзя отменить.",
+  "changes.discardDeleteMessage":
+    "Файла не было в последнем коммите, поэтому он будет удалён. Это нельзя отменить.",
   "changes.discardAll": "Отменить все",
-  "changes.discardAllTitle": "Вернуть все незакоммиченные правки к последнему коммиту",
+  "changes.discardAllTitle":
+    "Вернуть все незакоммиченные правки к последнему коммиту",
   "changes.discardAllConfirm": "Отменить все незакоммиченные правки?",
-  "changes.discardAllMessage": "Изменённые файлы вернутся к базовой версии, а новые файлы будут удалены. Игнорируемые файлы останутся. Это нельзя отменить.",
+  "changes.discardAllMessage":
+    "Изменённые файлы вернутся к базовой версии, а новые файлы будут удалены. Игнорируемые файлы останутся. Это нельзя отменить.",
   "changes.discardYes": "Отменить правки",
   "changes.discardFailed": "Не удалось отменить правки: {message}",
   "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
@@ -1749,7 +1789,8 @@ export const messagesRu: Record<string, string> = {
   "files.openFiles": "Открытые файлы",
   "files.closeTab": "Закрыть {name}",
   "files.empty.title": "Здесь появятся открытые файлы",
-  "files.empty.hint": "Выберите файл в дереве или нажмите на путь к файлу в разговоре.",
+  "files.empty.hint":
+    "Выберите файл в дереве или нажмите на путь к файлу в разговоре.",
   "files.showTree": "Показать дерево файлов",
   "files.hideTree": "Скрыть дерево файлов",
   "files.expand": "Развернуть окно",
@@ -1768,9 +1809,11 @@ export const messagesRu: Record<string, string> = {
   "files.loading": "Загрузка…",
   "files.changed": "Файл изменился. Превью обновлено.",
   "files.binary": "Превью недоступно. Файл можно скачать.",
-  "files.pdfDownload": "Скачайте PDF, чтобы открыть его в программе для просмотра.",
+  "files.pdfDownload":
+    "Скачайте PDF, чтобы открыть его в программе для просмотра.",
   "files.wrap": "Перенос строк",
-  "files.imageUnavailable": "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
+  "files.imageUnavailable":
+    "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
   "files.actualSize": "Исходный размер",
   "files.fit": "Вписать изображение",
   "changes.binary": "бинарный",
@@ -1806,7 +1849,8 @@ export const messagesRu: Record<string, string> = {
   "changes.viewer.openInIde": "Посмотреть в IDE",
   "changes.viewer.loadingFile": "Загрузка различий...",
   "changes.viewer.noMatches": "Нет подходящих файлов",
-  "changes.viewer.noVcs": "Для просмотра правок нужна рабочая копия Git или Subversion.",
+  "changes.viewer.noVcs":
+    "Для просмотра правок нужна рабочая копия Git или Subversion.",
 
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "агент",
@@ -1843,7 +1887,8 @@ export const messagesRu: Record<string, string> = {
   "composer.mentionSchemeAgent": "Передать работу субагенту",
   "composer.mentionMore": "{shown} из {total}, уточните запрос",
   "nav.docs": "Документация",
-  "composer.docsCommand": "Открыть встроенную документацию: /docs [страница или слова]",
+  "composer.docsCommand":
+    "Открыть встроенную документацию: /docs [страница или слова]",
   "composer.mentionKindDoc": "документация",
   "composer.mentionSchemeFoxxyCode": "Страница документации FoxxyCode",
   "tool.name.foxxycode_docs_search": "ищу в документации",
@@ -1851,7 +1896,8 @@ export const messagesRu: Record<string, string> = {
   "docs.close": "Закрыть документацию (F1)",
   "docs.anchor.label": "Ссылка на раздел {heading}",
   "docs.site.label": "GitHub Pages",
-  "docs.site.title": "Та же страница на публичном сайте, чтобы поделиться с тем, у кого нет FoxxyCode",
+  "docs.site.title":
+    "Та же страница на публичном сайте, чтобы поделиться с тем, у кого нет FoxxyCode",
   "docs.lightbox.label": "Изображение",
   "docs.lightbox.zoomIn": "Увеличить (+)",
   "docs.lightbox.zoomOut": "Уменьшить (-)",
@@ -1863,25 +1909,30 @@ export const messagesRu: Record<string, string> = {
   "docs.error": "Не удалось загрузить документацию: {message}",
   "docs.search.placeholder": "Поиск по документации",
   "docs.search.label": "Результаты поиска",
-  "docs.search.empty": "Ничего не нашлось, попробуйте другие или более короткие слова",
+  "docs.search.empty":
+    "Ничего не нашлось, попробуйте другие или более короткие слова",
   "docs.toc.label": "Содержание",
   "docs.outline.label": "На этой странице",
   "docs.pager.label": "Предыдущая и следующая страница",
   "docs.pager.prev": "Назад",
   "docs.pager.next": "Далее",
   "docs.ask.page": "Спросить агента",
-  "docs.ask.pageTitle": "Начать чат, приложив эту страницу или раздел, который сейчас читаете",
+  "docs.ask.pageTitle":
+    "Начать чат, приложив эту страницу или раздел, который сейчас читаете",
   "docs.ask.selection": "Спросить о выделенном",
-  "docs.ask.selectionTitle": "Начать чат с цитатой выделенного текста и его разделом",
+  "docs.ask.selectionTitle":
+    "Начать чат с цитатой выделенного текста и его разделом",
   "status.docsSearch": "Ищу в документации",
   "status.docsRead": "Читаю документацию",
   "composer.permission": "Разрешения",
-  "composer.permissionTitle": "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
+  "composer.permissionTitle":
+    "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
   "composer.permissionAsk": "Спрашивать",
   "composer.permissionAcceptEdits": "Правки без вопросов",
   "composer.permissionBypass": "Без вопросов",
   "composer.permissionAskHint": "Спрашивать перед командами и записью файлов",
-  "composer.permissionAcceptEditsHint": "Запись файлов без вопросов, команды спрашивают",
+  "composer.permissionAcceptEditsHint":
+    "Запись файлов без вопросов, команды спрашивают",
   "composer.permissionBypassHint": "Ничего не спрашивать",
   "composer.overridesTitle": "Изменено на ближайшие ходы:\n{list}",
   "composer.overrideThisTurn": "{value} на этот ход",
@@ -1937,7 +1988,8 @@ export const messagesRu: Record<string, string> = {
   "settings.group.agent.loop": "Защита от зацикливания",
   "settings.group.agent.limits": "Лимиты использования",
   "settings.group.hooks.main": "Настройки хуков",
-  "settings.group.hooks.mainDesc": "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
+  "settings.group.hooks.mainDesc":
+    "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
   "settings.group.compaction.summary": "Суммаризация",
   "settings.group.tools.permissions": "Разрешения",
   "settings.group.memory.model": "Модель и хранилище",
@@ -1947,7 +1999,8 @@ export const messagesRu: Record<string, string> = {
   "settings.group.scheduler.jobs": "Задания",
   "settings.group.logger.main": "Настройки логирования",
   "settings.group.sessions.storage": "Хранилище",
-  "settings.group.sessions.storageDesc": "Где на машине с foxxycode хранятся бандлы сессий.",
+  "settings.group.sessions.storageDesc":
+    "Где на машине с foxxycode хранятся бандлы сессий.",
   "settings.array.backTo": "Назад: {list}",
   "settings.item.providers": "Настройки провайдера",
   "settings.item.models": "Настройки модели",
@@ -1956,31 +2009,41 @@ export const messagesRu: Record<string, string> = {
   "settings.contextWindow.fetch": "Запросить окно контекста у провайдера",
   "settings.contextWindow.reported": "{tokens}, по данным {provider}",
   "settings.contextWindow.default": "{tokens}, по умолчанию",
-  "settings.contextWindow.notReported": "{provider} не сообщает окно контекста для {id}.",
-  "settings.contextWindow.fetchError": "Не удалось получить окно контекста: {error}",
+  "settings.contextWindow.notReported":
+    "{provider} не сообщает окно контекста для {id}.",
+  "settings.contextWindow.fetchError":
+    "Не удалось получить окно контекста: {error}",
   "settings.providers.group.main": "Настройки провайдера",
   "settings.providers.group.advanced": "Расширенные настройки",
   "settings.models.group.model": "Модель",
   "settings.models.group.generation": "Генерация",
   "settings.models.group.reasoning": "Рассуждение",
   "settings.providerModels.legend": "Модели",
-  "settings.providerModels.needsNameAndType": "Укажите ID и тип провайдера, чтобы получить список его моделей.",
+  "settings.providerModels.needsNameAndType":
+    "Укажите ID и тип провайдера, чтобы получить список его моделей.",
   "settings.providerModels.none": "Провайдер не вернул моделей.",
   "settings.providerModels.fetchError": "Не удалось получить модели: {error}",
   "settings.providerModels.filterPlaceholder": "Фильтр моделей…",
   "settings.providerModels.noMatch": "Под фильтр не подходит ни одна модель.",
   "settings.providerModels.addModel": "Добавить {id} в логические модели",
-  "settings.providerModels.notAdvertised": "{id} больше не отдаётся провайдером",
+  "settings.providerModels.notAdvertised":
+    "{id} больше не отдаётся провайдером",
   "settings.providerModels.removeModel": "Убрать {id} из логических моделей",
   "settings.providerModels.contextWindow.one": "Окно контекста {tokens} токен",
   "settings.providerModels.contextWindow.few": "Окно контекста {tokens} токена",
-  "settings.providerModels.contextWindow.many": "Окно контекста {tokens} токенов",
-  "settings.providerModels.contextWindow.other": "Окно контекста {tokens} токена",
-  "settings.codexAuth.cliLoginOtherRow": "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
-  "neuralDeepApiBase.description": "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
-  "settings.neuralDeepAuth.shadowedByEnv": "На сервере FoxxyCode задана переменная окружения {env}, поэтому запросы используют её, а не этот вход. Уберите её или дайте провайдеру имя, для которого переменная не задана.",
+  "settings.providerModels.contextWindow.many":
+    "Окно контекста {tokens} токенов",
+  "settings.providerModels.contextWindow.other":
+    "Окно контекста {tokens} токена",
+  "settings.codexAuth.cliLoginOtherRow":
+    "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
+  "neuralDeepApiBase.description":
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
+  "settings.neuralDeepAuth.shadowedByEnv":
+    "На сервере FoxxyCode задана переменная окружения {env}, поэтому запросы используют её, а не этот вход. Уберите её или дайте провайдеру имя, для которого переменная не задана.",
   "subagents.settings.legend": "Настройки субагентов",
-  "subagents.settings.description": "Правила пула делегирования, то есть можно ли запускать определения, пришедшие с чекаутом, сколько запусков идёт одновременно, насколько глубоко они вкладываются и сколько времени и итераций получает один запуск, если ни определение, ни вызов их не задают.",
+  "subagents.settings.description":
+    "Правила пула делегирования, то есть можно ли запускать определения, пришедшие с чекаутом, сколько запусков идёт одновременно, насколько глубоко они вкладываются и сколько времени и итераций получает один запуск, если ни определение, ни вызов их не задают.",
   "subagents.catalog.showDeclared": "Показать заявленные ограничения",
   "subagents.catalog.hideDeclared": "Скрыть заявленные ограничения",
   "sessions.manage.legend": "Управление сессиями",
@@ -2053,7 +2116,8 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.emptyDirectory": "Пустая папка",
   "structuredTool.kindFile": "файл",
   "structuredTool.kindDir": "папка",
-  "skills.install.cliHint": "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
+  "skills.install.cliHint":
+    "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
   "skills.switch.enabledTitle": "Включён - нажмите, чтобы отключить",
   "skills.switch.disabledTitle": "Отключён - нажмите, чтобы включить",
   "skills.switch.disableAria": "Отключить {name}",
@@ -2073,7 +2137,8 @@ export const messagesRu: Record<string, string> = {
     "Заголовки по умолчанию",
   "settings.schema.tools.http_request.default_headers.desc":
     "Заголовки, которые уходят с каждым запросом, если вызов не задал их сам. Например, браузерный User-Agent для сайта, который не отдаёт файлы инструментам. Заголовки вызова важнее, пустое значение убирает заголовок. Они уходят на любой адрес, поэтому учётные данные здесь уместны только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization не принимаются, а webfetch и провайдеры моделей эти заголовки не отправляют.",
-  "settings.schema.memory.max_note_chars.label": "Предел размера заметки (символы)",
+  "settings.schema.memory.max_note_chars.label":
+    "Предел размера заметки (символы)",
   "settings.schema.memory.max_note_chars.desc":
     "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
   "settings.section.swarm.label": "Релей роя",
@@ -2111,6 +2176,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Включить CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Отвечать на кросс-доменные запросы с адресов ниже.",
+  "settings.schema.swarm.cors.allow_loopback.label":
+    "Разрешить loopback-origin",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Также допускать любую страницу с машины самого браузера — localhost, *.localhost, 127.0.0.0/8 или [::1] на любом порту, например foxxycode serve на ноутбуке, какой бы порт он ни занял. Клиентский токен по-прежнему обязателен.",
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
@@ -2266,7 +2335,8 @@ export const messagesRu: Record<string, string> = {
   "messages.artifactReveal": "Показать на сервере",
   "messages.artifactRevealFailed": "Не удалось показать файл на сервере",
   "messages.artifactCopyFailed": "Не удалось скопировать в буфер обмена",
-  "messages.artifactRevealUnavailable": "Показ на удалённом сервере или сервере без интерфейса недоступен",
+  "messages.artifactRevealUnavailable":
+    "Показ на удалённом сервере или сервере без интерфейса недоступен",
   "messages.downloadArtifact": "Скачать {fileName}",
   "messages.downloadArtifactButton": "Скачать",
   "messages.artifactDownloading": "Скачивание…",
@@ -2280,12 +2350,14 @@ export const messagesRu: Record<string, string> = {
   "markdown.figure.open": "Открыть картинку",
   "markdown.figure.rendering": "Рисую…",
   "markdown.figure.error": "Не удалось нарисовать картинку: {message}",
-  "markdown.figure.loadError": "Не удалось загрузить отрисовщик диаграмм, перезагрузите страницу",
+  "markdown.figure.loadError":
+    "Не удалось загрузить отрисовщик диаграмм, перезагрузите страницу",
   "markdown.math.label": "Формула",
   "markdown.math.copySource": "Скопировать исходник формулы",
   "markdown.math.inlineTitle": "{source} (нажмите, чтобы скопировать)",
   "settings.error.failedToLoad": "Не удалось загрузить: {error}",
-  "codexAuth.cliLoginOtherRow": "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
+  "codexAuth.cliLoginOtherRow":
+    "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
   "mcp.discovery.legend": "Обнаружение MCP",
   "mcp.discovery.projectServersLabel": "Проектные серверы",
   "mcp.switch.enabledTitle": "Включён — нажмите, чтобы отключить",
@@ -2293,7 +2365,7 @@ export const messagesRu: Record<string, string> = {
   "mcp.switch.disableAria": "Отключить MCP-сервер {name}",
   "mcp.switch.enableAria": "Включить MCP-сервер {name}",
   "mcp.discovery.description":
-    "Проектный ./.foxxycode/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме \"Спрашивать\" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.foxxycode/mcp.json ваши и никогда не блокируются.",
+    'Проектный ./.foxxycode/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме "Спрашивать" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.foxxycode/mcp.json ваши и никогда не блокируются.',
   "messages.spawnAgentPrompt": "Промпт агента",
   "messages.spawnAgentTimeout": "Таймаут {seconds} с",
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
@@ -2306,7 +2378,8 @@ export const messagesRu: Record<string, string> = {
   "mcp.delete.aria": "Удалить {name}",
   "mcp.editor.valuesHint":
     "Значения env и заголовков не показываются. {placeholder} оставляет сохранённое значение, новое значение заменяет его, а убранный ключ удаляется из записи.",
-  "subagents.trust.approveTitle": "Разрешить запуск {name} в этом рабочем пространстве",
+  "subagents.trust.approveTitle":
+    "Разрешить запуск {name} в этом рабочем пространстве",
   "subagents.trust.approvedTitle":
     "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
   "subagents.trust.approveAria": "Одобрить субагента {name}",
@@ -2324,11 +2397,13 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.scope.global": "Ваш (~/.foxxycode)",
   "skills.sources.scope.local": "Этот проект",
   "skills.sources.syncAll": "Синхронизировать все",
-  "skills.sources.syncAllTitle": "Получить все действующие источники и маркетплейсы",
+  "skills.sources.syncAllTitle":
+    "Получить все действующие источники и маркетплейсы",
   "skills.sources.completed": "Готово",
   "skills.sources.syncedTitle": "Синхронизировано",
   "skills.sources.syncTitle": "Синхронизировать {source}",
-  "skills.sources.heldSyncTitle": "Сначала одобрите его для этого рабочего пространства",
+  "skills.sources.heldSyncTitle":
+    "Сначала одобрите его для этого рабочего пространства",
   "skills.sources.deniedSyncTitle":
     "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
   "skills.sources.scope.noSessionTitle":
@@ -2343,11 +2418,14 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.origin.system": "встроенный",
   "skills.sources.origin.home": "ваш",
   "skills.sources.origin.project": "из проекта",
-  "skills.sources.trust.systemAria": "{source} встроен в FoxxyCode и всегда доверенный",
-  "skills.sources.trust.approveTitle": "Разрешить синхронизацию {source} в этом рабочем пространстве",
+  "skills.sources.trust.systemAria":
+    "{source} встроен в FoxxyCode и всегда доверенный",
+  "skills.sources.trust.approveTitle":
+    "Разрешить синхронизацию {source} в этом рабочем пространстве",
   "skills.sources.trust.approvedTitle":
     "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
-  "skills.sources.trust.approveAria": "Одобрить {source} для этого рабочего пространства",
+  "skills.sources.trust.approveAria":
+    "Одобрить {source} для этого рабочего пространства",
   "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
   "skills.sources.note.held":
     "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
@@ -2358,6 +2436,6 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.error.remove": "Не удалось удалить {source}.",
   "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
   "skills.sources.description":
-    "Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (foxxycode plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.foxxycode/marketplaces.json, записи проекта в его .foxxycode/marketplaces.json, который приходит вместе с чекаутом, и при значении \"ask\" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.foxxycode/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.",
+    'Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (foxxycode plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.foxxycode/marketplaces.json, записи проекта в его .foxxycode/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.foxxycode/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
 };
