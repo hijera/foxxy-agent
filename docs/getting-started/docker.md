@@ -47,7 +47,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 | **Published port** | **`${FOXXYCODE_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`FOXXYCODE_CWD`**) | Same |
 
-**Healthcheck** - **`foxxycode --version`** every 5s (container "healthy" once the binary responds; HTTP readiness is separate - use **`curl /v1/models`** after **`up`**).
+The image and both Compose files run **`foxxycode --version`** as a health check every 5 seconds. The probe also works in modes without an HTTP listener. For HTTP readiness, check **`/v1/models`** separately.
 
 **Logging** - **`json-file`** driver with **`max-size: 100k`** per file to avoid unbounded log growth on long-lived hosts.
 
@@ -60,6 +60,8 @@ Bind mounts (override host paths with env vars before **`up`**):
 | **`./config.yaml`** | **`/home/user/.foxxycode/config.yaml`** (read-only) | **`FOXXYCODE_CONFIG`** |
 | **`./workspace`** | **`/workspace`** | **`FOXXYCODE_CWD`** |
 | **`./foxxycode_home`** | **`/home/user/.foxxycode`** | **`FOXXYCODE_HOME`** |
+
+The image runs as UID and GID **`10001:10001`**. It needs write access to the workspace and state directories and read access to the mounted config. Bind mounts use the host files' permissions, so prepare the directories before starting Compose. On a Linux host without user namespace remapping, you can give the runtime user ownership of dedicated mounts with **`sudo chown -R 10001:10001 ./workspace ./foxxycode_home`**. When upgrading from an older image, include existing state files written by root. For a shared checkout, grant the runtime UID access through an ACL or set Compose's **`user`** to the non-root UID and GID that already own the mounts.
 
 Fixed inside the container (set by compose **`environment`**):
 
@@ -248,7 +250,7 @@ Volume and environment details for Compose are in [Docker Compose](#docker-compo
 
 1. **`ui-builder` (Node)** - runs **`npm ci`** and **`npm run build:go`** under **`external/ui`**, producing the static bundle copied into the Go tree for **`go:embed`** when **`ui`** is in **`BUILD_TAGS`**.
 2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`GOOS`/`GOARCH`** from BuildKit **`TARGETOS`/`TARGETARCH`** (CI builds **`linux/amd64`** and **`linux/arm64`**), **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/foxxycode`**, copies **`ca-certificates.crt`** for HTTPS clients.
-3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/foxxycode`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`**.
+3. **`scratch`** ships the binary, CA bundle, runtime account and directories. It runs as **`10001:10001`** with **`/bin/foxxycode`** as the entrypoint and **`serve -H 0.0.0.0 -P 12345`** as the default command.
 
 ## Automated smoke test
 

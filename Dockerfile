@@ -71,19 +71,34 @@ RUN mkdir -p /out \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
 
+# Prepare the runtime filesystem in the builder because scratch has no shell.
+RUN install -d /out/runtime/system/etc \
+	/out/runtime/writable/home/user/.foxxycode \
+	/out/runtime/writable/workspace \
+	&& install -d -m 1777 /out/runtime/system/tmp \
+	&& printf 'foxxycode:x:10001:10001:FoxxyCode:/home/user:/sbin/nologin\n' > /out/runtime/system/etc/passwd \
+	&& printf 'foxxycode:x:10001:\n' > /out/runtime/system/etc/group
+
 
 FROM scratch
 
 COPY --from=build /out/foxxycode /bin/foxxycode
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/runtime/system/ /
+COPY --from=build --chown=10001:10001 /out/runtime/writable/ /
 
 WORKDIR /workspace
 
+ENV HOME=/home/user
 ENV FOXXYCODE_HOME=/home/user/.foxxycode
 ENV FOXXYCODE_CWD=/workspace
 ENV FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml
 
 EXPOSE 12345
+
+USER 10001:10001
+# The image can run modes without an HTTP listener, including gateway.
+HEALTHCHECK --interval=5s --timeout=3s --retries=20 CMD ["/bin/foxxycode", "--version"]
 
 ENTRYPOINT ["/bin/foxxycode"]
 # Default subcommand. `serve` starts every subsystem the mounted config.yaml enables -
