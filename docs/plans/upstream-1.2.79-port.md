@@ -62,7 +62,7 @@ captures come from real FoxxyCode components on an isolated local stand.
   `make site-schema-check` and source diff checks pass. Embedded content-hashed
   renderer chunks are included.
 - `GOFLAGS='-count=1 -p=2 -timeout=20m' make test` passes all 377 SPA files /
-  3,770 tests and the complete shipped-tag Go tree. `make lint`, full
+  3,776 tests and the complete shipped-tag Go tree. `make lint`, full
   `make docs-check`, `npm run test:layout`, the complete English/Russian phone
   overflow grid, both editor changelog suites and all 185 VS Code tests pass.
 
