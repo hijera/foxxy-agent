@@ -76,9 +76,8 @@ if [ "$lint" = "1" ]; then
 fi
 
 # --- format: Prettier over the SPA sources the commit stages ---
-# The working-tree copy of each staged file is checked, as the linter checks
-# the working tree. node_modules comes from `make ui-deps` when the lint stage
-# above did not install it already.
+# Read each blob from the index so partial staging checks what will be
+# committed. node_modules comes from `make ui-deps` when lint did not install it.
 format="${FOXXYCODE_HOOK_FORMAT:-1}"
 format_ran=0
 if [ "$format" = "1" ]; then
@@ -91,7 +90,7 @@ if [ "$format" = "1" ]; then
       external/ui/*.ts | external/ui/*.tsx | external/ui/*.js | external/ui/*.jsx | \
       external/ui/*.mjs | external/ui/*.cjs | external/ui/*.css | external/ui/*.json | \
       external/ui/*.html)
-        [ -f "$f" ] && fmt_files+=("${f#external/ui/}") ;;
+        fmt_files+=("$f") ;;
     esac
   done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
   if [ "${#fmt_files[@]}" -gt 0 ]; then
@@ -102,10 +101,12 @@ if [ "$format" = "1" ]; then
     fi
     if [ -x "$prettier" ]; then
       log "format: prettier --check (${#fmt_files[@]} staged SPA file(s))"
-      if ! (cd external/ui && ./node_modules/.bin/prettier --check "${fmt_files[@]}"); then
-        status=1
-        log "format: run 'cd external/ui && npx prettier --write <file>...' for the files above, then re-stage"
-      fi
+      for f in "${fmt_files[@]}"; do
+        if ! git show ":$f" | (cd external/ui && ./node_modules/.bin/prettier --check --stdin-filepath "${f#external/ui/}"); then
+          status=1
+          log "format: $f (staged content); format the file and stage the correction"
+        fi
+      done
     else
       status=1
       log "format: prettier not found in external/ui/node_modules"

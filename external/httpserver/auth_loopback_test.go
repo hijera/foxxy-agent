@@ -9,6 +9,7 @@ package httpserver
 // routes are open without a credential to that same client and to nobody else.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -132,6 +133,12 @@ func TestIsDirectLoopbackClient(t *testing.T) {
 		{"ipv6 peer and host", "[::1]:50000", "[::1]:12345", nil, true},
 		{"localhost host without a port", "127.0.0.1:50000", "localhost", nil, true},
 		{"Host names are compared without case", "127.0.0.1:50000", "LocalHost:12345", nil, true},
+		{"same-origin browser client", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "http://127.0.0.1:12345", "Sec-Fetch-Site": "same-origin"}, true},
+		{"browser navigation from the address bar", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Sec-Fetch-Site": "none"}, true},
+		{"another loopback port", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "http://127.0.0.1:5173"}, false},
+		{"same site without an origin header", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Sec-Fetch-Site": "same-site"}, false},
+		{"opaque origin", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "null"}, false},
+		{"another scheme", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "https://127.0.0.1:12345"}, false},
 		{"a peer on the network", "192.168.1.20:50000", "127.0.0.1:12345", nil, false},
 		{"a name that resolves to loopback (DNS rebinding)", "127.0.0.1:50000", "attacker.example:12345", nil, false},
 		{"a lookalike name", "127.0.0.1:50000", "127.0.0.1.nip.io:12345", nil, false},
@@ -151,6 +158,50 @@ func TestIsDirectLoopbackClient(t *testing.T) {
 			}
 			if got := isDirectLoopbackClient(r); got != tc.want {
 				t.Fatalf("isDirectLoopbackClient(peer %s, host %s, %v) = %v, want %v", tc.remote, tc.host, tc.headers, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPDryRunWarnsAboutOpenCORS(t *testing.T) {
+	for _, tc := range []struct {
+		name, extraConfig, token, dotenv string
+		warn                             bool
+	}{
+		{name: "open", warn: true},
+		{name: "bearer flag", token: "test-token"},
+		{name: "bearer in config", extraConfig: "  auth_token: test-token\n"},
+		{name: "bearer in dotenv", dotenv: TokenEnvVar + "=test-token\n"},
+		{name: "account in dotenv", extraConfig: "  login:\n    enable: true\n", dotenv: LoginUserEnvVar + "=test-user\n" + LoginPasswordEnvVar + "=test-password\n"},
+		{name: "insecure by choice", extraConfig: "  allow_insecure: true\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(TokenEnvVar, "")
+			t.Setenv(LoginUserEnvVar, "")
+			t.Setenv(LoginPasswordEnvVar, "")
+			home := t.TempDir()
+			if tc.dotenv != "" {
+				for _, key := range []string{TokenEnvVar, LoginUserEnvVar, LoginPasswordEnvVar} {
+					if err := os.Unsetenv(key); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(home, ".env"), []byte(tc.dotenv), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfgPath := filepath.Join(home, "config.yaml")
+			body := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n" + tc.extraConfig
+			if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var report bytes.Buffer
+			args := []string{"--dry-run", "--home", home, "--cwd", home, "--config", cfgPath, "-H", "127.0.0.1", "-P", "0", "--auth-token", tc.token}
+			if err := Run(args, CommandDeps{CheckOutput: &report}); err != nil {
+				t.Fatalf("http --dry-run: %v\n%s", err, report.String())
+			}
+			if got := strings.Contains(report.String(), "CORS admits"); got != tc.warn {
+				t.Fatalf("CORS warning present = %t, want %t\n%s", got, tc.warn, report.String())
 			}
 		})
 	}

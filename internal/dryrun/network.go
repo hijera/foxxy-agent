@@ -245,7 +245,7 @@ func (r *runner) corsOpen() {
 // as its Mini App: the web UI of this process asks for no sign-in.
 func (r *runner) miniApp() {
 	tg := &r.req.Cfg.Gateways.Telegram
-	if !tg.Enabled || strings.TrimSpace(tg.MiniApp.URL) == "" || !r.req.WebUIOpen {
+	if r.req.Surface == SurfaceHTTP || !tg.Enabled || strings.TrimSpace(tg.MiniApp.URL) == "" || !r.req.WebUIOpen {
 		return
 	}
 	const path = "gateways.telegram.mini_app"

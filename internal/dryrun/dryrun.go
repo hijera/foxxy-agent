@@ -66,8 +66,8 @@ type Request struct {
 	Remote *remote.Options
 	// WebUIOpen says the web UI of this process would be served with no
 	// credentials - no sign-in, no token from the file, a flag or the
-	// environment - and without httpserver.allow_insecure; serve fills it. The
-	// Telegram bot does not advertise such a web UI as its Mini App.
+	// environment - and without httpserver.allow_insecure. Both HTTP entrypoints
+	// fill it. In serve, the Telegram bot does not advertise such a web UI.
 	WebUIOpen bool
 	// Timeout bounds each network probe; zero means defaultTimeout.
 	Timeout time.Duration

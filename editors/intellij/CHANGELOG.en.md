@@ -9,6 +9,8 @@
 
 ## Unreleased — 2026-11-22
 
+**Local API access.** Cross-origin browser requests require authentication on `foxxycode http`. The IDE panel keeps its access from its own origin.
+
 **Edits window actions.** Clicking a filename keeps you in the preview. The file's ⋮ menu offers Open in IDE and Copy path. The review opens without an IDE notification. The window starts with its previews folded and loads each diff when opened. Open Edits expanded in Appearance starts in the larger window and opens the first preview.
 
 **Composer alignment.** Pasting long text no longer separates the caret from the last visible character when lines wrap.
