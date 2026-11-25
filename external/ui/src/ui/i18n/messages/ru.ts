@@ -564,6 +564,8 @@ export const messagesRu: Record<string, string> = {
   "appearance.editsPresentation.label": "Показ правок",
   "appearance.editsPresentation.workspace": "Счётчик над полем ввода",
   "appearance.editsPresentation.card": "Карточка файлов под перепиской",
+  "appearance.editsStartExpanded": "Открывать окно правок развёрнутым",
+  "appearance.editsStartExpanded.help": "При открытии увеличивает окно и показывает дифф первого файла. По умолчанию предпросмотры свёрнуты.",
   "appearance.effects.label": "Анимации и прозрачность",
   "appearance.effects.description":
     "Прыгающие точки, переливы заголовков и полупрозрачные панели с размытием, во всех клиентах. В панели IntelliJ по умолчанию выключены: там каждый их кадр копируется в окно IDE и тормозит её, особенно без GPU.",
@@ -1800,6 +1802,8 @@ export const messagesRu: Record<string, string> = {
   "changes.viewer.filterFiles": "Фильтр изменённых файлов",
   "changes.viewer.copyPath": "Скопировать путь",
   "changes.viewer.copied": "Путь скопирован",
+  "changes.viewer.fileActions": "Действия с файлом {name}",
+  "changes.viewer.openInIde": "Посмотреть в IDE",
   "changes.viewer.loadingFile": "Загрузка различий...",
   "changes.viewer.noMatches": "Нет подходящих файлов",
   "changes.viewer.noVcs": "Для просмотра правок нужна рабочая копия Git или Subversion.",

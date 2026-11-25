@@ -95,7 +95,11 @@ func TestWebUISessionViewsFeature(t *testing.T) {
 			"Ctrl+Shift+F opens the files window, and closes it"},
 		{`^a saved classic preference opens the current layout$`, "src/ui/chat/Composer.test.tsx", "a saved classic preference opens the current layout"},
 		{`^a card file opens just its diff in the drawer$`, "src/ui/changes/EditsView.test.tsx", "a card file opens just its diff in the drawer"},
-		{`^a diff click in an editor requests the native diff$`, "src/ui/changes/EditsView.test.tsx", "a diff click in an editor requests the native diff"},
+		{`^an SVN working copy loads only the requested file preview$`, "src/ui/changes/EditsView.test.tsx", "an SVN working copy shows the same file and patch as a Git working copy"},
+		{`^file names stay in Edits and Open in IDE requests the native diff in vscode$`, "src/ui/changes/EditsView.test.tsx", "file names stay in Edits and Open in IDE requests the native diff in vscode"},
+		{`^file names stay in Edits and Open in IDE requests the native diff in intellij$`, "src/ui/changes/EditsView.test.tsx", "file names stay in Edits and Open in IDE requests the native diff in intellij"},
+		{`^the file menu copies the path and Escape returns focus to the trigger$`, "src/ui/changes/EditsView.test.tsx", "the file menu copies the path and Escape returns focus to the trigger"},
+		{`^Edits opens at its regular size unless Appearance opts into starting expanded$`, "src/ui/changes/EditsView.test.tsx", "Edits opens at its regular size unless Appearance opts into starting expanded"},
 		{`^accept keeps the reviewed version and restores the buttons when the file changes$`, "src/ui/changes/EditsView.test.tsx", "accept keeps the reviewed version and restores the buttons when the file changes"},
 	}
 	suite := godog.TestSuite{

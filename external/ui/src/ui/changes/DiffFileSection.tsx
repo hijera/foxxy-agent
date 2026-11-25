@@ -1,6 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
+import { copyText } from "../clipboard";
+import { IconMore } from "../files/windowIcons";
+import { SessionRowMenu } from "../sessions/SessionRowMenu";
+import type { SessionRowMenuItem } from "../sessions/SessionRowMenu";
 import { parseDiffPatch } from "../messages/parseDiff";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import { toSplitRows, toUnifiedRows } from "./diffRows";
@@ -148,6 +152,8 @@ export function DiffFileSection(props: {
 }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
   const file = props.file;
   const dir = dirName(file.path);
   const rejectTitle = t(file.status === "added" ? "changes.review.rejectAddedTitle" : "changes.discardFileTitle", {
@@ -185,17 +191,31 @@ export function DiffFileSection(props: {
       : { unified: toUnifiedRows(parsed.hunks) };
   }, [parsed, props.view]);
 
-  const copyPath = () => {
-    void navigator.clipboard
-      .writeText(file.path)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {
-        /* clipboard denied; the path is still selectable in the header */
-      });
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(false), 1200);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
+
+  const closeMenu = () => {
+    setMenuAnchor(null);
+    moreRef.current?.focus({ preventScroll: true });
   };
+  const menuLabel = t("changes.viewer.fileActions", { name: file.path });
+  const menuItems: SessionRowMenuItem[] = [{
+    key: "copy",
+    label: t("changes.viewer.copyPath"),
+    testId: `dv-copy-${file.path}`,
+    onPick: () => void copyText(file.path).then(setCopied),
+  }];
+  if (props.onOpenNative) {
+    menuItems.push({
+      key: "open-in-ide",
+      label: t("changes.viewer.openInIde"),
+      testId: `dv-menu-open-in-ide-${file.path}`,
+      onPick: props.onOpenNative,
+    });
+  }
 
   return (
     <div
@@ -209,7 +229,7 @@ export function DiffFileSection(props: {
           className="dv-file-title"
           aria-expanded={!props.collapsed}
           data-testid={`dv-file-toggle-${file.path}`}
-          onClick={props.onOpenNative ?? props.onToggle}
+          onClick={props.onToggle}
           title={`${file.path} (${t(statusKey(file.status))})`}
         >
           <Chevron open={!props.collapsed} />
@@ -220,27 +240,21 @@ export function DiffFileSection(props: {
         </button>
 
         <span className="dv-file-actions">
-          {props.onOpenNative ? (
-            <button
-              type="button"
-              className="dv-icon-btn"
-              aria-label={t(props.collapsed ? "changes.viewer.expandAll" : "changes.viewer.collapseAll")}
-              onClick={props.onToggle}
-            >
-              <Chevron open={!props.collapsed} />
-            </button>
-          ) : null}
           <button
+            ref={moreRef}
             type="button"
             className="dv-icon-btn"
-            title={
-              copied ? t("changes.viewer.copied") : t("changes.viewer.copyPath")
-            }
-            aria-label={t("changes.viewer.copyPath")}
-            data-testid={`dv-copy-${file.path}`}
-            onClick={copyPath}
+            title={copied ? t("changes.viewer.copied") : menuLabel}
+            aria-label={menuLabel}
+            aria-haspopup="menu"
+            aria-expanded={menuAnchor !== null}
+            data-testid={`dv-more-${file.path}`}
+            onClick={(event) => {
+              const anchor = event.currentTarget.getBoundingClientRect();
+              setMenuAnchor((current) => current ? null : anchor);
+            }}
           >
-            {copied ? "✓" : "⧉"}
+            {copied ? <ReviewCheck /> : <IconMore />}
           </button>
           {props.accepted ? (
             <span className="dv-review-state" title={t("changes.review.accepted")}>
@@ -290,6 +304,16 @@ export function DiffFileSection(props: {
           </span>
         )}
       </div>
+
+      <SessionRowMenu
+        open={menuAnchor !== null}
+        anchor={menuAnchor}
+        items={menuItems}
+        ariaLabel={menuLabel}
+        onClose={closeMenu}
+        className="dv-file-menu"
+        focusFirst
+      />
 
       {props.collapsed ? null : (
         <div className="dv-file-body">

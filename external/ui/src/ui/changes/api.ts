@@ -81,10 +81,11 @@ export async function fetchSessionChanges(
 export async function fetchSessionChangeFile(
   sessionId: string,
   path: string,
+  signal?: AbortSignal,
 ): Promise<ChangesApiResult<SessionChangeDetail>> {
   const res = await request(
     `${basePath(sessionId)}/file?path=${encodeURIComponent(path)}`,
-    { headers: headers(sessionId) },
+    { headers: headers(sessionId), ...(signal ? { signal } : {}) },
   );
   return res ? parseJson<SessionChangeDetail>(res) : offline();
 }

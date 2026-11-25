@@ -12875,6 +12875,10 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   margin-top: 22px;
 }
 
+.appearance-edits-expanded-field {
+  margin-block: 10px 8px;
+}
+
 .appearance-language-select-wrap {
   position: relative;
 }
@@ -17790,6 +17794,21 @@ html:not([data-theme="light"]) .context-breakdown-error {
   color: var(--text);
 }
 
+.dv-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.dv-icon-btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.dv-file-menu {
+  background: var(--bg);
+}
+
 .dv-icon-btn--danger:hover:not(:disabled) {
   color: var(--diff-del-no);
 }
@@ -18006,6 +18025,12 @@ html:not([data-theme="light"]) .context-breakdown-error {
   width: 13px;
   height: 13px;
   flex: none;
+}
+
+@media (min-width: 600px) and (max-width: 720px) {
+  .edits-window:not(.changes-panel) .files-layout.has-tree {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 720px) {

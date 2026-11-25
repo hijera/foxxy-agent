@@ -1321,7 +1321,9 @@ async function scenarioShots() {
   });
   await both("session-changes-review-window", async () => {
     await d.page.getByTestId("workspace-bar-edits").click();
-    await d.page.getByTestId("edits-view").locator(".dv-file-body").first().waitFor({ timeout: 15000 });
+    const edits = d.page.getByTestId("edits-view");
+    await edits.locator(".dv-file-title").first().click({ timeout: 15000 });
+    await edits.locator(".dv-file-body").first().waitFor({ timeout: 15000 });
     await d.page.mouse.move(5, 5);
   });
   await both("background-tasks-dock", async () => {
@@ -1517,19 +1519,19 @@ async function scenarioManyEdits(sid) {
     }
   }
   const m = await openPage();
-  // Every patch arrives late, so the pick below is made while the diffs above
-  // and below the file are still loading: the file has to stay where the pick
-  // put it as they land (a slow CI runner caught it short of its place).
+  const requested = [];
   await m.page.route("**/changes/file**", async (route) => {
+    requested.push(new URL(route.request().url()).searchParams.get("path"));
     await new Promise((r) => setTimeout(r, 400));
     await route.continue();
   });
   await m.page.goto(`${RELAY}/#/s/${sid}/changes`);
   const edits = m.page.getByTestId("edits-view");
-  const target = "pkg/web/helper4.go";
+  const target = "pkg/store/helper1.go";
   await edits.getByTestId(`edits-tree-file-${target}`).waitFor({ timeout: 15000 });
-  const loadingAtPick = await edits.locator(".dv-file-body .dv-note", { hasText: "Loading the diff" }).count();
+  check("opening Edits leaves all file previews closed", requested.length === 0 && (await edits.locator(".dv-file-body").count()) === 0);
   await edits.getByTestId(`edits-tree-file-${target}`).click();
+  await edits.getByTestId(`dv-file-${target}`).locator(".dv-code").first().waitFor({ timeout: 15000 });
   const place = () =>
     edits.evaluate((el, target) => {
       const scroller = el.querySelector(".dv-scroll").getBoundingClientRect();
@@ -1541,17 +1543,17 @@ async function scenarioManyEdits(sid) {
         loading: [...el.querySelectorAll(".dv-file-body .dv-note")].filter((n) => n.textContent.startsWith("Loading the diff")).length,
       };
     }, target);
-  // Settled: every patch in, and the file where the pick put it.
+  // The requested patch stays where the pick put it.
   let jumped = await place();
   for (let i = 0; i < 60 && (jumped.loading > 0 || Math.abs(jumped.gap - 10) > 1); i++) {
     await m.page.waitForTimeout(250);
     jumped = await place();
   }
   check(
-    "with many files a pick made while the diffs load scrolls to the file and keeps it 10px under their top, the window still",
+    "with many files a pick loads only its preview and keeps it 10px under the top",
     // WebKit scrolls by whole pixels, so a card on a fractional offset lands a pixel off.
-    loadingAtPick > 0 && jumped.loading === 0 && jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
-    JSON.stringify({ loadingAtPick, ...jumped }),
+    requested.length === 1 && requested[0] === target && jumped.loading === 0 && jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
+    JSON.stringify({ requested, ...jumped }),
   );
   await edits.locator(".dv-scroll").evaluate((el) => (el.scrollTop = el.scrollHeight));
   await m.page.waitForTimeout(400);

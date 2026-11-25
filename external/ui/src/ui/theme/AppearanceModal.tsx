@@ -22,6 +22,7 @@ import {
 } from "./uiEffects";
 import { SwitchField } from "../settings/SwitchField";
 import { setEditsPresentation, useEditsPresentation } from "../changes/editsPresentation";
+import { readEditsStartExpanded, writeEditsStartExpanded } from "../changes/diffViewPrefs";
 
 function subscribeTheme(onStoreChange: () => void): () => void {
   const obs = new MutationObserver(onStoreChange);
@@ -252,6 +253,7 @@ export function AppearanceThemePicker(props: {
       </div>
       <AppearanceLanguagePicker doc={props.doc} setDoc={props.setDoc} />
       <EditsPresentationPicker />
+      <EditsStartExpandedSwitch />
       <AppearanceEffectsSwitch doc={props.doc} setDoc={props.setDoc} />
     </div>
   );
@@ -279,6 +281,25 @@ function EditsPresentationPicker() {
         </select>
       </div>
     </div>
+  );
+}
+
+function EditsStartExpandedSwitch() {
+  const { t } = useT();
+  const [expanded, setExpanded] = useState(readEditsStartExpanded);
+
+  return (
+    <SwitchField
+      className="appearance-edits-expanded-field"
+      dataTestId="appearance-edits-start-expanded"
+      checked={expanded}
+      label={t("appearance.editsStartExpanded")}
+      description={t("appearance.editsStartExpanded.help")}
+      onChange={(next) => {
+        writeEditsStartExpanded(next);
+        setExpanded(next);
+      }}
+    />
   );
 }
 

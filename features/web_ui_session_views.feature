@@ -61,5 +61,9 @@ Feature: The views of a chat
 
   Scenario: Edits can be reviewed from an IDE
     Then a card file opens just its diff in the drawer
-    And a diff click in an editor requests the native diff
+    And an SVN working copy loads only the requested file preview
+    And file names stay in Edits and Open in IDE requests the native diff in vscode
+    And file names stay in Edits and Open in IDE requests the native diff in intellij
+    And the file menu copies the path and Escape returns focus to the trigger
+    And Edits opens at its regular size unless Appearance opts into starting expanded
     And accept keeps the reviewed version and restores the buttons when the file changes

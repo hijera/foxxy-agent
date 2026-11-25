@@ -350,7 +350,7 @@ Component thresholds decide a component's own layout from the width it gets, not
 | Threshold | Component | Why it is its own |
 | --- | --- | --- |
 | **`min-width: 640px`** | plan document card head | the title and the actions sit side by side only once the card is wide enough for both |
-| **`max-width: 720px`** | file review actions in Edits | the file tree shares a narrow IDE panel with the diff, and icon buttons leave room for the filename |
+| **`max-width: 720px`** | file review actions in Edits | icon review buttons leave room for the filename. From `min-width: 600px` the narrower tree shares the panel |
 | **`min-width: 761px`** | desktop rail pill | the rail's track (**`--rail-pill-track`**) and its **44px** hit icons; it predates the grid and also reaches the tablet top bar from 761px |
 | **`max-width: 1279px`** | documentation outline | the reader's third column (**On this page**) needs **1280px** |
 | **`min-width: 900px`** | documentation outline on a tablet | on the stacked shell **On this page** stands beside the page once the page keeps at least about 600px next to it; below, it folds into a button above the page |
@@ -1345,4 +1345,4 @@ The Context popover offers manual compaction independently of `compaction.auto_e
 
 The environment switcher sits in the rail and Background tasks sits in the chat header. The browser also shows Files in the header. The bar above the composer offers workspace picks before the first turn. After the chat starts, it names the workspace and its branch and opens Edits from the working copy counts. Appearance can move the changes to a card below the transcript with a file list, totals, Review and Discard all. Ctrl+S or Cmd+S toggles the card in that mode.
 
-The working copy counts open Edits in the shared glass window with an expand action. In card mode, Review opens that window expanded. A file row opens a side drawer with a file list above the selected diff, or hands off to a connected local IDE. The Edits file header contains the native diff entry when hosted in a local editor and takes review decisions per file revision.
+The working copy counts and the card's Review button open Edits at its regular size with all diff bodies folded. **Open Edits expanded** under Appearance chooses the larger starting size and opens the first preview. The expand action changes the size for the current opening. Selecting a file on the card or in the tree opens its preview. A file header toggles its own preview, and the window menu can expand all diffs. Only open previews fetch their patches. The file header's **⋮** menu holds **Copy path** and, in a connected local editor, **Open in IDE** for text diffs. **Open in IDE** opens the native review without an information notification. Accept and Reject work per file revision.

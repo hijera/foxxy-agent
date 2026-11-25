@@ -536,6 +536,8 @@ export const messagesEn: Record<string, string> = {
   "appearance.editsPresentation.label": "Show changes",
   "appearance.editsPresentation.workspace": "Count above the composer",
   "appearance.editsPresentation.card": "Changed-files card below the transcript",
+  "appearance.editsStartExpanded": "Open Edits expanded",
+  "appearance.editsStartExpanded.help": "Start in the larger window and show the first file’s diff. By default, file previews are folded.",
   "appearance.effects.label": "Animations and translucency",
   "appearance.effects.description":
     "Bouncing dots, shimmering titles and translucent blurred panels, in every client. In the IntelliJ panel they start switched off: every frame of them is copied into the IDE window, which slows the IDE down, especially without a GPU.",
@@ -1742,6 +1744,8 @@ export const messagesEn: Record<string, string> = {
   "changes.viewer.filterFiles": "Filter changed files",
   "changes.viewer.copyPath": "Copy path",
   "changes.viewer.copied": "Path copied",
+  "changes.viewer.fileActions": "File actions for {name}",
+  "changes.viewer.openInIde": "Open in IDE",
   "changes.viewer.loadingFile": "Loading the diff...",
   "changes.viewer.noMatches": "No file matches",
   "changes.viewer.noVcs": "Edits requires a Git or Subversion working copy.",

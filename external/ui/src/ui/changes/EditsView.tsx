@@ -26,6 +26,7 @@ import { DiffFileSection } from "./DiffFileSection";
 import { EditsTree } from "./EditsTree";
 import {
   readDiffViewCookie,
+  readEditsStartExpanded,
   writeDiffViewCookie,
 } from "./diffViewPrefs";
 import type { DiffView } from "./diffViewPrefs";
@@ -37,87 +38,89 @@ import type { ChangedFile } from "./types";
 import { useDiscard } from "./useDiscard";
 import { useWorkingCopy } from "./workingCopy";
 
-/** How many patches are in flight at once. Enough to fill a screen quickly
- *  without opening a request per file in a large change set. */
+/** Bound request concurrency when the user explicitly expands several diffs. */
 const PATCH_CONCURRENCY = 4;
 
 interface PatchState {
+  key: string | ChangedFile[];
   patch?: string;
   error?: string;
   truncated?: boolean;
   revision?: string;
 }
 
-/**
- * Loads each file patch in the background, a few at a time.
- *
- * The list call deliberately carries no patches, so the window can render its
- * file rows and counts immediately; the bodies fill in behind that. Fetching
- * per file also means one enormous file cannot hold up the rest. Every new
- * report of git reads every patch again - the same counts do not mean the same
- * lines - while the patch already on screen stays until its successor lands,
- * so a re-read does not blank the window. A failed read is never kept.
- */
+interface PatchRequest {
+  key: PatchState["key"];
+  controller: AbortController;
+  result?: PatchState;
+}
+
+/** Loads only open text diffs and keeps the last patch visible during a refresh. */
 function usePatches(
   sessionId: string,
   files: ChangedFile[],
+  report: ChangedFile[],
 ): Map<string, PatchState> {
-  const [patches, setPatches] = useState<Map<string, PatchState>>(new Map());
-  const patchesRef = useRef(patches);
-  patchesRef.current = patches;
+  const [patches, setPatches] = useState(() => new Map<string, PatchState>());
+  const requests = useRef(new Map<string, PatchRequest>());
 
   useEffect(() => {
-    const listed = new Set(files.map((f) => f.path));
-    const kept = new Map<string, PatchState>();
-    for (const [path, state] of patchesRef.current) {
-      if (listed.has(path) && !state.error) {
-        kept.set(path, state);
+    const pending = requests.current;
+    return () => {
+      for (const request of pending.values()) request.controller.abort();
+      pending.clear();
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const wanted = new Map<string, PatchState["key"]>();
+    if (sessionId.trim()) {
+      for (const file of files) {
+        if (!file.binary) wanted.set(file.path, file.revision || report);
       }
     }
-    setPatches(kept);
-    if (!sessionId.trim()) {
-      return;
+    const pending = requests.current;
+    for (const [path, request] of pending) {
+      if (wanted.get(path) !== request.key) {
+        request.controller.abort();
+        pending.delete(path);
+      } else if (request.result && request.result === patches.get(path)) {
+        pending.delete(path);
+      }
     }
-    const queue = files.filter((f) => !f.binary).map((f) => f.path);
-    let cancelled = false;
-    let next = 0;
-
-    const worker = async () => {
-      for (;;) {
-        const index = next;
-        next += 1;
-        if (cancelled || index >= queue.length) {
-          return;
-        }
-        const path = queue[index]!;
-        const res = await fetchSessionChangeFile(sessionId, path);
-        if (cancelled) {
-          return;
-        }
+    if ([...patches.keys()].some((path) => !wanted.has(path))) {
+      setPatches((prev) => new Map([...prev].filter(([path]) => wanted.has(path))));
+    }
+    for (const [path, key] of wanted) {
+      if (pending.size >= PATCH_CONCURRENCY) break;
+      const previous = patches.get(path);
+      const upToDate = previous?.error
+        ? previous.key === report
+        : previous?.key === key || (typeof key === "string" && previous?.revision === key);
+      if (upToDate || pending.has(path)) continue;
+      const controller = new AbortController();
+      const request: PatchRequest = { key, controller };
+      pending.set(path, request);
+      void fetchSessionChangeFile(sessionId, path, controller.signal).then((res) => {
+        if (controller.signal.aborted) return;
+        const result: PatchState = res.ok
+          ? {
+              key,
+              patch: res.data.patch,
+              truncated: res.data.truncated,
+              ...(res.data.revision ? { revision: res.data.revision } : {}),
+            }
+          : { key: report, error: res.message };
+        // Keep the request registered until its result reaches the render.
+        request.result = result;
         setPatches((prev) => {
           const copy = new Map(prev);
-          copy.set(
-            path,
-            res.ok
-              ? {
-                  patch: res.data.patch,
-                  truncated: res.data.truncated,
-                  ...(res.data.revision ? { revision: res.data.revision } : {}),
-                }
-              : { error: res.message },
-          );
+          copy.set(path, result);
           return copy;
         });
-      }
-    };
-
-    for (let i = 0; i < Math.min(PATCH_CONCURRENCY, queue.length); i++) {
-      void worker();
+      });
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, files]);
+  }, [sessionId, files, report, patches]);
 
   return patches;
 }
@@ -159,8 +162,8 @@ const ON_SHOW_SLACK_PX = 24;
 const JUMP_GAP_PX = 10;
 
 /**
- * The edits window: every diff of the folder's uncommitted changes in one
- * scrollable document, the one view of the edits. Framed and headed the way
+ * The edits window: file headers and requested diffs in one scrollable
+ * document. Framed and headed the way
  * the Files window is (files/FilesView.tsx): the same sheet beside the rail,
  * the tree switch and the title on the left, the menu, the expand button and
  * the close button on the right, the tree of the changed files - and only
@@ -172,25 +175,29 @@ export function EditsView(props: {
   /** The chat's workspace folder, named under the title. */
   workspacePath?: string;
   initialPath?: string;
-  fullScreen?: boolean;
+  cardReview?: boolean;
   onClose: () => void;
 }) {
   const { t, tp } = useT();
   const { sessionId, onClose } = props;
   const workspacePath = props.workspacePath || "";
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [openedPaths, setOpenedPaths] = useState<Set<string> | null>(null);
   // Read as the window opens rather than at module load, so a choice made in
   // another tab is picked up.
   const [view, setView] = useState<DiffView>(readDiffViewCookie);
   // A phone opens on the diffs; the tree switch brings the list over them.
   const [treeOpen, setTreeOpen] = useState(() => !onPhone());
-  const [expandedWindow, setExpandedWindow] = useState(props.fullScreen === true);
+  const [startExpanded] = useState(readEditsStartExpanded);
+  const [expandedWindow, setExpandedWindow] = useState(startExpanded);
   const drawer = !!props.initialPath && !expandedWindow;
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState(props.initialPath || "");
   // A file picked in the tree, scrolled to once the diffs are on screen (on a
   // phone the tree gives way to them first).
-  const [jump, setJump] = useState<{ path: string; seq: number } | null>(null);
+  const [jump, setJump] = useState<{ path: string } | null>(() =>
+    props.initialPath ? { path: props.initialPath } : null,
+  );
+  const completedJump = useRef<typeof jump>(null);
 
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -269,7 +276,14 @@ export function EditsView(props: {
     () => drawer ? files.filter((file) => file.path === onShow) : files,
     [drawer, files, onShow],
   );
-  const patches = usePatches(sessionId, shownFiles);
+  const firstPath = props.initialPath || (startExpanded ? files[0]?.path : undefined);
+  const initialPaths = useMemo(() => new Set(firstPath ? [firstPath] : []), [firstPath]);
+  const openPaths = openedPaths ?? initialPaths;
+  const openFiles = useMemo(
+    () => shownFiles.filter((file) => openPaths.has(file.path)),
+    [shownFiles, openPaths],
+  );
+  const patches = usePatches(sessionId, openFiles, changes.files);
 
   const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -282,19 +296,18 @@ export function EditsView(props: {
   const pick = (path: string) => {
     pickedRef.current = path;
     setActive(path);
+    setOpenedPaths((prev) => {
+      const current = prev ?? initialPaths;
+      return current.size === 1 && current.has(path) ? prev : new Set([path]);
+    });
     if (onPhone()) setTreeOpen(false);
-    setJump((prev) => ({ path, seq: (prev?.seq ?? 0) + 1 }));
+    setJump({ path });
   };
 
-  const pickFile = (path: string) => {
-    if (nativeDiff && files.some((file) => file.path === path && !file.binary)) {
-      void openSessionDiffInIDE(sessionId, path).then((opened) => {
-        if (opened) setActive(path);
-        else pick(path);
-      });
-    } else {
-      pick(path);
-    }
+  const openNative = (path: string) => {
+    void openSessionDiffInIDE(sessionId, path).then((opened) => {
+      if (!opened) pick(path);
+    });
   };
 
   // The diffs alone scroll to the file: scrollIntoView would move every
@@ -312,10 +325,13 @@ export function EditsView(props: {
     pinRef.current = { path, top: scroller.scrollTop };
   };
   useLayoutEffect(() => {
-    if (jump) align(jump.path);
+    if (jump && completedJump.current !== jump && sectionRefs.current.has(jump.path)) {
+      align(jump.path);
+      completedJump.current = jump;
+    }
     // align reads refs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jump]);
+  }, [jump, shownFiles]);
 
   // The tree marks the file at the top of the diffs as the reader scrolls.
   const followScroll = () => {
@@ -347,20 +363,19 @@ export function EditsView(props: {
     if (pin) align(pin.path);
     // align reads refs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patches, collapsed, files]);
+  }, [patches, openPaths, files]);
 
-  const allCollapsed =
-    changes.files.length > 0 && collapsed.size === changes.files.length;
+  const allCollapsed = openFiles.length === 0;
 
   const toggleAll = () => {
-    setCollapsed(
-      allCollapsed ? new Set() : new Set(changes.files.map((f) => f.path)),
+    setOpenedPaths(
+      allCollapsed ? new Set(shownFiles.map((file) => file.path)) : new Set(),
     );
   };
 
   const toggleOne = (path: string) => {
-    setCollapsed((prev) => {
-      const copy = new Set(prev);
+    setOpenedPaths((prev) => {
+      const copy = new Set(prev ?? initialPaths);
       if (copy.has(path)) {
         copy.delete(path);
       } else {
@@ -391,7 +406,7 @@ export function EditsView(props: {
     <div
       className={[
         "files-dock-cluster edits-window",
-        props.fullScreen || props.initialPath ? "edits-window--card-review" : "",
+        props.cardReview || props.initialPath ? "edits-window--card-review" : "",
         expandedWindow ? "is-expanded" : drawer ? "changes-panel" : "",
       ].filter(Boolean).join(" ")}
       data-testid="edits-view"
@@ -533,7 +548,7 @@ export function EditsView(props: {
 
       <div className={"files-layout" + (treeOpen ? " has-tree" : "")}>
         {treeOpen ? (
-          <EditsTree files={changes.files} active={onShow} onPick={pickFile} />
+          <EditsTree files={changes.files} active={onShow} onPick={pick} />
         ) : null}
 
         <section className="files-main" aria-label={t("changes.viewer.title")}>
@@ -570,7 +585,8 @@ export function EditsView(props: {
             ) : (
               shownFiles.map((file) => {
                 const state = patches.get(file.path);
-                const revision = file.binary ? file.revision : state?.revision;
+                const collapsed = !openPaths.has(file.path);
+                const revision = file.binary || collapsed ? file.revision : state?.revision;
                 const isAccepted = !!revision && accepted.get(file.path) === revision;
                 // A list refresh can arrive before its replacement patch. Keep the old
                 // patch visible while disabling decisions for that superseded version.
@@ -585,14 +601,14 @@ export function EditsView(props: {
                     patch={state?.patch ?? ""}
                     loading={!state}
                     error={state?.error ?? ""}
-                    collapsed={collapsed.has(file.path)}
+                    collapsed={collapsed}
                     view={effectiveView}
                     onToggle={() => toggleOne(file.path)}
                     registerRef={registerRef}
                     discardBusy={discard.busy}
                     accepted={isAccepted}
                     onAccept={canReview && revision && !isAccepted ? () => accept(file.path, revision) : undefined}
-                    onOpenNative={nativeDiff && !file.binary ? () => pickFile(file.path) : undefined}
+                    onOpenNative={nativeDiff && !file.binary ? () => openNative(file.path) : undefined}
                     onDiscard={isAccepted || (!canReview && file.revision) ? undefined : () => void discard.discardFile(file.path, file.status, revision)}
                   />
                 );

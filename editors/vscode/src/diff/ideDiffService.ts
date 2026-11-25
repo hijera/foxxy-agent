@@ -202,7 +202,7 @@ export class IdeDiffService {
       if (first) editor.revealRange(new vscode.Range(doc.positionAt(first.start), doc.positionAt(first.end)),
         vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     }
-    this.offerComparison(ev);
+    if (!explicit) this.offerComparison(ev);
   }
 
   /** The editor's watcher may deliver the write after the SSE event. Inline

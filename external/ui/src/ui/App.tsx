@@ -344,7 +344,6 @@ import {
 } from "./tasks/BackgroundTasksPanel";
 import { EditsView } from "./changes/EditsView";
 import { useEditsPresentation } from "./changes/editsPresentation";
-import { openSessionDiffInIDE } from "./changes/api";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
   clearFinishedBackgroundTasks,
@@ -7124,18 +7123,6 @@ export function App() {
     setSessionChangesHash(sid);
   }, [sessionId]);
 
-  const openEditFile = useCallback((path: string) => {
-    const sid = sessionId.trim();
-    if (!sid) return;
-    if (isEditorEmbed() && getEnv().mode === "local") {
-      void openSessionDiffInIDE(sid, path).then((opened) => {
-        if (!opened && viewedSessionIdRef.current === sid) openEditsWindow(path);
-      });
-      return;
-    }
-    openEditsWindow(path);
-  }, [sessionId, openEditsWindow]);
-
   /** Puts the edits window away; the address goes back to the chat, or to the
    *  tasks when the dock under it shows them on the stacked shell. */
   const closeEditsWindow = useCallback(() => {
@@ -8366,7 +8353,7 @@ export function App() {
             key={`edits:${sessionId}:${editsPresentation}:${reviewPath}`}
             sessionId={sessionId}
             initialPath={reviewPath}
-            fullScreen={useCard && !reviewPath}
+            cardReview={useCard}
             workspacePath={workspaceCtx?.path || ""}
             onClose={closeEditsWindow}
           />
@@ -8391,7 +8378,7 @@ export function App() {
             title={currentTitle}
             sessionId={sessionId}
             onOpenEdits={openEditsWindow}
-            onOpenEditFile={openEditFile}
+            onOpenEditFile={openEditsWindow}
             onOpenFiles={() =>
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }

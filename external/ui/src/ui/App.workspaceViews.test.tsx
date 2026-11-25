@@ -16,6 +16,7 @@ import { t } from "./i18n/i18n";
 import { resetSettingsConfigForTests } from "./settings/settingsConfigStore";
 import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import { forgetOpenFiles } from "./files/FilesView";
+import { setEditsPresentation } from "./changes/editsPresentation";
 
 /**
  * The views of a session are buttons of the chat header: its background tasks
@@ -28,6 +29,7 @@ vi.mock("./chat/ChatScreen", () => ({
   ChatScreen: (props: {
     onOpenBackgroundTasks?: () => void;
     onOpenEdits?: () => void;
+    onOpenEditFile?: (path: string) => void;
     onOpenFiles?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
@@ -44,6 +46,9 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onOpenEdits?.()}
       >
         Open edits
+      </button>
+      <button type="button" onClick={() => props.onOpenEditFile?.("notes.txt")}>
+        Review notes.txt
       </button>
       <button
         type="button"
@@ -147,6 +152,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.embed;
+  document.cookie = "foxxycode_edits_presentation=; Path=/; Max-Age=0";
   vi.unstubAllGlobals();
   history.replaceState(null, "", "/");
 });
@@ -181,6 +188,21 @@ test("an edits address opens the window, and Escape closes it", async () => {
   pressEscape();
   await waitFor(() => expect(screen.queryByTestId("edits-view")).toBeNull());
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
+});
+
+test("the changed-files card opens Edits at regular size and keeps its file click in the preview", async () => {
+  setEditsPresentation("card");
+  document.documentElement.dataset.embed = "intellij";
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-edits"));
+  const win = await screen.findByTestId("edits-view");
+  expect(win).not.toHaveClass("is-expanded");
+  fireEvent.click(within(win).getByTestId("edits-close"));
+  fireEvent.click(screen.getByRole("button", { name: "Review notes.txt" }));
+  const drawer = await screen.findByTestId("edits-view");
+  expect(drawer).toHaveClass("changes-panel");
+  expect(await within(drawer).findByTestId("dv-file-notes.txt")).toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/open-in-ide"))).toBe(false);
 });
 
 // The edits window sits over the chat like the Files window: the shell's

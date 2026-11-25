@@ -181,7 +181,7 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             showDiff(ev)
             return
         }
-        notifyApplied(ev)
+        if (!explicit) notifyApplied(ev)
     }
 
     private fun highlightProposal(ev: FoxxyCodeEditEvent) {

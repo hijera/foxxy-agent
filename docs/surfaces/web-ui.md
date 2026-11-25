@@ -63,7 +63,17 @@ Text previews use the shared file-encoding detector. A short legacy-encoded file
 
 ## The edits window
 
-Open **Edits** by clicking the additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. The browser or editor panel remembers this choice. Both presentations show uncommitted changes from Git or Subversion, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the full window and a file row opens its diff in a side drawer. The tree in the full window jumps to a file in the web preview. In a local IntelliJ or VS Code panel, selecting a text diff opens the source editor with **Accept** and **Reject** above each changed block. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. **Show diff** opens the full native comparison. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview is available for remote sessions and when the IDE cannot receive the request. Git uses HEAD and Subversion uses the working copy's local BASE revision. The nearest checkout takes precedence, with Git used when both share a root. Subversion review uses the configured client and covers file changes reported by local status. Directory operations, files inside entirely unversioned directories, replacements, conflicts, and externals stay outside the review and bulk discard scope.
+Open **Edits** by clicking the additions and deletions on the workspace bar. To use the card under the transcript, choose **Settings → Appearance → Show changes → Changed-files card below the transcript**. Both presentations show uncommitted changes from Git or Subversion, including changes made outside the agent. In card mode, **Ctrl+S** or **Cmd+S** toggles the card. **Review** opens the window and a file row opens its diff.
+
+By default, Edits opens at its regular size with all previews folded. **Settings → Appearance → Open Edits expanded** starts it at the larger size and loads the first file’s preview. The browser or editor panel remembers the choice. The window’s expand button changes its size for the current opening.
+
+![Edits before a file preview has been opened](../assets/session-edits-collapsed-dark-1280.png)
+
+*The regular opening shows file headers and line counts. Select a file to load its preview.*
+
+Selecting a file in the tree opens that file’s preview. Clicking a file heading folds or unfolds its diff. Previews load when opened. To open every preview explicitly, use **Expand all diffs** in the window menu. The file's **⋮** menu contains **Copy path**. In a local IntelliJ or VS Code panel, the same menu offers **Open in IDE** for text diffs. The action opens the source editor with **Accept** and **Reject** above each changed block without a notification. **Accept** keeps the block and removes its review marker. **Reject** restores only that block through the editor's normal editing and undo flow. In IntelliJ, hovering over either button highlights it and shows a hand cursor. Deleted files and snapshots that differ from the open document open directly in the native comparison. The web preview remains available for remote sessions and when the IDE cannot receive the request.
+
+Git uses HEAD and Subversion uses the working copy's local BASE revision. The nearest checkout takes precedence, with Git used when both share a root. Subversion review uses the configured client and covers file changes reported by local status. Directory operations, files inside entirely unversioned directories, replacements, conflicts, and externals stay outside the review and bulk discard scope.
 
 In the **Edits** window, the checkmark (**Accept**) marks the current version as reviewed in this browser or panel and keeps the file on disk. A new version needs review again. The undo arrow (**Reject**) asks for confirmation and then restores the file and its Git index entry to HEAD or removes a file added since HEAD. A file that changed since the window loaded its diff is left alone. **Discard all** in the menu resets the working copy changes together.
 
@@ -74,6 +84,14 @@ Text diffs normalize CRLF after decoding, so Windows line endings do not turn a 
 ![Edits with a file diff and its Accept and Reject controls](../assets/session-changes-review-window-dark-1280.png)
 
 *The Edits window shows the diff and review actions for each file.*
+
+![Open in IDE and Copy path in the Edits file menu](../assets/session-edits-file-menu-dark-1280.png)
+
+*The file menu offers the IDE handoff and path copying.*
+
+![The Open Edits expanded switch in Appearance](../assets/appearance-edits-start-expanded-dark-1280.png)
+
+*Enable Open Edits expanded to use the larger window and show the first preview on the next opening.*
 
 ![Edits showing a Subversion working copy](../assets/session-changes-svn-dark-1280.png)
 

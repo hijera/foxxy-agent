@@ -13,6 +13,7 @@ import type { SessionChanges } from "./types";
 import { t } from "../i18n/i18n";
 import { ConfirmProvider } from "../components/useConfirm";
 import { emitChangesSettled } from "./sessionChangesBus";
+import { AppearanceThemePicker } from "../theme/AppearanceModal";
 
 const PATCH = [
   "--- a/src/a.ts",
@@ -61,6 +62,7 @@ let scrolled: string[];
 
 beforeEach(() => {
   document.cookie = "foxxycode_diff_view=; Path=/; Max-Age=0";
+  document.cookie = "foxxycode_edits_start_expanded=; Path=/; Max-Age=0";
   scrolled = [];
   // jsdom implements neither, and both are how the window navigates and copies.
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
@@ -105,13 +107,26 @@ function open(onClose: () => void = () => {}) {
   );
 }
 
+async function openFile(path = "src/a.ts") {
+  fireEvent.click(await screen.findByTestId(`dv-file-toggle-${path}`));
+}
+
+function patchRequests() {
+  return fetchMock.mock.calls.filter(([url]) => String(url).includes("/changes/file"));
+}
+
 test("an SVN working copy shows the same file and patch as a Git working copy", async () => {
   fetchMock.mockImplementation(async (input: unknown) =>
     jsonResponse(String(input).includes("/changes/file") ? { patch: PATCH } : { ...SESSION, vcs: "svn" }),
   );
   open();
   const diff = await screen.findByTestId("dv-file-src/a.ts");
+  expect(patchRequests()).toHaveLength(0);
+  fireEvent.click(screen.getByTestId("edits-tree-file-src/a.ts"));
   expect(await within(diff).findByText("new")).toBeVisible();
+  expect(patchRequests().map(([url]) => String(url))).toEqual([
+    "/foxxycode/sessions/s1/changes/file?path=src%2Fa.ts",
+  ]);
   expect(screen.queryByText(t("changes.viewer.noVcs"))).toBeNull();
 });
 
@@ -195,11 +210,13 @@ test("warns when the per-file response truncates a patch", async () => {
     ),
   );
   open();
+  await openFile();
   await screen.findAllByText(t("changes.truncated"));
 });
 
 test("draws the unified view by default and never writes filler line counts", async () => {
   open();
+  await openFile();
   await waitFor(() =>
     expect(document.body.querySelector(".dv-diff--unified")).toBeTruthy(),
   );
@@ -210,6 +227,7 @@ test("draws the unified view by default and never writes filler line counts", as
 
 test("side by side in the menu switches to the split view and back", async () => {
   open();
+  await openFile();
   await waitFor(() =>
     expect(document.body.querySelector(".dv-diff--unified")).toBeTruthy(),
   );
@@ -229,14 +247,10 @@ test("side by side in the menu switches to the split view and back", async () =>
   );
 });
 
-test("every new report of git reads the patches again, the old ones staying on screen meanwhile", async () => {
+test("a new report refreshes the open diff while keeping the old patch on screen", async () => {
   open();
-  await waitFor(() =>
-    expect(document.body.querySelectorAll(".dv-file-body")).toHaveLength(2),
-  );
-  const details = () =>
-    fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/changes/file"));
-  await waitFor(() => expect(details()).toHaveLength(2));
+  await openFile();
+  expect(patchRequests()).toHaveLength(1);
   await waitFor(() => expect(document.body.querySelector(".dv-code")).toBeTruthy());
   let release: () => void = () => {};
   const held = new Promise<void>((r) => (release = r));
@@ -254,14 +268,56 @@ test("every new report of git reads the patches again, the old ones staying on s
   });
   emitChangesSettled("s1");
   await waitFor(() => expect(screen.getByTestId("edits-totals")).toHaveTextContent("+7"));
-  await waitFor(() => expect(details()).toHaveLength(4));
+  await waitFor(() => expect(patchRequests()).toHaveLength(2));
   // While the new patches are on their way the old ones are still drawn.
   expect(document.body.querySelector(".dv-code")).toBeTruthy();
   release();
 });
 
+test("switching files and closing Edits abort pending preview requests", async () => {
+  fetchMock.mockImplementation(async (input: unknown) =>
+    String(input).includes("/changes/file") ? new Promise(() => {}) : jsonResponse(SESSION),
+  );
+  const app = open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  fireEvent.click(screen.getByTestId("edits-tree-file-src/a.ts"));
+  const first = patchRequests()[0]![1].signal;
+  expect(first.aborted).toBe(false);
+  fireEvent.click(screen.getByTestId("edits-tree-file-docs/b.md"));
+  const second = patchRequests()[1]![1].signal;
+  expect(first.aborted).toBe(true);
+  expect(second.aborted).toBe(false);
+  app.unmount();
+  expect(second.aborted).toBe(true);
+});
+
+test("a working copy refresh keeps an in-flight preview for the same revision", async () => {
+  let count = 5;
+  let finish: (response: Response) => void = () => {};
+  const held = new Promise<Response>((resolve) => { finish = resolve; });
+  fetchMock.mockImplementation(async (input: unknown) =>
+    String(input).includes("/changes/file") ? held : jsonResponse({
+      ...SESSION,
+      files: SESSION.files.map((file) => ({ ...file, revision: file.path })),
+      totals: { ...SESSION.totals, additions: count },
+    }),
+  );
+  open();
+  await openFile();
+  expect(patchRequests()).toHaveLength(1);
+  count = 6;
+  emitChangesSettled("s1");
+  await waitFor(() => expect(screen.getByTestId("edits-totals")).toHaveTextContent("+6"));
+  expect(patchRequests()).toHaveLength(1);
+  expect(patchRequests()[0]![1].signal.aborted).toBe(false);
+  finish(jsonResponse({ patch: PATCH, revision: "src/a.ts" }));
+  expect(await screen.findByText("new")).toBeVisible();
+  expect(patchRequests()).toHaveLength(1);
+});
+
 test("collapse all hides every diff body and expand all brings them back", async () => {
   open();
+  await openFile();
   await waitFor(() =>
     expect(document.body.querySelector(".dv-file-body")).toBeTruthy(),
   );
@@ -279,6 +335,8 @@ test("collapse all hides every diff body and expand all brings them back", async
 
 test("a file header collapses only its own diff", async () => {
   open();
+  await openFile("docs/b.md");
+  await openFile();
   await waitFor(() =>
     expect(document.body.querySelectorAll(".dv-file-body")).toHaveLength(2),
   );
@@ -457,25 +515,36 @@ test("Escape puts the menu away before the window", async () => {
 // A file's head: the fold chevron and the name on the left, then copy and
 // discard, always in sight, and git's counts at the right end; the name folds
 // the diff, so there is no second chevron on the right.
-test("a file's head ends with its counts, after copy and discard, with one chevron", async () => {
+test("a file's head ends with its counts, after more actions and discard, with one chevron", async () => {
   open();
   const section = await screen.findByTestId("dv-file-src/a.ts");
   const head = section.querySelector(".dv-file-head") as HTMLElement;
   const parts = [...head.children].map((el) => el.className.split(" ")[0]);
   expect(parts).toEqual(["dv-file-title", "dv-file-actions", "dv-file-stat"]);
   const actions = [...head.querySelectorAll(".dv-file-actions button")].map((b) => b.getAttribute("data-testid"));
-  expect(actions).toEqual(["dv-copy-src/a.ts", "dv-discard-src/a.ts"]);
+  expect(actions).toEqual(["dv-more-src/a.ts", "dv-discard-src/a.ts"]);
   expect(head.querySelectorAll(".foxxycode-chevron")).toHaveLength(1);
   // No status dot before the name: the tree says the status, the name is enough.
   expect(head.querySelector(".dv-file-badge")).toBeNull();
   expect(head.querySelector(".dv-file-stat")?.textContent).toBe("+1−1");
 });
 
-test("the header copies the file path", async () => {
+test("the file menu copies the path and Escape returns focus to the trigger", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.click(screen.getByTestId("dv-copy-src/a.ts"));
+  const trigger = screen.getByTestId("dv-more-src/a.ts");
+  fireEvent.click(trigger);
+  const menu = screen.getByRole("menu");
+  expect(within(menu).queryByRole("menuitem", { name: "Open in IDE" })).toBeNull();
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith("src/a.ts");
+  await waitFor(() => expect(trigger).toHaveAttribute("title", "Path copied"));
+  expect(screen.queryByRole("menu")).toBeNull();
+  fireEvent.click(trigger);
+  fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy path" }), { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+  expect(screen.getByTestId("edits-view")).toBeInTheDocument();
 });
 
 test("says how many new files it left out", async () => {
@@ -560,7 +629,7 @@ test("colours the code when the file has a known language", async () => {
   });
 
   open();
-  await screen.findByTestId("dv-file-src/a.ts");
+  await openFile();
   await waitFor(() => {
     expect(document.body.querySelector(".hljs-keyword")).toBeTruthy();
   });
@@ -593,7 +662,7 @@ test("leaves an unknown file type as plain text", async () => {
   });
 
   open();
-  await screen.findByTestId("dv-file-notes.txt");
+  await openFile("notes.txt");
   await waitFor(() =>
     expect(document.body.querySelector(".dv-code")).toBeTruthy(),
   );
@@ -636,6 +705,7 @@ test("a file edited again with the same counts shows its new diff", async () => 
     return jsonResponse({ ...SESSION, files: [SESSION.files[0]!], totals: { files: 1, additions: 1, deletions: 1 } });
   });
   open();
+  await openFile();
   await waitFor(() => expect(document.body.textContent).toContain("new"));
   body = "rewritten";
   emitChangesSettled("s1");
@@ -651,19 +721,59 @@ test("new files git could not list can still be discarded", async () => {
   expect(within(openMenu()).getByTestId("edits-discard-all")).toBeTruthy();
 });
 
-test("a diff click in an editor requests the native diff", async () => {
-  document.documentElement.dataset.embed = "vscode";
+test.each(["vscode", "intellij"])("file names stay in Edits and Open in IDE requests the native diff in %s", async (ide) => {
+  document.documentElement.dataset.embed = ide;
   fetchMock.mockImplementation(async (input: unknown) => {
     const url = String(input);
     if (url.endsWith("/open-in-ide")) return { status: 204 } as Response;
     return jsonResponse(url.includes("/changes/file") ? { patch: PATCH } : SESSION);
   });
   open();
-  fireEvent.click(await screen.findByTestId("dv-file-toggle-src/a.ts"));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+  const toggle = await screen.findByTestId("dv-file-toggle-src/a.ts");
+  fireEvent.click(screen.getByTestId("edits-tree-file-src/a.ts"));
+  expect(screen.getByTestId("edits-tree-file-src/a.ts")).toHaveAttribute("aria-selected", "true");
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const nativeRequests = () => fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/open-in-ide"));
+  expect(nativeRequests()).toHaveLength(0);
+  const file = screen.getByTestId("dv-file-src/a.ts");
+  expect(within(file).queryByRole("button", { name: "Open in IDE" })).toBeNull();
+  fireEvent.click(within(file).getByTestId("dv-more-src/a.ts"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Open in IDE" }));
+  expect(fetchMock).toHaveBeenCalledWith(
     "/foxxycode/sessions/s1/changes/open-in-ide",
     expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "src/a.ts" }) }),
-  ));
+  );
+  expect(nativeRequests()).toHaveLength(1);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+
+test("Edits opens at its regular size unless Appearance opts into starting expanded", async () => {
+  const app = open();
+  expect(screen.getByTestId("edits-view")).not.toHaveClass("is-expanded");
+  await screen.findByTestId("dv-file-src/a.ts");
+  expect(document.querySelectorAll(".dv-file-body")).toHaveLength(0);
+  app.unmount();
+  const settings = render(<AppearanceThemePicker doc={{ ui: { locale: "en" } }} />);
+  const setting = screen.getByRole("switch", { name: "Open Edits expanded" });
+  expect(setting).toHaveAttribute("aria-checked", "false");
+  fireEvent.click(setting);
+  expect(setting).toHaveAttribute("aria-checked", "true");
+  document.cookie = "foxxycode_edits_start_expanded=; Path=/; Max-Age=0";
+  settings.unmount();
+  open();
+  expect(screen.getByTestId("edits-view")).toHaveClass("is-expanded");
+  await screen.findByTestId("dv-file-src/a.ts");
+  expect(document.querySelectorAll(".dv-file-body")).toHaveLength(1);
+  expect(patchRequests().map(([url]) => String(url))).toEqual([
+    "/foxxycode/sessions/s1/changes/file?path=docs%2Fb.md",
+  ]);
+  fireEvent.click(screen.getByTestId("edits-expand"));
+  expect(screen.getByTestId("edits-view")).not.toHaveClass("is-expanded");
+  cleanup();
+  open();
+  expect(screen.getByTestId("edits-view")).toHaveClass("is-expanded");
+  await screen.findByTestId("dv-file-src/a.ts");
 });
 
 test("accept keeps the reviewed version and restores the buttons when the file changes", async () => {
