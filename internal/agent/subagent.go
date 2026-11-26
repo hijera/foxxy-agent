@@ -375,18 +375,22 @@ type subagentSender struct {
 	usage    childUsage
 }
 
-// childUsage counts the child's tokens the way its task row shows them. Input is
-// summed from token_usage, one figure per completed call. Output comes from
-// turn_progress, which already folds the provider's exact figures with an estimate
-// of the call in flight, so the row moves while a long call streams; a turn is told
-// from the next by its start, and the output of the turns that ended is kept.
+// childUsage counts the child's tokens the way its task row shows them.
+// token_usage carries the turn's cumulative counters, so the latest update of
+// the running turn is that turn's figure and the turns that ended are kept, one
+// turn told from the next by its start in turn_progress. Input is the counters
+// as they arrive; output comes from turn_progress, which already folds the
+// provider's exact figures with an estimate of the call in flight, so the row
+// moves while a long call streams.
 type childUsage struct {
-	input      int
+	inputDone  int
+	turnInput  int
 	outputDone int
 	turn       string
 	turnOutput int
 }
 
+func (u childUsage) input() int  { return u.inputDone + u.turnInput }
 func (u childUsage) output() int { return u.outputDone + u.turnOutput }
 
 func newSubagentSender(out io.Writer, relay *permissionRelay) *subagentSender {
@@ -401,7 +405,7 @@ func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 	s.render(update)
 	s.mu.Unlock()
 	if changed && s.onUsage != nil {
-		s.onUsage(counted.input, counted.output())
+		s.onUsage(counted.input(), counted.output())
 	}
 	return nil
 }
@@ -411,17 +415,26 @@ func (s *subagentSender) count(update interface{}) (childUsage, bool) {
 	before := s.usage
 	switch u := update.(type) {
 	case acp.TokenUsageUpdate:
-		s.usage.input += max(0, u.InputTokens)
+		// fork(cumulative-turn-usage): the counters are cumulative for the turn,
+		// so the latest update is the turn's figure and never an addend.
+		s.usage.turnInput = max(0, u.InputTokens)
 	case acp.TurnProgressUpdate:
 		if u.StartedAt != s.usage.turn {
-			s.usage.outputDone += s.usage.turnOutput
-			s.usage.turn, s.usage.turnOutput = u.StartedAt, 0
+			// A token_usage update can arrive before anything names its turn;
+			// it already counts for the turn in flight, which the start below
+			// names, so only a turn that was named is closed here.
+			if s.usage.turn != "" {
+				s.usage.inputDone += s.usage.turnInput
+				s.usage.outputDone += s.usage.turnOutput
+				s.usage.turnInput, s.usage.turnOutput = 0, 0
+			}
+			s.usage.turn = u.StartedAt
 		}
 		s.usage.turnOutput = max(0, u.OutputTokens)
 	default:
 		return s.usage, false
 	}
-	return s.usage, s.usage.input != before.input || s.usage.output() != before.output()
+	return s.usage, s.usage.input() != before.input() || s.usage.output() != before.output()
 }
 
 // render writes the update to the task log. Callers hold mu.

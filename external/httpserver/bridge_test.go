@@ -730,18 +730,22 @@ func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
 	}
 }
 
-func TestOpenAIStreamFilter_SumsUsageAcrossCallsAndIncludesCache(t *testing.T) {
+// The token_usage updates carry the turn's cumulative counters, so the usage
+// frame reports the latest update (38/15/53/25), not the sum of the two calls.
+func TestOpenAIStreamFilter_TakesTheLatestCumulativeUsageAndCache(t *testing.T) {
 	frames := openAIFilterFrames(t, true,
 		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42,\"cachedInputTokens\":20}\n\n",
 		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":38,\"outputTokens\":15,\"totalTokens\":53,\"cachedInputTokens\":25}\n\n",
 		"data: [DONE]\n\n")
 	usage := frames[len(frames)-2]
 	if !strings.Contains(usage, `"prompt_tokens":38`) || !strings.Contains(usage, `"completion_tokens":15`) || !strings.Contains(usage, `"total_tokens":53`) || !strings.Contains(usage, `"cached_tokens":25`) {
-		t.Fatalf("usage frame did not sum both calls: %s", usage)
+		t.Fatalf("usage frame did not take the latest cumulative update: %s", usage)
 	}
 }
 
-func TestNonStreamingSenderSumsUsageAcrossCalls(t *testing.T) {
+// Same for the non-streaming sender: the counters are cumulative for the turn
+// and the latest update wins over the snapshots before it.
+func TestNonStreamingSenderTakesTheLatestCumulativeUsage(t *testing.T) {
 	sender := NewSender(nil, nil, false, "local/m")
 	for _, update := range []acp.TokenUsageUpdate{
 		{InputTokens: 30, OutputTokens: 12, TotalTokens: 42, CachedInputTokens: 20},
@@ -753,7 +757,7 @@ func TestNonStreamingSenderSumsUsageAcrossCalls(t *testing.T) {
 	}
 	usage := sender.CompletionUsage()
 	if usage["prompt_tokens"] != 38 || usage["completion_tokens"] != 15 || usage["total_tokens"] != 53 {
-		t.Fatalf("non-stream usage did not sum both calls: %+v", usage)
+		t.Fatalf("non-stream usage did not take the latest cumulative update: %+v", usage)
 	}
 	details, _ := usage["prompt_tokens_details"].(map[string]int)
 	if details["cached_tokens"] != 25 {

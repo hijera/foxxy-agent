@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 // TestDetectGitBranchGivesUpOnAHungGit pins the bound behind the footer's
@@ -127,5 +128,29 @@ func TestFooterKeepsTheRunningTasksWhenThePathIsLong(t *testing.T) {
 	}
 	if !strings.Contains(line, "/var/folders") {
 		t.Fatalf("the path vanished instead of giving way:\n%s", line)
+	}
+}
+
+// The token_usage updates carry the turn's cumulative counters, so the session
+// totals count each turn once: a turn whose updates grew 70 to 140 spends 140,
+// not 210, and the 90 of the next turn bring the total to 230.
+func TestFooterTakesTheLatestCumulativeUsagePerTurn(t *testing.T) {
+	a := newTestApp(t)
+	send := func(u interface{}) { a.applyLoopMessage(updateMsg{update: u}) }
+
+	first := "2026-11-26T10:00:00Z"
+	send(acp.TurnProgressUpdate{SessionUpdate: acp.UpdateTypeTurnProgress, StartedAt: first})
+	send(acp.TokenUsageUpdate{SessionUpdate: "token_usage", InputTokens: 70, OutputTokens: 30, TotalTokens: 100})
+	send(acp.TokenUsageUpdate{SessionUpdate: "token_usage", InputTokens: 140, OutputTokens: 60, TotalTokens: 200})
+	if got := a.foot.tokensIn; got != 140 {
+		t.Fatalf("after a two-call turn the footer counts %d in, want the turn's cumulative 140, not the sum of the snapshots (210)", got)
+	}
+
+	second := "2026-11-26T10:01:00Z"
+	send(acp.TurnProgressUpdate{SessionUpdate: acp.UpdateTypeTurnProgress, StartedAt: second})
+	send(acp.TokenUsageUpdate{SessionUpdate: "token_usage", InputTokens: 50, OutputTokens: 20, TotalTokens: 70})
+	send(acp.TokenUsageUpdate{SessionUpdate: "token_usage", InputTokens: 90, OutputTokens: 40, TotalTokens: 130})
+	if in, out := a.foot.tokensIn, a.foot.tokensOut; in != 230 || out != 100 {
+		t.Fatalf("footer totals = %d in, %d out; want the turn totals summed once (230 and 100)", in, out)
 	}
 }

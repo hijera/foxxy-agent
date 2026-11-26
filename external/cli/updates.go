@@ -255,8 +255,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
+		// fork(cumulative-turn-usage): the counters are cumulative for the turn;
+		// the footer folds the growth over the previous figure, never the sum
+		// of the snapshots.
 		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
 	case acp.TurnProgressUpdate:
+		a.foot.StartTurn(u.StartedAt)
 		a.applyTurnProgress(u)
 	case acp.UsageUpdate:
 		percent := 0.0

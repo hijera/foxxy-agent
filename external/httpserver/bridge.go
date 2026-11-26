@@ -308,8 +308,9 @@ func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
 	})
 }
 
-// CompletionUsage is the OpenAI usage object of the JSON answer. Token usage
-// updates carry cumulative counters for the turn, so the latest one wins.
+// CompletionUsage is the OpenAI usage object of the JSON answer.
+// fork(cumulative-turn-usage): token usage updates carry cumulative counters
+// for the turn, so the latest one wins here and the snapshots never add up.
 func (s *Sender) CompletionUsage() map[string]interface{} {
 	s.mu.Lock()
 	usage := s.usage

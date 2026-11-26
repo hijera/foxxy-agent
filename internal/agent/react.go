@@ -1781,9 +1781,11 @@ func (a *Agent) runReActLoop(
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
 		totalCachedInputTokens += response.CachedInputTokens
-		// All three counters are cumulative for this turn. Sending the last call's
-		// input/output next to a cumulative total would make Input + Output != Total in
-		// every client that renders the three together.
+		// fork(cumulative-turn-usage): all three counters are cumulative for this
+		// turn and consumers keep the latest update instead of summing the
+		// snapshots. Sending the last call's input/output next to a cumulative
+		// total would make Input + Output != Total in every client that renders
+		// the three together.
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 			SessionUpdate:     acp.UpdateTypeTokenUsage,
 			InputTokens:       totalInputTokens,

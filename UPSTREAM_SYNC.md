@@ -169,6 +169,8 @@ Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following
 | `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `cumulative-turn-usage` | Обновления usage несут цифры по вызовам, потребители их суммируют | Обновления token_usage несут кумулятивные счётчики хода; каждый потребитель берёт последнее обновление вместо суммы снимков: HTTP-коллекторы, строка задачи субагента и футер консоли | Сохранять правило «последнее кумулятивное побеждает»; формат на проводе менять только с решением владельца |
+| `loopback-sign-in` | Исключений у формы входа нет, она показана всем | `foxxycode http` (его запускают плагины редакторов и desktop-приложение) пропускает прямого loopback-клиента мимо формы входа, пока не настроен bearer-токен; страница браузера на другом loopback-порту тоже считается прямым loopback-клиентом (решение владельца 2026-11-26: доступом управляют CORS-допуск и предупреждение при запуске, вторых ворот нет); `foxxycode serve` исключений не делает | Сохранять исключение и никогда не сужать его до клиентов того же origin |
 <!-- divergence-registry:end -->
 
 Более ранние решения записаны в разделах «Расхождения с upstream» каждой волны ниже; при порте,

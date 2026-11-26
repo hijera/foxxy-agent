@@ -27,8 +27,16 @@ type footer struct {
 	title     string
 	modeID    string
 
+	// tokensIn and tokensOut are the session totals, folded from the cumulative
+	// per-turn token_usage updates by AddTokens and StartTurn below.
 	tokensIn  int
 	tokensOut int
+	// usageTurn names the running turn the way turn_progress identifies it (its
+	// StartedAt); turnIn and turnOut are what its cumulative updates have
+	// already folded into the totals, the baseline the next update grows on.
+	usageTurn string
+	turnIn    int
+	turnOut   int
 	// runningTasks is how many background tasks of the session run right now.
 	runningTasks int
 	// mcpConnected of mcpTotal configured MCP servers have answered; the
@@ -65,12 +73,38 @@ func (f *footer) Invalidate() {}
 // SetSession updates title and mode.
 func (f *footer) SetSession(title, modeID string) { f.title, f.modeID = title, modeID }
 
-// AddTokens accumulates per-call token usage (the update carries per-call
-// input/output, so directional counters are summed client-side).
-func (f *footer) AddTokens(in, out int) { f.tokensIn += in; f.tokensOut += out }
+// AddTokens folds one token_usage update into the session totals.
+// fork(cumulative-turn-usage): the update carries the turn's cumulative
+// counters, so only the growth over the figure already folded is new spending -
+// the latest cumulative figure stands for the whole turn, and the snapshots
+// before it are never added up.
+func (f *footer) AddTokens(in, out int) {
+	in, out = max(0, in), max(0, out)
+	f.tokensIn += in - f.turnIn
+	f.tokensOut += out - f.turnOut
+	f.turnIn, f.turnOut = in, out
+}
+
+// StartTurn names the turn the following token_usage updates count for (the
+// StartedAt that turn_progress carries). The turn that just ended is already in
+// the totals at whatever cumulative figure its last update reached; its
+// baseline starts over. A token update that arrived before anything named its
+// turn stays counted for the turn in flight, which the start then names.
+func (f *footer) StartTurn(startedAt string) {
+	if startedAt == f.usageTurn {
+		return
+	}
+	if f.usageTurn != "" {
+		f.turnIn, f.turnOut = 0, 0
+	}
+	f.usageTurn = startedAt
+}
 
 // ResetTokens clears accumulated counters (new/switched session).
-func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
+func (f *footer) ResetTokens() {
+	f.tokensIn, f.tokensOut = 0, 0
+	f.usageTurn, f.turnIn, f.turnOut = "", 0, 0
+}
 
 // SetRunningTasks updates how many background tasks of the session run right now.
 func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }

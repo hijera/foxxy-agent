@@ -70,6 +70,8 @@ type openAIStreamFilter struct {
 	// stopReason is the ACP stop reason read off foxxycode_meta, "" until then.
 	stopReason string
 	// usage carries the latest cumulative counters of the turn.
+	// fork(cumulative-turn-usage): the counters are cumulative for the turn and
+	// the latest update wins here, the snapshots never add up.
 	usage completionUsage
 }
 

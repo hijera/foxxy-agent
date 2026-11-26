@@ -621,11 +621,10 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 	}
 }
 
-// The child's calls are counted as they come: the input every call sent, summed, and
-// the output its turns have generated, the call in flight included through
-// turn_progress. A second turn (a Stop hook follow-up) adds to the first, and every
-// change reaches the task row.
-func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
+// The child's token_usage updates carry the turn's cumulative counters, so the
+// task row keeps the latest update of the turn instead of summing the snapshots:
+// a turn whose two model calls cost 70 and 70 in all counts 140, not 210.
+func TestSubagentSenderTakesTheLatestCumulativeUsagePerTurn(t *testing.T) {
 	var buf bytes.Buffer
 	s := newSubagentSender(&buf, nil)
 	type usage struct{ in, out int }
@@ -635,21 +634,16 @@ func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
 	first := "2026-09-18T10:00:00Z"
 	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
 	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 45, Estimated: true})
-	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240})
-	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 40})
-	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1300, OutputTokens: 60, TotalTokens: 2600})
-	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 100})
-
-	second := "2026-09-18T10:01:00Z"
-	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
-	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1500, OutputTokens: 20, TotalTokens: 1520})
-	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 20})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 70, OutputTokens: 30, TotalTokens: 100})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 30})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 140, OutputTokens: 60, TotalTokens: 200})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 60})
 
 	if len(seen) == 0 {
 		t.Fatal("the task row never heard of the child's usage")
 	}
-	if got := seen[len(seen)-1]; got != (usage{4000, 120}) {
-		t.Fatalf("last usage = %+v, want 4000 in and 120 out", got)
+	if got := seen[len(seen)-1]; got != (usage{140, 60}) {
+		t.Fatalf("usage of a two-call turn = %+v, want the turn's cumulative 140 in and 60 out, not the sum of the snapshots", got)
 	}
 	// The opening frame of a turn carries nothing new and is not reported; the
 	// estimate of the call in flight is, while it streams.
@@ -657,8 +651,62 @@ func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
 		t.Fatalf("usage while streaming = %+v, want the estimate", seen[0])
 	}
 	// Nothing is written to the task's log for it.
-	if strings.Contains(buf.String(), "1200") {
+	if strings.Contains(buf.String(), "140") {
 		t.Fatalf("usage leaked into the task log: %q", buf.String())
+	}
+}
+
+// Two turns of the child - a Stop hook follow-up adds a second - add their turn
+// totals to the row: 140 of the first turn and 90 of the second, each counted
+// once.
+func TestSubagentSenderSumsTheCumulativeUsageOfTheTurns(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 70, OutputTokens: 30, TotalTokens: 100})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 30})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 140, OutputTokens: 60, TotalTokens: 200})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 60})
+
+	second := "2026-09-18T10:01:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 50, OutputTokens: 20, TotalTokens: 70})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 90, OutputTokens: 40, TotalTokens: 130})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 40})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{230, 100}) {
+		t.Fatalf("usage across two turns = %+v, want the turn totals summed once (230 in, 100 out)", got)
+	}
+}
+
+// A token_usage update can arrive before anything named its turn: it already
+// counts for the turn in flight, so the start that names the turn adopts the
+// figure instead of closing it into the turns that ended.
+func TestSubagentSenderCountsAnUnkeyedUsageUpdateForTheTurnInFlight(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 70, OutputTokens: 30, TotalTokens: 100})
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 30})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 140, OutputTokens: 60, TotalTokens: 200})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{140, 30}) {
+		t.Fatalf("usage once the turn named itself = %+v, want the early update kept for the turn in flight (140 in)", got)
 	}
 }
 
