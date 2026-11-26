@@ -8,7 +8,17 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-22
+## Unreleased — 2026-11-25
+
+**Subagent token counts.** The subagent task row and the console footer no longer over-report spend on multi-call turns: the turn's cumulative totals are counted once.
+
+**Remote environments on one computer.** The `cors.allow_loopback` setting lets a web UI on any loopback address and port call a remote FoxxyCode or relay. CORS guidance now names this toggle alongside exact origins, and configuration checks warn when open access has no credential.
+
+**History menus and shared file cards.** On phones, History filter choices fold out inside the menu instead of leaving the screen. A file card's actions menu opens outside the clipped card, preserves keyboard focus, stays inside the window and closes when its trigger is covered. Downloads and action errors remain independent.
+
+**Token accounting and Codex resilience.** Non-streaming OpenAI-compatible responses include usage, including cached tokens; Anthropic prompt totals include cache reads and writes. Codex keep-alive frames no longer look like truncated JSON, and streams without Content-Type remain protected by the idle guard.
+
+## 0.3.55 — 2026-11-22
 
 **Edits window actions.** Clicking a filename keeps you in the preview. The file's ⋮ menu offers Open in IDE and Copy path. The review opens without an IDE notification. The window starts with its previews folded and loads each diff when opened. Open Edits expanded in Appearance starts in the larger window and opens the first preview.
 

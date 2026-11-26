@@ -384,18 +384,34 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   looking at the archive" is the question asked most often. It belongs with the search because both
   narrow the list below, and not in the head, where its neighbour would be a close button that does
   something else entirely. It takes the **height and corner radius of the search field** beside it
-  (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
-  context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+  (36px, 12px) so the row reads as one strip of controls. The menu hangs 6px under the trigger, its
+  right edge on the trigger's (see **Portaled, not nested**).
 - **Four rows deep, not four lists long.** Each row (**`.sessions-filter-row`**) carries its question on
   the left, the **answer in force** in the accent colour (**`.sessions-filter-value`**) and a chevron;
-  the choices open beside it as **`.sessions-filter-submenu`**, on hover or on click, one at a time.
+  the choices open beside it as **`.sessions-filter-submenu`**, on a mouse hover or on a click or tap,
+  one at a time. Only a mouse opens a row by hovering it: a touch opens it by its tap, because iOS
+  drops the click of a tap whose emulated hover shows new content. The click that follows the mouse
+  onto a row it has just opened keeps the row open rather than folding it straight back; a later
+  click, or Enter or Space on the focused row, folds it.
   A hairline above **`.starts-group`** separates the two rows that decide *what is listed* from the two
   that decide *how it is arranged* - a rule rather than headings, because all four are questions of the
   same kind. A section with only one row to choose from is not rendered at all.
 - **Portaled, not nested.** The drawer is **`overflow: hidden`**, so a submenu inside it would be cut at
   its edge: the menu is rendered into the document (**`createPortal`**) and placed **`position: fixed`**
-  from the trigger's rectangle, the same way the composer's menus are. Near the right edge of the window
-  the submenus flip to the other side (**`.opens-left`**).
+  from the trigger's rectangle, the same way the composer's menus are. The menu is never wider than the
+  room left of its trigger (**`max-width`** from the trigger's right edge less 8px).
+- **A list opens where its whole width fits.** A list's width depends on the locale and on the names of
+  the remotes, so it is measured in a layout pass before it is painted (**`placeFilterSubmenu`**) and
+  opened beside the menu on the right (the drawer sits at the left of the window), on the left near the
+  window's right edge (**`.opens-left`**), each 8px clear of the window's edge. Where neither side has
+  the room - a phone, where the drawer is the width of the screen and the trigger sits at its right
+  edge - the choices **fold out under their row**, inside the menu (**`.opens-inline`**): indented under
+  the question, no panel of their own, the row's chevron turned down as a disclosure's is. The menu then
+  scrolls as a whole instead of running past the bottom of the window (**`.has-inline-submenu`**), and
+  until it closes a click, not a hover, switches sections, since a list folding away under the pointer
+  would move the rows beneath it. In a 393px window a list used to start at -100px, leaving only the
+  check marks on the screen (issue #460). Pinned by **`SessionsFilterMenu.test.tsx`** and
+  **`features/web_ui_menus.feature`**.
 - **Only a value moved off its default is coloured.** The answer on a row is the accent colour when it
   differs from the default (**Active**, the first environment, **Folder**, **Last activity**) and a
   muted 42% text otherwise (**`.sessions-filter-value.is-default`**): a menu where every row is accented
@@ -697,6 +713,20 @@ An answered **`question_prompt`** (**`QuestionPromptSection.tsx`**, resolved bra
 
 Implementation: **external/ui/src/ui/chat/PermissionPromptSection.tsx**, **PermissionPromptPreview.tsx**, and **permissionToolPreview.ts**.
 
+### Shared file cards
+
+A file the agent shared with **`share_file`** is a card (**`ArtifactCard`** in **`messages/ToolArtifactCards.tsx`**): under its tool row (**`.tool-artifacts`**) and inline in the answer that names it (**`.inline-artifacts`**), one card per file in a wrapping row with an **8px** gap.
+
+- **Size.** **134x140px** with **12px** padding; on a phone (**`max-width: 599px`**) **`min(118px, calc(50vw - 28px))`** wide and **132px** tall, so two cards share a row. The file name is clamped to two lines at the foot of the card, the size (or **Download unavailable**) under it.
+- **Badge and trigger, one set of numbers.** The extension badge (**`.inline-artifact-extension`**) sits in the top left corner, the actions trigger (**`.inline-artifact-menu-trigger`**) in the top right. Both are placed from the card's custom properties **`--artifact-badge-inset`** (10px), **`--artifact-badge-size`** (28px) and **`--artifact-trigger-size`** (28px, **32px** on a phone for the finger): the trigger's **`top`** and **`right`** are the badge's inset plus half the difference of the two sizes, so the trigger is level with the badge and mirrors it across the card at any size. A trigger with a **`top`** and a **`right`** of its own sat 6px above the badge and 7px nearer its edge.
+- **The dots are an SVG.** Three circles centred in a 24 viewBox, in a grid box that centres them; never the text glyph **`⋮`**, whose ink sat wherever the platform's font put it (the chevron's history, *Chevron*).
+- **Visibility.** The trigger is transparent until the card is under the pointer or holds the focus, while its menu is open, and always on a phone or any screen with **`hover: none`**, where nothing would ever show it.
+- **The menu is portalled.** The card is **`overflow: hidden`** - it clips a thumbnail to its corners - and a menu inside it was cut off, so a click on the trigger drew nothing. The menu (**`.inline-artifact-menu`**, **`role="menu"`**) is rendered into **`document.body`**, **`position: fixed`**, and placed from the trigger's rectangle before the first paint by **`placeArtifactMenu`**: 6px under the trigger with their right edges together, above it when the window's foot leaves no room below, and never closer than 8px to an edge of the window - a card at a phone's left edge does not push it off the screen, and a window too short for either side holds it as low as it can. It is never taller than the window less 16px and scrolls its items past that (**`max-height: calc(100dvh - 16px)`**), so no item is ever out of reach. It follows the trigger while the page scrolls and closes once the trigger cannot be seen: out of the window, or under another layer at its centre (**`triggerShows`**, a hit test) - the transcript scrolls under the chat's sticky title and the docked composer without leaving the window, and a menu that only watched the window's edges stayed open over the composer (checked on every scroll and resize; when it closes this way with the focus inside, the focus goes back to the trigger); a second press of the trigger, a press anywhere else, **Escape** (through **`useEscapeCloses`**, the focus handed back to the trigger) and picking an item close it. It takes the focus on its first item that can be picked; the arrow keys, **Home** and **End** move between those, and **Tab** closes it and hands the focus to the trigger without stopping the key, so the focus moves on from the trigger's place in the page (**Shift+Tab** back from it), as the WAI-ARIA menu button does. A disabled item is dimmed. A right click on the card opens the same menu.
+- **Failures.** A download that fails marks the card **Download unavailable** and disables Download: the copy is gone. A reveal or clipboard copy that fails reports itself in the same line for four seconds and leaves Download as it was, since the session's copy is still there.
+- **Spacing.** The inline row stands **12px** under the paragraph before it and **16px** over the paragraph after it. A row that ends the answer (**`:last-child`**, or **`.inline-artifacts--before-foot`** when **`.msg-assistant-foot`** follows) has no bottom margin: the foot's own **8px** is the gap, as under a paragraph; the two margins together set the foot twice as far from the cards.
+
+Covered by **`artifactCubeCss.test.ts`** (the numbers, the shared properties, the fixed menu and its height, the spacing) and **`ToolArtifacts.test.tsx`** (portal, focus, keys, toggle, scroll, a covered trigger, placement); **`external/ui/scripts/artifact-card-check.mjs`** (**`npm run check:artifacts`**) measures the result in a real engine on desktops and emulated phones (**`docs/surfaces/web-ui.md`**, *Checking the shared file cards*).
+
 ### Transcript message types (technical)
 
 Assistant messages keep the footer row **inside** the same padded box as the prose so the copy control shares the transcript inset. Only the answer that **closes a turn** has that row at all, so the answers a turn leaves behind between tool calls are prose alone rather than a column of identical copy buttons and repeated minutes. Every finished turn keeps its own row - an older answer stays copyable - and only the turn still running has none, because its last answer is not yet the answer. **User** copy and time sit **below** the grey bubble (outside the bubble contour), still **bottom-right** under that bubble. That row (**`.msg-user-foot`**) is inset from the bubble's right edge by the message card's horizontal padding (**`14px`** of **`padding-right`**, **`border-box`**), the mirror of the inset under assistant and system rows, so the three action rows keep one margin from their bubble edge; covered by **`userFootCss.test.ts`**. **Copy message** is a **bare icon** (no filled tile on hover); hover uses **link-violet** tint like markdown anchors; the browser **`title`** tooltip shows **Copy message** after a short hover like other native hints. Raw persisted text is copied on click. Timestamps use **`created_at`** (RFC3339 UTC): visible label is **local hour and minutes** only; hovering shows full calendar date, seconds, and timezone offset in the native **`title`** tooltip. Assistant prose uses the full transcript column width.
@@ -780,7 +810,7 @@ The workspace bar above the composer renders the folder, branch, worktree and SV
 - Menus follow the **`Mode`**/**`Model`** conventions: anchored **`mode-menu--portal`** (**`opens-down`** on the hero, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
 ### Environment switcher
 
-The rail shows the active environment and its reachability dot through **`EnvironmentSwitcher.tsx`**. On a narrow screen it is a top-bar icon and opens a bottom sheet. The [environment menu guide](docs/operate/remote.md#the-environment-menu) covers connecting, tokens and remote navigation. The **`EnvHealthBanner`** reports a connection problem at the top of the page.
+The rail shows the active environment and its reachability dot through **`EnvironmentSwitcher.tsx`**. On a narrow screen it is a top-bar icon and opens a bottom sheet. The [environment menu guide](docs/operate/remote.md#the-environment-menu) covers connecting, tokens and remote navigation. A CORS hint names the exact-origin keys and, when the page itself is on a loopback address (**`isLoopbackOrigin`** in **`env/loopbackOrigin.ts`**), the **`cors.allow_loopback`** toggle that admits it on any port. The **`EnvHealthBanner`** reports the same connection problem at the top of the page. **`loopbackOrigin.test.ts`** holds the browser classification to the server's cases in **`internal/config/testdata/loopback_origin_cases.json`**.
 
 ### Composer context meter
 

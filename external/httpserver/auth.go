@@ -188,6 +188,9 @@ func (s *Server) loopbackPassesSignIn(r *http.Request, pol authPolicy) bool {
 // announced itself as a proxy. A reverse proxy on the same host also connects from 127.0.0.1,
 // which is why any forwarding header disqualifies the request; a page on another site that
 // resolves its own name to 127.0.0.1 (DNS rebinding) still sends that name as Host.
+// fork(loopback-sign-in): a browser page on another loopback port is a direct loopback client
+// too - CORS admission and the open-CORS warning govern it, not this gate (owner decision
+// 2026-11-26: no second gate behind cors.allow_loopback).
 func isDirectLoopbackClient(r *http.Request) bool {
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

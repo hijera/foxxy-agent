@@ -439,6 +439,7 @@ type HTTPLoginJSON struct {
 // HTTPCORSJSON mirrors HTTPCORSConfig.
 type HTTPCORSJSON struct {
 	Enabled        bool     `json:"enable,omitempty"`
+	AllowLoopback  bool     `json:"allow_loopback,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
@@ -709,6 +710,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoginConfigured: c.HTTPServer.Login.HasAccount() && !c.HTTPServer.Login.IsExplicitlyDisabled(),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowLoopback:  c.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
 		},
 	}
@@ -727,6 +729,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AllowPrivateUpstreams:    append([]string(nil), c.Swarm.AllowPrivateUpstreams...),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.Swarm.CORS.Enabled,
+			AllowLoopback:  c.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS:                  SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile},
@@ -1009,6 +1012,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AllowInsecure:     j.HTTPServer.AllowInsecure,
 		CORS: HTTPCORSConfig{
 			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowLoopback:  j.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
 		},
 	}
@@ -1027,6 +1031,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AllowPrivateUpstreams:    append([]string(nil), j.Swarm.AllowPrivateUpstreams...),
 		CORS: HTTPCORSConfig{
 			Enabled:        j.Swarm.CORS.Enabled,
+			AllowLoopback:  j.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS:                  SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile},

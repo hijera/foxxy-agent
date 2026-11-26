@@ -84,7 +84,8 @@ export const messagesEn: Record<string, string> = {
 
   "settings.save.saved": "Saved",
   "settings.schema.agent.queue_mode.label": "Queue mode",
-  "settings.schema.agent.queue_mode.desc": "What Enter does with a message written while a turn runs: steer joins the running turn at its next step, after_turn starts a prompt of its own after the answer. Tab sends the other way. Unset, the browser and the console ask on the first such message.",
+  "settings.schema.agent.queue_mode.desc":
+    "What Enter does with a message written while a turn runs: steer joins the running turn at its next step, after_turn starts a prompt of its own after the answer. Tab sends the other way. Unset, the browser and the console ask on the first such message.",
   "mcp.error.load": "Could not load the MCP servers: {message}",
   "nav.ariaLabel": "Nav",
   "nav.useNarrowSidebar": "Use narrow sidebar",
@@ -111,16 +112,21 @@ export const messagesEn: Record<string, string> = {
   "composer.queueSend": "Queue this message",
   "composer.queueLabel": "Queued messages",
   "composer.queueRemove": "Remove from the queue",
-  "composer.queueFull": "The queue is full: wait for the agent to read what is waiting.",
-  "composer.attachReadFailed": "Could not read the attached file {name}, nothing was sent ({reason}).",
+  "composer.queueFull":
+    "The queue is full: wait for the agent to read what is waiting.",
+  "composer.attachReadFailed":
+    "Could not read the attached file {name}, nothing was sent ({reason}).",
   "composer.queueModeSteer": "Steer",
   "composer.queueModeAfterTurn": "After turn",
   "composer.queueChoiceLabel": "Choose the default queue mode",
-  "composer.queueChoiceQuestion": "During a turn, how should {key} send your message?",
+  "composer.queueChoiceQuestion":
+    "During a turn, how should {key} send your message?",
   "composer.queueChoiceSteer": "Steer now",
   "composer.queueChoiceAfterTurn": "After this turn",
-  "composer.queueModeSteerTitle": "Joins the running turn at its next step. Click to send it after the answer instead.",
-  "composer.queueModeAfterTurnTitle": "Starts a prompt of its own after the answer. Click to join the running turn instead.",
+  "composer.queueModeSteerTitle":
+    "Joins the running turn at its next step. Click to send it after the answer instead.",
+  "composer.queueModeAfterTurnTitle":
+    "Starts a prompt of its own after the answer. Click to join the running turn instead.",
   "composer.queueImages.one": "{count} image attached",
   "composer.queueImages.other": "{count} images attached",
   "composer.queueImagesDropped.one":
@@ -132,7 +138,8 @@ export const messagesEn: Record<string, string> = {
     "This chat's turn is running in another FoxxyCode window, and its queue is there. Your message is back in the composer.",
   "composer.attachedFilesAriaLabel": "Attached files",
   "composer.removeAttachment": "Remove {fileName}",
-  "composer.attachUnsupportedModel": "The selected model cannot accept attachments",
+  "composer.attachUnsupportedModel":
+    "The selected model cannot accept attachments",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
   "composer.enhanceFailed":
@@ -165,7 +172,8 @@ export const messagesEn: Record<string, string> = {
   "composer.editingHint": "Sending rewinds the conversation to this message",
   "composer.cancelEdit": "Cancel edit (Esc)",
   "composer.messageEdited": "Message edited.",
-  "composer.undoEditHint": "Undo restores the conversation as it was; file changes are not reverted",
+  "composer.undoEditHint":
+    "Undo restores the conversation as it was; file changes are not reverted",
   "composer.undoEdit": "Undo",
   "composer.undoDismiss": "Hide",
   "composer.stopGeneration": "Stop generation",
@@ -259,6 +267,10 @@ export const messagesEn: Record<string, string> = {
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay.",
   "env.banner.corsEither":
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a foxxycode serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay, or set {relayLoopback} to true there: this page is on a loopback address, and that admits it on any port.",
+  "env.banner.corsEitherLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a foxxycode serve - or set {relayLoopback} / {agentLoopback} to true: this page is on a loopback address, and that admits it on any port.",
   "env.banner.switchLocal": "Switch to Local",
   "env.error.cannotReach":
     "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
@@ -510,6 +522,8 @@ export const messagesEn: Record<string, string> = {
     "The token of this entry in httpserver.remotes is refused.",
   "env.hint.cors":
     "Blocked by CORS. Allow {origin} in swarm.cors.allowed_origins (relay) or httpserver.cors.allowed_origins (foxxycode serve).",
+  "env.hint.corsLoopback":
+    "Blocked by CORS. This page is on a loopback address: set swarm.cors.allow_loopback (relay) or httpserver.cors.allow_loopback (foxxycode serve) to true, or allow {origin} exactly in allowed_origins.",
   "env.relay": "relay",
   "env.nodeOffline": "offline",
   "workspace.detached": "detached",
@@ -535,9 +549,11 @@ export const messagesEn: Record<string, string> = {
   "appearance.locale.ru": "Русский",
   "appearance.editsPresentation.label": "Show changes",
   "appearance.editsPresentation.workspace": "Count above the composer",
-  "appearance.editsPresentation.card": "Changed-files card below the transcript",
+  "appearance.editsPresentation.card":
+    "Changed-files card below the transcript",
   "appearance.editsStartExpanded": "Open Edits expanded",
-  "appearance.editsStartExpanded.help": "Start in the larger window and show the first file’s diff. By default, file previews are folded.",
+  "appearance.editsStartExpanded.help":
+    "Start in the larger window and show the first file’s diff. By default, file previews are folded.",
   "appearance.effects.label": "Animations and translucency",
   "appearance.effects.description":
     "Bouncing dots, shimmering titles and translucent blurred panels, in every client. In the IntelliJ panel they start switched off: every frame of them is copied into the IDE window, which slows the IDE down, especially without a GPU.",
@@ -682,7 +698,7 @@ export const messagesEn: Record<string, string> = {
   "settings.backToList": "Back to list",
   "settings.backToSections": "Back to sections",
   "settings.buildTagMissing":
-    "This build cannot run it: the binary was compiled without the \"{tag}\" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS=\"http ui browser\") to switch it on.",
+    'This build cannot run it: the binary was compiled without the "{tag}" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS="http ui browser") to switch it on.',
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -701,7 +717,8 @@ export const messagesEn: Record<string, string> = {
   "settings.add": "Add",
   "settings.showKey": "Show",
   "settings.hideKey": "Hide",
-  "settings.proxy.edit": "Set up the proxy: protocol, host, port, login and password",
+  "settings.proxy.edit":
+    "Set up the proxy: protocol, host, port, login and password",
   "settings.proxy.dialogTitle": "Proxy",
   "settings.proxy.protocol": "Protocol",
   "settings.proxy.scheme.http": "HTTP",
@@ -781,7 +798,8 @@ export const messagesEn: Record<string, string> = {
   "settings.neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "settings.neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
-  "settings.neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "settings.neuralDeepAuth.enterCode":
+    "Enter this one-time code on the NeuralDeep page:",
   "settings.neuralDeepAuth.openSignInPage": "Open sign-in page",
   "settings.neuralDeepAuth.waiting": "Waiting for confirmation…",
   "settings.neuralDeepAuth.hubClientNotice":
@@ -790,7 +808,8 @@ export const messagesEn: Record<string, string> = {
   "settings.neuralDeepAuth.signOut": "Sign Out",
   "settings.neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
   "settings.neuralDeepAuth.signIn": "Sign In with NeuralDeep",
-  "settings.neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+  "settings.neuralDeepAuth.enterProviderName":
+    "Enter a provider name before signing in.",
 
   "settings.mcp.description.start":
     "Model Context Protocol servers from three levels:",
@@ -829,15 +848,18 @@ export const messagesEn: Record<string, string> = {
   "settings.subagents.desc.start": "Definitions found in this workspace's",
   "settings.subagents.desc.and": "and",
   "settings.subagents.desc.end":
-    "travel with the checkout, so under \"ask\" each one is approved here once for this workspace; rewriting an approved file asks again. Your own files under the FoxxyCode home are never gated.",
+    'travel with the checkout, so under "ask" each one is approved here once for this workspace; rewriting an approved file asks again. Your own files under the FoxxyCode home are never gated.',
   "settings.subagents.policyAppliesAfterSave":
     "The policy above applies once you save; approving a single definition takes effect at once.",
   "settings.subagents.workspace": "Approvals are recorded for",
   "settings.subagents.loading": "Loading definitions…",
-  "settings.subagents.empty": "No subagent definitions are visible from this workspace.",
+  "settings.subagents.empty":
+    "No subagent definitions are visible from this workspace.",
   "settings.subagents.error.load": "Could not load the subagent catalog.",
-  "settings.subagents.pendingHint.one": "{count} definition is waiting for your approval.",
-  "settings.subagents.pendingHint.other": "{count} definitions are waiting for your approval.",
+  "settings.subagents.pendingHint.one":
+    "{count} definition is waiting for your approval.",
+  "settings.subagents.pendingHint.other":
+    "{count} definitions are waiting for your approval.",
   "settings.subagents.descriptionWithheld":
     "Description withheld until you approve this file.",
   "settings.subagents.scope.builtin": "built in",
@@ -845,10 +867,13 @@ export const messagesEn: Record<string, string> = {
   "settings.subagents.scope.project": "from the project",
   "settings.subagents.badge.hidden": "hidden",
   "settings.subagents.badge.needsApproval": "needs approval",
-  "settings.subagents.trust.approveTitle": 'Approve spawning "{name}" in this workspace',
-  "settings.subagents.trust.approvedTitle": "Approved for this workspace (digest {digest})",
+  "settings.subagents.trust.approveTitle":
+    'Approve spawning "{name}" in this workspace',
+  "settings.subagents.trust.approvedTitle":
+    "Approved for this workspace (digest {digest})",
   "settings.subagents.trust.approveAria": "Approve subagent {name}",
-  "settings.subagents.trust.withdrawAria": "Withdraw approval of subagent {name}",
+  "settings.subagents.trust.withdrawAria":
+    "Withdraw approval of subagent {name}",
   "settings.subagents.trust.note.declaredBy": "Declared by",
   "settings.subagents.trust.note.travels":
     ", which travels with the checkout. Approving binds to the file as it stands now:",
@@ -859,9 +884,11 @@ export const messagesEn: Record<string, string> = {
   "settings.subagents.fact.mode": "mode",
   "settings.subagents.fact.modeInherits": "the parent's mode",
   "settings.subagents.fact.permissions": "permissions",
-  "settings.subagents.fact.permissionsInherits": "inherited, never wider than the parent",
+  "settings.subagents.fact.permissionsInherits":
+    "inherited, never wider than the parent",
   "settings.subagents.fact.tools": "tools",
-  "settings.subagents.fact.toolsAll": "everything the spawning session can call",
+  "settings.subagents.fact.toolsAll":
+    "everything the spawning session can call",
   "settings.subagents.fact.denies": "denies",
   "settings.subagents.fact.timeout": "timeout",
   "settings.subagents.fact.timeoutDefault": "the configured default",
@@ -872,9 +899,11 @@ export const messagesEn: Record<string, string> = {
   "settings.subagents.fact.role": "instructions",
   "settings.subagents.fact.digest": "digest",
   "settings.mcp.trust.option.ask": "Ask — approve each project server once",
-  "settings.mcp.trust.option.allow": "Allow — start project servers automatically",
+  "settings.mcp.trust.option.allow":
+    "Allow — start project servers automatically",
   "settings.mcp.trust.option.deny": "Deny — never load project servers",
-  "settings.mcp.trust.approveTitle": 'Approve running "{target}" in this workspace',
+  "settings.mcp.trust.approveTitle":
+    'Approve running "{target}" in this workspace',
   "settings.mcp.trust.approvedTitle":
     "Approved for this workspace ({digest}) — click to withdraw",
   "settings.mcp.trust.approveAria": "Approve MCP server {name}",
@@ -902,7 +931,8 @@ export const messagesEn: Record<string, string> = {
     "Connect without verifying this server's TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
   "settings.mcp.error.insecureToggle":
     "Couldn't change SSL verification for MCP server {name}.",
-  "settings.mcp.error.projectTrust": "Failed to change the project trust policy.",
+  "settings.mcp.error.projectTrust":
+    "Failed to change the project trust policy.",
   "settings.mcp.error.trust": "Couldn't approve MCP server {name}.",
   "settings.mcp.error.untrust":
     "Couldn't withdraw the approval of MCP server {name}.",
@@ -1284,7 +1314,8 @@ export const messagesEn: Record<string, string> = {
   "messages.attachedFiles": "Attached files",
   "messages.editMessage": "Edit message",
   "messages.undoEdit": "Undo edit",
-  "messages.undoEditTitle": "Restore the conversation as it was before this edit. File changes are not reverted.",
+  "messages.undoEditTitle":
+    "Restore the conversation as it was before this edit. File changes are not reverted.",
   "messages.diffView": "Diff view",
   "messages.patchedFile": "Patched file",
   "messages.compactionLabel": "context compacted",
@@ -1341,8 +1372,10 @@ export const messagesEn: Record<string, string> = {
   "prompts.noAnswer": "(no answer)",
   "prompts.skip": "Skip",
   "prompts.continue": "Continue",
-  "prompts.questionInactive": "This question is no longer active. Send a new message to continue.",
-  "prompts.answerSubmitFailed": "Could not send the answer. Your selection is saved; try again.",
+  "prompts.questionInactive":
+    "This question is no longer active. Send a new message to continue.",
+  "prompts.answerSubmitFailed":
+    "Could not send the answer. Your selection is saved; try again.",
   "prompts.otherPlaceholder": "Other…",
   "prompts.otherAriaLabel": "Other, type your answer",
   "prompts.optionsAriaLabel": "Options {index}",
@@ -1464,7 +1497,8 @@ export const messagesEn: Record<string, string> = {
     "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
   "tasks.sectionFinished": "Finished {count}",
   "tasks.clearFinished": "Clear",
-  "tasks.olderOnDisk": "{count} older tasks are kept on disk and not listed here",
+  "tasks.olderOnDisk":
+    "{count} older tasks are kept on disk and not listed here",
   "tasks.backToList": "← Back to tasks",
   "tasks.stopTitle": "Stop task",
   "tasks.stopAriaLabel": "Stop {label}",
@@ -1492,7 +1526,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.chip.awaiting.one": "{count} subagent needs your answer",
   "tasks.chip.awaiting.other": "{count} subagents need your answer",
   "tasks.permission.head": "A detached subagent is waiting for your approval:",
-  "tasks.permission.headNamed": "The subagent \"{name}\" is waiting for your approval:",
+  "tasks.permission.headNamed":
+    'The subagent "{name}" is waiting for your approval:',
   "tasks.chip.ariaLabel": "Open background tasks: {label}",
   "sessions.manage.archive.label": "Archive",
   "sessions.manage.archive.exclude": "Working list",
@@ -1608,7 +1643,7 @@ export const messagesEn: Record<string, string> = {
   // Settings -> Subagents: the definition catalog
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
-    "Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.foxxycode/agents, and the .agents/agents and .foxxycode/agents files that came with the checkout. Under \"ask\" a project file runs only once it is approved for this workspace: with its shield here, or with foxxycode agents trust <name> on the machine running foxxycode. Rewriting an approved file asks again.",
+    'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.foxxycode/agents, and the .agents/agents and .foxxycode/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace: with its shield here, or with foxxycode agents trust <name> on the machine running foxxycode. Rewriting an approved file asks again.',
   "subagents.catalog.workspace": "Workspace",
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
@@ -1654,7 +1689,8 @@ export const messagesEn: Record<string, string> = {
   "scheduler.runs": "Runs",
   "scheduler.openRuns": "Open the runs of {jobId}",
   "scheduler.runsTitle": "Runs of {jobId}",
-  "scheduler.runsEmpty": "No runs yet. Run the job now or wait for its schedule.",
+  "scheduler.runsEmpty":
+    "No runs yet. Run the job now or wait for its schedule.",
   "scheduler.runsJobHeading": "Job",
   "scheduler.lastRun.running": "Running",
   "scheduler.field.agent": "agent (optional)",
@@ -1675,12 +1711,16 @@ export const messagesEn: Record<string, string> = {
   "changes.skipped.other": "{count} new files are not shown.",
   "changes.discardFileTitle": "Put {name} back as it is in the last commit",
   "changes.discardFileConfirm": "Discard the changes to {name}?",
-  "changes.discardRestoreMessage": "The file goes back to its last committed content. This cannot be undone.",
-  "changes.discardDeleteMessage": "The file is new since the last commit, so it is deleted. This cannot be undone.",
+  "changes.discardRestoreMessage":
+    "The file goes back to its last committed content. This cannot be undone.",
+  "changes.discardDeleteMessage":
+    "The file is new since the last commit, so it is deleted. This cannot be undone.",
   "changes.discardAll": "Discard all",
-  "changes.discardAllTitle": "Put every uncommitted change back as it is in the last commit",
+  "changes.discardAllTitle":
+    "Put every uncommitted change back as it is in the last commit",
   "changes.discardAllConfirm": "Discard every uncommitted change?",
-  "changes.discardAllMessage": "Changed files go back to their base version and new files are deleted. Ignored files stay. This cannot be undone.",
+  "changes.discardAllMessage":
+    "Changed files go back to their base version and new files are deleted. Ignored files stay. This cannot be undone.",
   "changes.discardYes": "Discard",
   "changes.discardFailed": "Could not discard: {message}",
   "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
@@ -1693,7 +1733,8 @@ export const messagesEn: Record<string, string> = {
   "files.openFiles": "Open files",
   "files.closeTab": "Close {name}",
   "files.empty.title": "Open files appear here",
-  "files.empty.hint": "Pick a file in the tree, or click a file path in the conversation.",
+  "files.empty.hint":
+    "Pick a file in the tree, or click a file path in the conversation.",
   "files.showTree": "Show the file tree",
   "files.hideTree": "Hide the file tree",
   "files.expand": "Expand the window",
@@ -1714,7 +1755,8 @@ export const messagesEn: Record<string, string> = {
   "files.binary": "Preview is unavailable. You can download this file.",
   "files.pdfDownload": "Download this PDF to open it in your PDF viewer.",
   "files.wrap": "Wrap lines",
-  "files.imageUnavailable": "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
+  "files.imageUnavailable":
+    "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
   "files.actualSize": "Actual size",
   "files.fit": "Fit image",
   "changes.binary": "binary",
@@ -1781,7 +1823,8 @@ export const messagesEn: Record<string, string> = {
   "composer.mentionSchemeAgent": "Hand the work to a subagent",
   "composer.mentionMore": "{shown} of {total}, type to narrow",
   "nav.docs": "Docs",
-  "composer.docsCommand": "Open the built-in documentation: /docs [page or words]",
+  "composer.docsCommand":
+    "Open the built-in documentation: /docs [page or words]",
   "composer.mentionKindDoc": "docs",
   "composer.mentionSchemeFoxxyCode": "A page of FoxxyCode's documentation",
   "tool.name.foxxycode_docs_search": "searching the documentation",
@@ -1789,7 +1832,8 @@ export const messagesEn: Record<string, string> = {
   "docs.close": "Close the documentation (F1)",
   "docs.anchor.label": "Link to the section {heading}",
   "docs.site.label": "GitHub Pages",
-  "docs.site.title": "The same page on the public site, to share with someone who has no FoxxyCode",
+  "docs.site.title":
+    "The same page on the public site, to share with someone who has no FoxxyCode",
   "docs.lightbox.label": "Image",
   "docs.lightbox.zoomIn": "Zoom in (+)",
   "docs.lightbox.zoomOut": "Zoom out (-)",
@@ -1808,13 +1852,16 @@ export const messagesEn: Record<string, string> = {
   "docs.pager.prev": "Previous",
   "docs.pager.next": "Next",
   "docs.ask.page": "Ask the agent",
-  "docs.ask.pageTitle": "Start a chat with this page, or the section being read, attached",
+  "docs.ask.pageTitle":
+    "Start a chat with this page, or the section being read, attached",
   "docs.ask.selection": "Ask about the selection",
-  "docs.ask.selectionTitle": "Start a chat with the selected text quoted and its section attached",
+  "docs.ask.selectionTitle":
+    "Start a chat with the selected text quoted and its section attached",
   "status.docsSearch": "Searching the documentation",
   "status.docsRead": "Reading the documentation",
   "composer.permission": "Permissions",
-  "composer.permissionTitle": "When tools ask for approval in this session (the configuration's mode: {configured})",
+  "composer.permissionTitle":
+    "When tools ask for approval in this session (the configuration's mode: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
@@ -1873,7 +1920,8 @@ export const messagesEn: Record<string, string> = {
   "settings.group.agent.loop": "Loop guard",
   "settings.group.agent.limits": "Usage limits",
   "settings.group.hooks.main": "Hook settings",
-  "settings.group.hooks.mainDesc": "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
+  "settings.group.hooks.mainDesc":
+    "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
   "settings.group.compaction.summary": "Summarization",
   "settings.group.tools.permissions": "Permissions",
   "settings.group.memory.model": "Model and storage",
@@ -1883,7 +1931,8 @@ export const messagesEn: Record<string, string> = {
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",
-  "settings.group.sessions.storageDesc": "Where session bundles are stored on the machine running foxxycode.",
+  "settings.group.sessions.storageDesc":
+    "Where session bundles are stored on the machine running foxxycode.",
   "settings.array.backTo": "Back to {list}",
   "settings.item.providers": "Provider settings",
   "settings.item.models": "Model settings",
@@ -1892,29 +1941,39 @@ export const messagesEn: Record<string, string> = {
   "settings.contextWindow.fetch": "Fetch the context window from the provider",
   "settings.contextWindow.reported": "{tokens}, reported by {provider}",
   "settings.contextWindow.default": "{tokens}, the default",
-  "settings.contextWindow.notReported": "{provider} does not report a context window for {id}.",
-  "settings.contextWindow.fetchError": "Couldn't fetch the context window: {error}",
+  "settings.contextWindow.notReported":
+    "{provider} does not report a context window for {id}.",
+  "settings.contextWindow.fetchError":
+    "Couldn't fetch the context window: {error}",
   "settings.providers.group.main": "Provider settings",
   "settings.providers.group.advanced": "Advanced settings",
   "settings.models.group.model": "Model",
   "settings.models.group.generation": "Generation",
   "settings.models.group.reasoning": "Reasoning",
   "settings.providerModels.legend": "Models",
-  "settings.providerModels.needsNameAndType": "Give the provider an id and pick its type to list its models.",
+  "settings.providerModels.needsNameAndType":
+    "Give the provider an id and pick its type to list its models.",
   "settings.providerModels.none": "The provider returned no models.",
   "settings.providerModels.fetchError": "Couldn't fetch models: {error}",
   "settings.providerModels.filterPlaceholder": "Filter models…",
   "settings.providerModels.noMatch": "No model matches the filter.",
   "settings.providerModels.addModel": "Add {id} to Logical models",
-  "settings.providerModels.notAdvertised": "{id} is not advertised by the provider anymore",
+  "settings.providerModels.notAdvertised":
+    "{id} is not advertised by the provider anymore",
   "settings.providerModels.removeModel": "Remove {id} from Logical models",
-  "settings.providerModels.contextWindow.one": "Context window of {tokens} token",
-  "settings.providerModels.contextWindow.other": "Context window of {tokens} tokens",
-  "settings.codexAuth.cliLoginOtherRow": "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
-  "neuralDeepApiBase.description": "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. The model list below is fetched with the row as it stands in the form.",
-  "settings.neuralDeepAuth.shadowedByEnv": "The {env} environment variable is set on the FoxxyCode server, so requests use it instead of this login. Unset it, or give the provider a name whose variable is not set.",
+  "settings.providerModels.contextWindow.one":
+    "Context window of {tokens} token",
+  "settings.providerModels.contextWindow.other":
+    "Context window of {tokens} tokens",
+  "settings.codexAuth.cliLoginOtherRow":
+    "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
+  "neuralDeepApiBase.description":
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. The model list below is fetched with the row as it stands in the form.",
+  "settings.neuralDeepAuth.shadowedByEnv":
+    "The {env} environment variable is set on the FoxxyCode server, so requests use it instead of this login. Unset it, or give the provider a name whose variable is not set.",
   "subagents.settings.legend": "Subagent settings",
-  "subagents.settings.description": "The rules of the delegation pool: whether definitions that came with the checkout may run, how many runs go at once, how deep spawning nests, and how much time and how many rounds one run gets when its definition and the call leave them out.",
+  "subagents.settings.description":
+    "The rules of the delegation pool: whether definitions that came with the checkout may run, how many runs go at once, how deep spawning nests, and how much time and how many rounds one run gets when its definition and the call leave them out.",
   "subagents.catalog.showDeclared": "Show declared bounds",
   "subagents.catalog.hideDeclared": "Hide declared bounds",
   "sessions.manage.legend": "Session management",
@@ -1986,7 +2045,8 @@ export const messagesEn: Record<string, string> = {
   "structuredTool.emptyDirectory": "Empty folder",
   "structuredTool.kindFile": "file",
   "structuredTool.kindDir": "folder",
-  "skills.install.cliHint": "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",
+  "skills.install.cliHint":
+    "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",
   "skills.switch.enabledTitle": "Enabled - click to disable",
   "skills.switch.disabledTitle": "Disabled - click to enable",
   "skills.switch.disableAria": "Disable {name}",
@@ -2039,6 +2099,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Enable CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Answer cross-origin requests from the origins below.",
+  "settings.schema.swarm.cors.allow_loopback.label": "Allow loopback origins",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Also admit any page from the browser's own machine - localhost, *.localhost, 127.0.0.0/8 or [::1] on any port - such as a laptop's foxxycode serve, whatever port it took. The client token still applies.",
   "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Exact origins, for example http://localhost:12345, or * for any.",
@@ -2193,7 +2256,8 @@ export const messagesEn: Record<string, string> = {
   "messages.artifactReveal": "Reveal on server",
   "messages.artifactRevealFailed": "Could not reveal the file on the server",
   "messages.artifactCopyFailed": "Could not copy to clipboard",
-  "messages.artifactRevealUnavailable": "Reveal is unavailable for this remote or headless server",
+  "messages.artifactRevealUnavailable":
+    "Reveal is unavailable for this remote or headless server",
   "markdown.figure.mermaid": "Mermaid diagram",
   "markdown.figure.svg": "SVG image",
   "markdown.figure.showSource": "Show the source code",
@@ -2203,12 +2267,14 @@ export const messagesEn: Record<string, string> = {
   "markdown.figure.open": "Open the picture",
   "markdown.figure.rendering": "Drawing…",
   "markdown.figure.error": "Could not draw the picture: {message}",
-  "markdown.figure.loadError": "Could not load the diagram renderer: reload the page",
+  "markdown.figure.loadError":
+    "Could not load the diagram renderer: reload the page",
   "markdown.math.label": "Formula",
   "markdown.math.copySource": "Copy the formula source",
   "markdown.math.inlineTitle": "{source} (click to copy)",
   "settings.error.failedToLoad": "Failed to load: {error}",
-  "codexAuth.cliLoginOtherRow": "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
+  "codexAuth.cliLoginOtherRow":
+    "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
   "mcp.discovery.legend": "MCP discovery",
   "mcp.discovery.projectServersLabel": "Project servers",
   "mcp.switch.enabledTitle": "Enabled — click to disable",
@@ -2266,8 +2332,10 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.origin.system": "built in",
   "skills.sources.origin.home": "yours",
   "skills.sources.origin.project": "from the project",
-  "skills.sources.trust.systemAria": "{source} is built into FoxxyCode and always trusted",
-  "skills.sources.trust.approveTitle": "Approve syncing {source} in this workspace",
+  "skills.sources.trust.systemAria":
+    "{source} is built into FoxxyCode and always trusted",
+  "skills.sources.trust.approveTitle":
+    "Approve syncing {source} in this workspace",
   "skills.sources.trust.approvedTitle":
     "Approved for this workspace, click to withdraw",
   "skills.sources.trust.approveAria": "Approve {source} for this workspace",
@@ -2281,6 +2349,6 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.error.remove": "Could not remove {source}.",
   "skills.sources.error.trust": "Could not change the approval of {source}.",
   "skills.sources.description":
-    "Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (foxxycode plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.foxxycode/marketplaces.json, the project's in its .foxxycode/marketplaces.json, which travels with the checkout: under \"ask\" a project entry is synced only once you approve it with the shield. Everything installs into ~/.foxxycode/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.",
+    'Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (foxxycode plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.foxxycode/marketplaces.json, the project\'s in its .foxxycode/marketplaces.json, which travels with the checkout: under "ask" a project entry is synced only once you approve it with the shield. Everything installs into ~/.foxxycode/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
 };

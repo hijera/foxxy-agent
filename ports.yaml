@@ -14299,3 +14299,261 @@ ports:
   reason: Adapted the release net change with FoxxyCode branding, Chromium 104, the
     Classic layout, native IDE diffs and guarded per-file review.
   remaining: []
+- upstream_sha: 847d9e5f258f94deaccd18181ae9310721c9b8e7
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: Report token usage in non-streaming chat completions'
+  remaining: []
+- upstream_sha: f2d600c853f4a8ca5eae779669330908c20dcc29
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: Include Anthropic cache usage in prompt token totals'
+  remaining: []
+- upstream_sha: d6f4cd0c3d0edda7284b978f34a164da225e2336
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: Use final Anthropic input usage when streaming overrides it'
+  remaining: []
+- upstream_sha: c46e4650eb73228fa483309a178aa3d9a75f4536
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: feat(config): cors.allow_loopback admits a laptop''s own web UI on any loopback port'
+  remaining: []
+- upstream_sha: 20465da995dca81b447751816962a717b76e2ac5
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(deps): move to Go 1.26 and x/crypto v0.57.0 for the ssh channel DoS fixes'
+  remaining: []
+- upstream_sha: d304458af88f730f66a79e09e6827717150b9233
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(config): hold isLoopbackOrigin to a serialized origin, say what allow_insecure silences'
+  remaining: []
+- upstream_sha: 320d133b8a1b2482183da67fc712c14067048e71
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(config): hold allow_loopback to the hosts it names, one case file for the server and its SPA twin'
+  remaining: []
+- upstream_sha: 23241210a270043a04529ed4fefb116eb2c54fdf
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(config): refuse brackets around anything but an IPv6 literal in an allow_loopback origin'
+  remaining: []
+- upstream_sha: 4e98b7371de195b1cb139f57a3b109cbc25a13b7
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 3f323abc105ab4345950afbf52f0e9f0c1b696e6
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(build): build with the go1.26.8 toolchain go.mod pins'
+  remaining: []
+- upstream_sha: d8ad3cc6fed614ec7bcc6c38c7c387bc1dd99e6c
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: feat(security): govulncheck as the third scanner of make security'
+  remaining: []
+- upstream_sha: 73de82f8b76d3a4d10b7ea351142c40fdcc0f58a
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(netx): read the proxy variables in net/http''s order'
+  remaining: []
+- upstream_sha: 75383dbb7a5878e6f82f7fbad53e135064a4be8d
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(ui): vite 8.0.16 and vitest 3.2.7 for the dev-server and runner advisories'
+  remaining: []
+- upstream_sha: c45ed2df0bbb02fd23ce537cbcc16beb669b6e7d
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: test(ui): SPA tests that failed make test on a loaded machine'
+  remaining: []
+- upstream_sha: 9f5037ea77f53e3be50b448523cb08c8f29a0025
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: docs: the toolchain line is the oldest release a build links'
+  remaining: []
+- upstream_sha: a465daf7a0776277c75d71e75d75ed82571f6ffc
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: chore(hooks): check the staged SPA sources with Prettier on commit'
+  remaining: []
+- upstream_sha: a2bf89c53d45aefc90436a5364036c1396d68a09
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: a0f72f8b0ba03a468f3a3b5b63c682925f5d600a
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(web): keep the History filter menu inside a phone screen'
+  remaining: []
+- upstream_sha: 88264538c133a2388bbdf18ecb3c393f2aecc3bc
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: f1648bf7e23de1b96bd212b9d96e62bca756f67a
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: docs(swarm): the environment is an item of the rail, not a chip in the composer'
+  remaining: []
+- upstream_sha: d7752e456886bf1c074f1f7028cde3378c53b4d2
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: docs(remote): retake the health-alert screenshot on the merged layout'
+  remaining: []
+- upstream_sha: 255d5af4c5bfb7a4cd85bfff2200675235a6135d
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: a4a3aa105c07f0f033e3ad90306def5aec055c14
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: e98f6668d374bf44cdda1a4e9cb3e727f6a1e229
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: ci(security): name govulncheck in the AppSec workflow'
+  remaining: []
+- upstream_sha: 42774511959a7416c6d4bf577a3beda2b8e4fd53
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 2bb4953877e9128b938013bb7aa66e3a8a3eeea0
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 6bef664e35af21ffd01836aa8e756a23e5212445
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: ef6e8d415b38dce3fb78c72db02ae4060c77af95
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: docs(assets): regenerate the assets index after the merge of main'
+  remaining: []
+- upstream_sha: 9e4f9091d6cefc18c2aa76764ad9143e8d8a4831
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: Report cached tokens on direct usage streams and keep Anthropic start input'
+  remaining: []
+- upstream_sha: 2ce62f96987d5da628f6c57239408b151f4f4d46
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: Format bdd_retry_ownership_test.go with gofmt'
+  remaining: []
+- upstream_sha: 014f13b5cd4b49168467b7eced1444de3a680c56
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(dryrun): name "*" when it opens CORS together with allow_loopback'
+  remaining: []
+- upstream_sha: 1feede71ee37eb87f9b74965f2338a678c6282e4
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: style(ui): Prettier over the SPA files #467 touched'
+  remaining: []
+- upstream_sha: 829cdde7658467430ce89ecf48eca8388244f725
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 7e8eab6ba0e02668afe9bc3a6d5028ac6a33a250
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 2ffb2aa3b4b3c8463be6ef40b240e31ddbaf88df
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 6707f2913bd405edcac341f465b396869097095a
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(httpserver): no cookie literal in request-side tests, triage the Secure finding'
+  remaining: []
+- upstream_sha: 93e7bb3fa861554e4756b1be28b128123d96da44
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 7c593eda21e9cc3c782b8e347bfeb8b8770c782f
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(web): open the shared file card''s menu outside the card'
+  remaining: []
+- upstream_sha: 234ff3463f3627255d1cbd4c829ff32cbeaffcbd
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(web): close the file card menu once its trigger is out of sight'
+  remaining: []
+- upstream_sha: c80151b66e08c5d1f60425467b32ff6e287af936
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(web): keep the focus and the download of a shared file card'
+  remaining: []
+- upstream_sha: e566fbc7b536e845c7bc4af38a472d1478969984
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []
+- upstream_sha: 834ba910b86f5210ae97acfc3722ecae8a287db7
+  status: adapted
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Adapted in the consolidated upstream 1.2.74-1.2.79 port with FoxxyCode branding and registered divergences preserved: fix(llm): skip Codex keep-alive frames and guard its streams without Content-Type'
+  remaining: []
+- upstream_sha: cd42d7df06fb3c64c1b482e7c4463f3fc239ebb4
+  status: skipped
+  fork_commits:
+  - 7cdd8efa3b01994db27b9cb39d1504e8a74542a5
+  reason: 'Redundant integration/release merge; every constituent net change is included in the consolidated upstream 1.2.74-1.2.79 port.'
+  remaining: []

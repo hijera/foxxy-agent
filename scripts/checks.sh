@@ -21,6 +21,13 @@
 #                                      (the CLI reference needs a full-tag build and is left
 #                                      to `make docs-check` in CI)
 #
+#   FOXXYCODE_HOOK_FORMAT 0|1            (default: 1)   when the commit stages SPA sources
+#                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css,
+#                                      .json, .html; package-lock.json and build output aside),
+#                                      check those files with Prettier (`prettier --check`).
+#                                      Only the staged files: the tree is formatted file by file
+#                                      as it is touched, never in one sweep
+#
 #   FOXXYCODE_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
 # Exit code: 0 = everything requested passed (or skipped), non-zero = a failure.
@@ -68,6 +75,45 @@ if [ "$lint" = "1" ]; then
   fi
 fi
 
+# --- format: Prettier over the SPA sources the commit stages ---
+# Read each blob from the index so partial staging checks what will be
+# committed. node_modules comes from `make ui-deps` when lint did not install it.
+format="${FOXXYCODE_HOOK_FORMAT:-1}"
+format_ran=0
+if [ "$format" = "1" ]; then
+  fmt_files=()
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      external/ui/package-lock.json | external/ui/src/styles.css | external/ui/src/ui/App.tsx | \
+      external/ui/app.js | external/ui/styles.css | external/ui/events-worker.js | \
+      external/ui/index.html | external/ui/chunks/*) continue ;;
+      external/ui/*.ts | external/ui/*.tsx | external/ui/*.js | external/ui/*.jsx | \
+      external/ui/*.mjs | external/ui/*.cjs | external/ui/*.css | external/ui/*.json | \
+      external/ui/*.html)
+        fmt_files+=("$f") ;;
+    esac
+  done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
+  if [ "${#fmt_files[@]}" -gt 0 ]; then
+    format_ran=1
+    prettier="external/ui/node_modules/.bin/prettier"
+    if [ ! -x "$prettier" ]; then
+      make ui-deps >/dev/null || { status=1; log "format: make ui-deps failed"; }
+    fi
+    if [ -x "$prettier" ]; then
+      log "format: prettier --check (${#fmt_files[@]} staged SPA file(s))"
+      for f in "${fmt_files[@]}"; do
+        if ! git show ":$f" | (cd external/ui && ./node_modules/.bin/prettier --check --stdin-filepath "${f#external/ui/}"); then
+          status=1
+          log "format: $f (staged content); format the file and stage the correction"
+        fi
+      done
+    else
+      status=1
+      log "format: prettier not found in external/ui/node_modules"
+    fi
+  fi
+fi
+
 # --- tests (opt-in; off by default because even the express run takes minutes) ---
 case "$tests" in
   off)  : ;;
@@ -92,7 +138,7 @@ if [ "$docs" = "1" ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-  log "PASS (lint=$lint, tests=$tests, docs=$docs_ran)"
+  log "PASS (lint=$lint, format=$format_ran, tests=$tests, docs=$docs_ran)"
 else
   log "FAIL — fix the reported issues before committing (bypass once: git commit --no-verify)."
 fi

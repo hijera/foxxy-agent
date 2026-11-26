@@ -13,10 +13,19 @@ Feature: A streamed answer that goes silent is cut after a bounded idle time
   retry wrapper: what to do with a stall - carry the answer on, re-issue a
   call that showed nothing, wait out a silent provider - is the agent's call
   (features/llm_stall_retry.feature). A blocking (stream: false) answer
-  arrives in one piece and is never guarded.
+  arrives in one piece and is never guarded. The Codex backend answers its
+  stream with no Content-Type at all, and the provider-level guard watches it
+  the same way without depending on that header.
 
   Scenario: A stream that stalls after text deltas fails with a stall error and keeps the partial text
     Given an "openai" provider with a stream idle timeout of 200 ms pointed at a stub server that stalls after text deltas
+    When a streaming completion is requested
+    Then the call fails with a stall error that names the idle time
+    And the partial response preserves text "Hello fr"
+    And the stub server received 1 request
+
+  Scenario: A Codex stream that names no content type and stalls after text deltas fails with a stall error
+    Given a "codex" provider with a stream idle timeout of 200 ms pointed at a backend that names no content type and stalls after text deltas
     When a streaming completion is requested
     Then the call fails with a stall error that names the idle time
     And the partial response preserves text "Hello fr"

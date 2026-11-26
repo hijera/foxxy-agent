@@ -227,6 +227,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 					"httpserver.allow_insecure: true silences this")
 		}
 	}
+	warnOpenCORS(log, &cfg.HTTPServer, listenAddr, authOn)
 
 	if ps, err := project.Open(paths.Home); err != nil {
 		log.Warn("project store unavailable", "error", err)
@@ -459,9 +460,15 @@ func Run(args []string, deps CommandDeps) error {
 		return dryrun.RunAndReport(out, params.CLI, *testConfig,
 			func(c *config.Config) error { return applyStartOverrides(c, params) },
 			func(prep *dryrun.Prepared) (dryrun.Request, error) {
+				cfg := &prep.Cfg.HTTPServer
+				// Preparing the config loads <home>/.env with the usual precedence.
+				tokenOn := params.AuthToken != "" || len(cfg.EffectiveAuthTokens()) > 0 || strings.TrimSpace(os.Getenv(TokenEnvVar)) != ""
+				envAccount := strings.TrimSpace(os.Getenv(LoginUserEnvVar)) != "" && os.Getenv(LoginPasswordEnvVar) != ""
+				loginOn := !cfg.Login.IsExplicitlyDisabled() && (cfg.Login.HasAccount() || envAccount)
 				return dryrun.Request{
 					Surface:   dryrun.SurfaceHTTP,
 					Listeners: []dryrun.Listener{{Path: "httpserver", Addr: listenAddress(prep.Cfg, params)}},
+					WebUIOpen: !cfg.AllowInsecure && !tokenOn && !loginOn,
 				}, nil
 			})
 	}

@@ -343,9 +343,10 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session. |
 | `httpserver.public_docs` | boolean | false | Keep /docs and /openapi.* reachable without a token even when auth is enabled. |
 | `httpserver.stream_tickets_only` | boolean | false | Refuse the durable auth token in ?access_token= on the SSE routes, so an EventSource must first mint a single-use ticket via POST /foxxycode/stream-tickets. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
-| `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
-| `httpserver.cors` | object |  | Cross-origin policy so a browser UI on another origin can call this API. |
+| `httpserver.allow_insecure` | boolean | false | Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or "*") - and the --dry-run findings that mirror them. |
+| `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one. |
 | `httpserver.cors.enable` | boolean | false | Turn on CORS handling (preflight + Access-Control-* headers). |
+| `httpserver.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote foxxycode serve, where the web UI comes from the laptop's own foxxycode serve and its port moves. Narrower than "*", and like "*" only as safe as the token or sign-in behind the API. |
 | `httpserver.cors.allowed_origins` | list of strings |  | Exact origins permitted to call the API. A single "*" allows any origin (bearer auth still applies). |
 | `httpserver.remotes` | list of objects |  | Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote. |
 | `httpserver.remotes[].name` | string |  | Display name in the environment selector. |
@@ -369,6 +370,7 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.allow_private_upstreams` | list of strings | [] | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
 | `swarm.cors` | object |  | Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay. |
 | `swarm.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
+| `swarm.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own foxxycode serve took. Narrower than "*"; the client token still applies. |
 | `swarm.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
 | `swarm.tls` | object |  | Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. |
 | `swarm.tls.cert_file` | string | "" | PEM certificate chain. |

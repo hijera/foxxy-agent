@@ -8,6 +8,14 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.79 — 2026-11-25
+
+Checkpoint: `cd42d7df06fb3c64c1b482e7c4463f3fc239ebb4` (tag `1.2.79`), following `d81d6cca0c12716035a0539130cab8ac66fe2a27` (`1.2.73`). Implementation: `7cdd8efa3b01994db27b9cb39d1504e8a74542a5`, based on PR #167 head `4959cccf21767fe95c7f08dc50c20f153b3f460e`. All 43 commits are accounted for: 29 adapted constituent changes and 14 redundant integration/release merges. No remaining work in this range.
+
+- Ported strict loopback-origin CORS for agents and relays, localized recovery guidance and dry-run warnings; non-streaming and cached token usage; complete Anthropic cache accounting; phone-safe History filters; accessible portalled shared-file menus; Codex keep-alive and headerless-stream handling; uppercase-first proxy resolution; Vite/Vitest updates; and govulncheck in the AppSec gate.
+- Preserved every registered divergence, including chunk-level idle guards, complete tool calls after truncation, transport/debug/system-proxy behavior and cumulative turn usage. Retained POST reveal and independent action errors, localized UI, SVN and the Chromium 104 baseline. Existing newer Go and x/crypto security versions were not downgraded.
+- Validation: full shipped-tag `make test` with 3,776 SPA tests and the complete Go tree, `make lint`, full `make docs-check`, schema/fork/rebranding guards, both editor changelog suites and 185 VS Code tests pass. Embedded SPA/Chromium 104, layout, the full phone overflow grid and the real-engine artifact-card matrix pass. Three documentation captures come from real FoxxyCode components on an isolated stand. Scope and adaptations: `docs/plans/upstream-1.2.79-port.md`.
+
 ## Sync through upstream 1.2.73 — 2026-11-20
 
 The checkpoint `d81d6cca0c12716035a0539130cab8ac66fe2a27` follows `b9f75122ff13706b8716b162b88a2bfb36a6203b`. The port is in `2823fa12839a85ac46deb3e3120ad01d83135464` and `227df070b478932160436bdd6c59902f3cccb66f`. The ledger covers 15 adapted commits and one redundant integration merge.
@@ -161,6 +169,8 @@ Checkpoint: `5ed775c47789a5c9ec49cfb66c0d575730599cf8` (tag `1.2.10`), following
 | `composer-send-mode` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `session-asset-files` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
 | `background-server-lifetime` | 1.2.1 port | Owner-approved fork behavior; see the English registry and guard tests | Preserve on later ports |
+| `cumulative-turn-usage` | Обновления usage несут цифры по вызовам, потребители их суммируют | Обновления token_usage несут кумулятивные счётчики хода; каждый потребитель берёт последнее обновление вместо суммы снимков: HTTP-коллекторы, строка задачи субагента и футер консоли | Сохранять правило «последнее кумулятивное побеждает»; формат на проводе менять только с решением владельца |
+| `loopback-sign-in` | Исключений у формы входа нет, она показана всем | `foxxycode http` (его запускают плагины редакторов и desktop-приложение) пропускает прямого loopback-клиента мимо формы входа, пока не настроен bearer-токен; страница браузера на другом loopback-порту тоже считается прямым loopback-клиентом (решение владельца 2026-11-26: доступом управляют CORS-допуск и предупреждение при запуске, вторых ворот нет); `foxxycode serve` исключений не делает | Сохранять исключение и никогда не сужать его до клиентов того же origin |
 <!-- divergence-registry:end -->
 
 Более ранние решения записаны в разделах «Расхождения с upstream» каждой волны ниже; при порте,

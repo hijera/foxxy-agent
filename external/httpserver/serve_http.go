@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/httpx"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -82,6 +84,7 @@ func Serve(ctx context.Context, opts Options) error {
 				"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
 				"httpserver.allow_insecure: true silences this")
 	}
+	warnOpenCORS(log, &cfg.HTTPServer, opts.ListenAddr, authOn)
 	// The two credentials are not interchangeable: a browser signs in at the
 	// form, and everything that is not a browser - `foxxycode --remote`, `foxxycode acp
 	// --remote`, a swarm relay reaching this node, the Python harnesses - still
@@ -127,4 +130,16 @@ func Serve(ctx context.Context, opts Options) error {
 		}
 		return err
 	}
+}
+
+// warnOpenCORS applies to both HTTP entrypoints, including loopback listeners.
+func warnOpenCORS(log *slog.Logger, cfg *config.HTTPServerConfig, addr string, authOn bool) {
+	if authOn || cfg.AllowInsecure || !cfg.CORS.OpenToUnlistedOrigins() {
+		return
+	}
+	log.Warn("CORS admits pages nobody listed and the API asks for no credential",
+		"addr", addr,
+		"hint", "httpserver.cors.allow_loopback or allowed_origins: [\"*\"] is only as safe as the credential behind the API: "+
+			"set a token (httpserver.auth_token / --auth-token / "+TokenEnvVar+") or run `foxxycode serve set-password`; "+
+			"httpserver.allow_insecure: true silences this")
 }
