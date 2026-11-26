@@ -34,7 +34,8 @@ Three things hold an entry in place:
    mind - leaves with its markers and its row in the same change.
 
 Older decisions are recorded per wave in the "Расхождения с upstream" sections of
-`UPSTREAM_SYNC.md`; move one here when a port touches it again.
+`docs/plans/upstream-sync-history.md`; move one here and into the summary table in
+`UPSTREAM_SYNC.md` when a port touches it again.
 
 ## Registry
 
