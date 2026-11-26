@@ -506,7 +506,11 @@ export function Composer(props: {
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
-  onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorkspacePickBranch?: (
+    branch: string,
+    worktree: boolean,
+    remoteRef?: string,
+  ) => void;
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;

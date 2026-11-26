@@ -32,16 +32,17 @@ import (
 )
 
 type wsFeatureState struct {
-	root      string
-	sessRoot  string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	cfg       *config.Config
-	folders   map[string]string
-	sessionID string
-	status    int
-	body      map[string]interface{}
+	pickedRemoteRef string
+	root            string
+	sessRoot        string
+	ts              *httptest.Server
+	mgr             *session.Manager
+	srv             *Server
+	cfg             *config.Config
+	folders         map[string]string
+	sessionID       string
+	status          int
+	body            map[string]interface{}
 	// localState is a repository's uncommitted state recorded before a
 	// refresh of its remote branches.
 	localState string
@@ -66,6 +67,7 @@ func (s *wsFeatureState) reset() error {
 	s.status = 0
 	s.body = nil
 	s.localState = ""
+	s.pickedRemoteRef = ""
 	return nil
 }
 
@@ -927,6 +929,8 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I activate the session transcript$`, s.activateSessionTranscript)
 	sc.Step(`^I reopen the session transcript$`, s.reopenSessionTranscript)
 	sc.Step(`^the persisted session cwd remains the removed worktree$`, s.persistedCwdRemainsRemovedWorktree)
+	sc.Step(`^I remember the remote branch row "([^"]+)"$`, s.rememberRemoteBranch)
+	sc.Step(`^I switch to the remembered remote branch in a worktree$`, s.switchToRememberedRemoteBranch)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^no session was created$`, s.noSessionWasCreated)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)

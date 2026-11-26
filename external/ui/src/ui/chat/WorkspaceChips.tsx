@@ -37,7 +37,7 @@ type Props = {
   worktreePref: boolean;
   svnFolderPref: boolean;
   onPickFolder: (path: string) => void;
-  onPickBranch: (branch: string, worktree: boolean) => void;
+  onPickBranch: (branch: string, worktree: boolean, remoteRef?: string) => void;
   onWorktreeToggle: () => void;
   onPickSvnBranch: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle: () => void;
@@ -445,7 +445,21 @@ export function WorkspaceChips(props: Props) {
                               data-testid={`workspace-branch-row-${name}`}
                               onClick={() => {
                                 if (name !== ctx.branch) {
-                                  props.onPickBranch(name, props.worktreePref);
+                                  const ref = remoteOnly
+                                    ? ctx.remote_branch_refs?.[name]
+                                    : undefined;
+                                  if (ref) {
+                                    props.onPickBranch(
+                                      name,
+                                      props.worktreePref,
+                                      ref,
+                                    );
+                                  } else {
+                                    props.onPickBranch(
+                                      name,
+                                      props.worktreePref,
+                                    );
+                                  }
                                 }
                                 closeMenu();
                               }}

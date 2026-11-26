@@ -351,8 +351,8 @@ func TestUnreadInstructionFiles(t *testing.T) {
 		filepath.Join(shared, "missing.md"), // 1: absolute, absent
 		filepath.Join(shared, "blank.md"),   // 2: absolute, empty
 		filepath.Join(shared, "folder.md"),  // 3: absolute, a folder
-		"${FOXXYCODE_HOME}/team.md",             // 4: read
-		"${FOXXYCODE_HOME}/gone.md",             // 5: home, absent
+		"${FOXXYCODE_HOME}/team.md",         // 4: read
+		"${FOXXYCODE_HOME}/gone.md",         // 5: home, absent
 		"docs/STYLE.md",                     // 6: workspace, absent here
 		"${CWD}/docs/RULES.md",              // 7: workspace, absent here
 		"",                                  // 8: blank, nothing to say

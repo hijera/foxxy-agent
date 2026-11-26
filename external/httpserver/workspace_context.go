@@ -49,7 +49,14 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 		payload["branches"] = info.Branches
 		// As the last fetch left them: POST /foxxycode/workspace/fetch refreshes
 		// them before the branch list opens.
-		payload["remote_branches"] = gitws.RemoteBranches(info.Path)
+		remoteRefs := gitws.RemoteBranchRefs(info.Path)
+		remoteBranches := make([]string, 0, len(remoteRefs))
+		for name := range remoteRefs {
+			remoteBranches = append(remoteBranches, name)
+		}
+		sort.Strings(remoteBranches)
+		payload["remote_branches"] = remoteBranches
+		payload["remote_branch_refs"] = remoteRefs
 		wts := make([]map[string]interface{}, 0, len(info.Worktrees))
 		for _, wt := range info.Worktrees {
 			wts = append(wts, map[string]interface{}{

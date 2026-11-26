@@ -608,6 +608,7 @@ export function App() {
   const pendingWorkspaceRef = useRef<{
     path?: string;
     branch?: string;
+    branchRef?: string | undefined;
     worktree?: boolean;
     vcs?: "git" | "svn";
   } | null>(null);
@@ -631,6 +632,7 @@ export function App() {
   // applies, so a slow preview of a folder picked earlier never paints over
   // the folder picked after it.
   const workspaceCtxGenRef = useRef(0);
+  const [workspaceError, setWorkspaceError] = useState("");
   const chatWorkspace = chatWorkspacePath(
     sessionId,
     pendingWorkspacePath,
@@ -642,6 +644,7 @@ export function App() {
   const [activeDraftId, setActiveDraftId] = useState(() =>
     initialRoute.branch === "draft" ? initialRoute.draftId.trim() : "",
   );
+  useEffect(() => setWorkspaceError(""), [sessionId, activeDraftId]);
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
@@ -2472,22 +2475,30 @@ export function App() {
     };
   }, [sessionId, refreshHomeWorkspace]);
 
-  async function switchWorkspace(payload: {
-    path?: string;
-    branch?: string;
-    worktree?: boolean;
-    vcs?: "git" | "svn";
-  }) {
+  async function switchWorkspace(
+    payload: {
+      path?: string;
+      branch?: string;
+      worktree?: boolean;
+      vcs?: "git" | "svn";
+    },
+    remoteRef?: string,
+  ) {
     const sid = sessionId.trim();
+    setWorkspaceError("");
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
       // A folder picked is this browser's for the next start screen too.
       if (payload.path) {
         writeLastWorkspaceDir(payload.path);
       }
+      const picked = pendingWorkspaceRef.current;
+      const keepPick =
+        !payload.path || payload.path === (picked?.path ?? workspaceCtx?.path);
       setPendingWorkspace({
-        ...(pendingWorkspaceRef.current || {}),
+        ...(keepPick ? picked : null),
         ...payload,
+        ...(payload.branch ? { branchRef: remoteRef } : {}),
       });
       if (payload.path) {
         const gen = ++workspaceCtxGenRef.current;
@@ -2531,7 +2542,10 @@ export function App() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json", [HDR]: sid },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            ...payload,
+            branch: remoteRef ?? payload.branch,
+          }),
         },
       );
       if (res.ok) {
@@ -2541,11 +2555,25 @@ export function App() {
           setWorkspaceCtx(ctx);
         }
       } else {
-        await refreshWorkspaceContext(sid);
+        throw await workspaceRequestError(res);
       }
-    } catch {
-      // network error: keep the current chips
+    } catch (err) {
+      if (viewedSessionIdRef.current.trim() === sid) {
+        setWorkspaceError(
+          errorDetail(err) || remoteSendErrorMessage(err, getEnv()),
+        );
+        void refreshWorkspaceContext(sid);
+      }
     }
+  }
+
+  async function workspaceRequestError(res: Response): Promise<Error> {
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return new Error(
+      remoteHttpErrorMessage(res.status, getEnv(), body?.error?.message ?? ""),
+    );
   }
 
   // Applies pre-session workspace choices to the freshly created session id
@@ -2556,51 +2584,31 @@ export function App() {
       setPendingWorkspace(null);
       return;
     }
-    const base = { "Content-Type": "application/json", [HDR]: sid };
-    try {
-      // The answer is the new session's workspace context: taking it here
-      // keeps the chips and everything scoped by chatWorkspace on the picked
-      // folder from the moment the pending pick is cleared, instead of on a
-      // preview that may not have answered yet.
-      const applied = async (res: Response) => {
-        if (!res.ok) {
-          return;
-        }
-        const gen = ++workspaceCtxGenRef.current;
-        const ctx = (await res.json()) as WorkspaceContext;
-        if (gen === workspaceCtxGenRef.current) {
-          setWorkspaceCtx(ctx);
-        }
-      };
-      if (pending.path) {
-        await applied(
-          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
-            method: "POST",
-            headers: base,
-            body: JSON.stringify({ path: pending.path }),
-          }),
-        );
-      }
-      if (pending.branch) {
-        await applied(
-          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
-            method: "POST",
-            headers: base,
-            body: JSON.stringify({
-              branch: pending.branch,
-              worktree: Boolean(pending.worktree),
-              vcs: pending.vcs ?? "git",
-            }),
-          }),
-        );
-      }
-    } catch {
-      // ignore: the session still starts in the default workspace
-    } finally {
-      // Cleared once the session holds the pick, so the folder the chat is
-      // scoped to never falls back to a stale preview in between.
-      setPendingWorkspace(null);
+    const endpoint = `/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`;
+    const post = async (payload: object): Promise<WorkspaceContext> => {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", [HDR]: sid },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw await workspaceRequestError(res);
+      return (await res.json()) as WorkspaceContext;
+    };
+    let ctx = pending.path ? await post({ path: pending.path }) : null;
+    if (pending.branch) {
+      ctx = await post({
+        branch: pending.branchRef ?? pending.branch,
+        worktree: Boolean(pending.worktree),
+        vcs: pending.vcs ?? "git",
+      });
     }
+    // A folder change alone must not replace the preview if the branch
+    // checkout fails. Keep the picked branch visible until the user changes it.
+    if (ctx) {
+      workspaceCtxGenRef.current += 1;
+      setWorkspaceCtx(ctx);
+    }
+    setPendingWorkspace(null);
   }
 
   const refreshBackgroundTasks = useCallback(
@@ -5998,8 +6006,20 @@ export function App() {
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
+        setWorkspaceError("");
+        try {
+          await applyPendingWorkspace(sid);
+        } catch (err) {
+          if (!viewedSessionIdRef.current.trim()) {
+            setWorkspaceError(
+              errorDetail(err) || remoteSendErrorMessage(err, getEnv()),
+            );
+            giveBack();
+          }
+          completedNormally = true;
+          return;
+        }
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
-        await applyPendingWorkspace(sid);
         if (activeDraftId.trim()) {
           setClientDraftSessions(
             removeClientDraftSession(activeDraftId.trim()),
@@ -8464,13 +8484,14 @@ export function App() {
             backgroundTasksOpen={tasksPanelOpen}
             onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
+            workspaceError={workspaceError}
             chatWorkspacePath={chatWorkspace}
             worktreePref={worktreePref}
             svnFolderPref={svnFolderPref}
             workspaceLocked={items.length > 0}
             onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
-            onWorkspacePickBranch={(b: string, wt: boolean) =>
-              void switchWorkspace({ branch: b, worktree: wt })
+            onWorkspacePickBranch={(branch, worktree, remoteRef) =>
+              void switchWorkspace({ branch, worktree }, remoteRef)
             }
             onWorkspaceRefreshBranches={refreshWorkspaceBranches}
             onWorktreeToggle={() =>

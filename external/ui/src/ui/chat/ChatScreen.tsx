@@ -199,6 +199,7 @@ export function ChatScreen(props: {
   turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
+  workspaceError?: string;
   /** The folder the chat runs in (the picked one before a session exists). */
   chatWorkspacePath?: string;
   worktreePref?: boolean;
@@ -206,7 +207,11 @@ export function ChatScreen(props: {
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
-  onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorkspacePickBranch?: (
+    branch: string,
+    worktree: boolean,
+    remoteRef?: string,
+  ) => void;
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
@@ -613,6 +618,11 @@ export function ChatScreen(props: {
     useCard && canReviewChanges,
     workingCopy,
   );
+  const workspaceAlert = props.workspaceError ? (
+    <p className="composer-enhance-err" role="alert">
+      {props.workspaceError}
+    </p>
+  ) : null;
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
   const workspaceBar =
@@ -817,6 +827,7 @@ export function ChatScreen(props: {
                   : {})}
               />
             )}
+            {!readOnlyNotice && workspaceAlert}
             {readOnlyNotice ?? (
               <Composer
                 value={props.draft}
@@ -1044,6 +1055,7 @@ export function ChatScreen(props: {
                     : {})}
                 />
               )}
+              {!readOnlyNotice && workspaceAlert}
               {readOnlyNotice ?? (
                 <Composer
                   cardTop={workspaceBar}

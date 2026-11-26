@@ -1,21 +1,16 @@
 package gitws
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // ErrBranchConflict reports a remote branch picked by its remote-tracking name
@@ -59,6 +54,13 @@ func ResolveBranch(dir, name string) (BranchTarget, error) {
 		return target, nil
 	}
 	refs := listRefs(dir)
+	if short, explicit := strings.CutPrefix(name, "refs/remotes/"); explicit {
+		remote, branch, ok := splitRemoteName(listRemotes(dir), short)
+		if !ok || branch == "HEAD" || strings.HasPrefix(branch, "-") || !slices.Contains(refs, name) {
+			return BranchTarget{}, fmt.Errorf("no remote branch %q", short)
+		}
+		return resolveRemoteBranch(dir, refs, remote, branch)
+	}
 	if slices.Contains(refs, "refs/heads/"+name) {
 		return target, nil
 	}
@@ -73,11 +75,16 @@ func ResolveBranch(dir, name string) (BranchTarget, error) {
 	if !ok || branch == "HEAD" || strings.HasPrefix(branch, "-") {
 		return target, nil
 	}
+	return resolveRemoteBranch(dir, refs, remote, branch)
+}
+
+func resolveRemoteBranch(dir string, refs []string, remote, branch string) (BranchTarget, error) {
+	target := BranchTarget{Branch: branch, Remote: remote}
 	if !slices.Contains(refs, "refs/heads/"+branch) {
-		return BranchTarget{Branch: branch, Remote: remote}, nil
+		return target, nil
 	}
-	if upstream := branchUpstream(dir, branch); upstream != "refs/remotes/"+name {
-		return BranchTarget{}, fmt.Errorf("%w: local branch %q does not track %s; pick it from the local branches or rename it first", ErrBranchConflict, branch, name)
+	if branchUpstream(dir, branch) != target.upstreamRef() {
+		return BranchTarget{}, fmt.Errorf("%w: local branch %q does not track %s/%s; pick it from the local branches or rename it first", ErrBranchConflict, branch, remote, branch)
 	}
 	return BranchTarget{Branch: branch}, nil
 }
@@ -139,28 +146,41 @@ func RemoteBranches(dir string) []string {
 	return remoteBranchesFrom(listRemotes(dir), listRefs(dir))
 }
 
-// remoteBranchesFrom is RemoteBranches over full ref names.
+// RemoteBranchRefs maps each remote-only display name to the exact ref a
+// caller should submit. Origin wins duplicate names, then the first remote
+// by name. A full ref must still exist when a caller submits it.
+func RemoteBranchRefs(dir string) map[string]string {
+	return remoteBranchRefsFrom(listRemotes(dir), listRefs(dir))
+}
+
 func remoteBranchesFrom(remotes, refs []string) []string {
+	return slices.Sorted(maps.Keys(remoteBranchRefsFrom(remotes, refs)))
+}
+
+func remoteBranchRefsFrom(remotes, refs []string) map[string]string {
 	taken := map[string]bool{}
 	for _, ref := range refs {
 		if name, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
 			taken[name] = true
 		}
 	}
-	out := []string{}
+	out := map[string]string{}
+	chosen := map[string]string{}
 	for _, ref := range refs {
 		name, ok := strings.CutPrefix(ref, "refs/remotes/")
 		if !ok {
 			continue
 		}
-		_, branch, ok := splitRemoteName(remotes, name)
+		remote, branch, ok := splitRemoteName(remotes, name)
 		if !ok || branch == "HEAD" || taken[branch] {
 			continue
 		}
-		taken[branch] = true
-		out = append(out, branch)
+		prev := chosen[branch]
+		if prev == "" || remote == "origin" || (prev != "origin" && remote < prev) {
+			chosen[branch] = remote
+			out[branch] = ref
+		}
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -224,9 +244,9 @@ func branchUpstream(dir, branch string) string {
 //
 // One remote failing does not stop the others; the error names every remote
 // that was not refreshed, with credentials in URLs masked. ctx bounds the
-// whole fetch, and git with every process it started (ssh, a remote helper)
-// is stopped when it ends. Concurrent calls for one repository share a single
-// fetch: two git fetches racing for the same ref locks would fail each other.
+// whole fetch. This automatic refresh runs in-process so hooks, custom
+// transports and shell commands in the repository's Git config never run.
+// Concurrent calls for one repository share a single fetch.
 func FetchRemotes(ctx context.Context, dir string) ([]string, error) {
 	key := fetchKey(dir)
 	for {
@@ -270,7 +290,7 @@ var (
 	fetchMu    sync.Mutex
 	fetchCalls = map[string]*fetchCall{}
 	// runFetch is the fetch a leading caller runs; tests replace it.
-	runFetch = fetchRemotes
+	runFetch = builtinFetchRemotes
 )
 
 // fetchKey names the repository dir belongs to by its common git dir, so
@@ -329,66 +349,6 @@ func unsafeRefspecDestination(refspecs []string) string {
 	return ""
 }
 
-func fetchRemotes(ctx context.Context, dir string) ([]string, error) {
-	if !GitAvailable() {
-		return builtinFetchRemotes(ctx, dir)
-	}
-	remotes, problems := fetchPlan(listRemotes(dir), gitRemoteSettings(dir))
-	// One fetch per remote, in turn, as `git fetch --all` runs them itself:
-	// a failure is then git's own words about one named remote, not the
-	// progress lines --multiple interleaves with them.
-	for _, name := range remotes {
-		err := runGitContext(ctx, dir,
-			// The same guard Clone has: a remote URL of the ext:: transport
-			// runs an arbitrary command.
-			"-c", "protocol.ext.allow=never",
-			"fetch", "--prune", "--no-prune-tags", "--no-tags", "--recurse-submodules=no",
-			"--", name)
-		if err == nil {
-			continue
-		}
-		if ctx.Err() != nil {
-			return remotes, fmt.Errorf("fetch remotes: %w", ctx.Err())
-		}
-		problems = append(problems, fmt.Sprintf("remote %s: %v", name, err))
-	}
-	if len(problems) > 0 {
-		return remotes, errors.New(redactURLCredentials(strings.Join(problems, "; ")))
-	}
-	return remotes, nil
-}
-
-// gitRemoteSettings reads remote.<name>.fetch and remote.<name>.skipFetchAll
-// of every remote in one call.
-func gitRemoteSettings(dir string) map[string]remoteSettings {
-	settings := map[string]remoteSettings{}
-	out, err := runGit(dir, "config", "--null", "--get-regexp", `^remote\.`)
-	if err != nil {
-		return settings
-	}
-	for entry := range strings.SplitSeq(out, "\x00") {
-		key, value, _ := strings.Cut(entry, "\n")
-		rest, ok := strings.CutPrefix(key, "remote.")
-		if !ok {
-			continue
-		}
-		dot := strings.LastIndex(rest, ".")
-		if dot <= 0 {
-			continue
-		}
-		name, option := rest[:dot], rest[dot+1:]
-		s := settings[name]
-		switch strings.ToLower(option) {
-		case "fetch":
-			s.refspecs = append(s.refspecs, value)
-		case "skipfetchall":
-			s.skipFetchAll = gitBool(value)
-		}
-		settings[name] = s
-	}
-	return settings
-}
-
 // gitBool reads a git config boolean; a key written without a value is true.
 func gitBool(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -396,46 +356,6 @@ func gitBool(value string) bool {
 		return true
 	}
 	return false
-}
-
-// runGitContext runs git under ctx for an operation that talks to the
-// network, and fails with what git printed. It never asks for anything: no
-// controlling terminal, so ssh cannot stop for a passphrase or a host key on
-// the operator's terminal, and no askpass program. It runs in a process
-// group of its own, so the end of ctx stops ssh and the remote helper along
-// with git instead of leaving them behind.
-func runGitContext(ctx context.Context, dir string, args ...string) error {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		// An empty GIT_ASKPASS ends git's askpass chain before core.askPass
-		// and SSH_ASKPASS: a desktop's or an editor's askpass would otherwise
-		// put a password dialog on the server's screen. Credential helpers
-		// still answer.
-		"GIT_ASKPASS=",
-		// ssh's own askpass (OpenSSH 8.4+), for a passphrase or a host key.
-		"SSH_ASKPASS_REQUIRE=never",
-	)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	platform.DetachFromTerminal(cmd)
-	cmd.Cancel = func() error { return platform.TerminateProcessGroup(cmd, time.Second) }
-	cmd.WaitDelay = 2 * time.Second
-	platform.HideConsoleWindow(cmd)
-	platform.AdaptCommand(cmd)
-	if err := cmd.Run(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("git %s: %w", strings.Join(args, " "), ctxErr)
-		}
-		// git's own words are the reason; the exit status adds nothing.
-		if msg := strings.TrimSpace(out.String()); msg != "" {
-			return errors.New(msg)
-		}
-		return err
-	}
-	return nil
 }
 
 // urlCredentials matches the user-info part of a URL (scheme://user:pass@).

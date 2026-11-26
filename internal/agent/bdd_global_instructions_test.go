@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -45,12 +46,29 @@ type globalInstructionsFeatureState struct {
 	// behind it.
 	missingFile string
 	// logs is what the agent logged during the scenario.
-	logs bytes.Buffer
+	logs *instructionLog
 }
 
 func (s *globalInstructionsFeatureState) reset() error {
 	s.close()
 	return nil
+}
+
+type instructionLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *instructionLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *instructionLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 func (s *globalInstructionsFeatureState) close() {
@@ -69,7 +87,7 @@ func (s *globalInstructionsFeatureState) close() {
 	s.tweak = nil
 	s.sharedFile = ""
 	s.missingFile = ""
-	s.logs.Reset()
+	s.logs = nil
 }
 
 func (s *globalInstructionsFeatureState) tempDir() (string, error) {
@@ -201,7 +219,8 @@ func (s *globalInstructionsFeatureState) agentSessionInThatProject() error {
 		s.tweak(cfg)
 	}
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
-	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&s.logs, nil)))
+	s.logs = &instructionLog{}
+	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, slog.New(slog.NewTextHandler(s.logs, nil)))
 	return nil
 }
 

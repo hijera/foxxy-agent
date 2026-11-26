@@ -50,7 +50,9 @@ In the web composer, select a feature branch with the **Worktree** checkbox
 before the first message. The same fetch, branch checks and worktree placement
 apply. The branch list fetches every remote before it opens and lists branches
 only on a remote among the local ones, marked with a cloud, so a branch pushed
-from another machine can be opened without a terminal; see
+from another machine can be opened without a terminal. The picker remembers
+which remote owns the displayed branch and refuses the switch if that ref
+is pruned before the session starts. See
 [Per-session workspace](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree--svn).
 The folder chip shows the main project's name while the branch chip
 shows the feature branch; History groups the main checkout and its worktrees

@@ -34,7 +34,14 @@ vi.mock("./chat/ChatScreen", () => ({
     worktreePref?: boolean;
     onWorktreeToggle?: () => void;
     onWorkspacePickFolder?: (path: string) => void;
-    onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+    onWorkspacePickBranch?: (
+      branch: string,
+      worktree: boolean,
+      ref?: string,
+    ) => void;
+    onSend: (text: string) => void;
+    draft: string;
+    workspaceError?: string;
     onWorkspaceRefreshBranches?: () => Promise<{ status: string } | null>;
   }) => (
     <>
@@ -66,9 +73,24 @@ vi.mock("./chat/ChatScreen", () => ({
       <button
         type="button"
         data-testid="pick-remote-branch"
-        onClick={() => props.onWorkspacePickBranch?.("feat/fresh", false)}
+        onClick={() =>
+          props.onWorkspacePickBranch?.(
+            "feat/fresh",
+            true,
+            "refs/remotes/origin/feat/fresh",
+          )
+        }
       >
         pick branch
+      </button>
+      {props.workspaceError && <p role="alert">{props.workspaceError}</p>}
+      <output data-testid="workspace-draft">{props.draft}</output>
+      <button
+        type="button"
+        data-testid="send-workspace-draft"
+        onClick={() => props.onSend("keep this draft")}
+      >
+        send
       </button>
       <button
         type="button"
@@ -448,4 +470,48 @@ test("a context read during the refresh does not hide the fetched branches", asy
   expect(state().getAttribute("data-remote")).toBe("feat/fresh");
   fetchMock.mockImplementation(passthrough);
   delete document.body.dataset.refresh;
+});
+
+test("a vanished remote branch keeps the first prompt in the composer", async () => {
+  history.replaceState(null, "", "/#/");
+  const request = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/workspace") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { path?: string };
+        if (body.path) return json({ path: body.path, branch: "main" });
+        return json({ error: { message: "no remote branch" } }, 409);
+      }
+      return fetchMock(input, init);
+    },
+  );
+  vi.stubGlobal("fetch", request);
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
+  );
+  fireEvent.click(screen.getByTestId("pick-folder"));
+  await waitFor(() => expect(state().textContent).toBe("home:" + PICKED));
+  fireEvent.click(screen.getByTestId("pick-remote-branch"));
+  expect(state().getAttribute("data-branch")).toBe("feat/fresh");
+  fireEvent.click(screen.getByTestId("send-workspace-draft"));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert").textContent).toContain("no remote branch");
+    expect(state().getAttribute("data-branch")).toBe("feat/fresh");
+    expect(screen.getByTestId("workspace-draft").textContent).toBe(
+      "keep this draft",
+    );
+  });
+  const switchCall = request.mock.calls.find(
+    ([url, init]) =>
+      String(url).endsWith("/workspace") &&
+      String(init?.body).includes('"branch"'),
+  );
+  expect(JSON.parse(String(switchCall?.[1]?.body))).toMatchObject({
+    branch: "refs/remotes/origin/feat/fresh",
+    worktree: true,
+  });
+  expect(
+    request.mock.calls.some(([url]) => String(url) === "/v1/responses"),
+  ).toBe(false);
 });

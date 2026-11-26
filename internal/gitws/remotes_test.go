@@ -641,3 +641,78 @@ func TestFetchRemotesNeverRunsAnAskpassProgram(t *testing.T) {
 		t.Fatalf("the askpass program was asked for: %s", body)
 	}
 }
+
+func TestCheckoutTrackingPreservesUntrackedFile(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := initRepo(t)
+		upstream := addRemote(t, dir, "upstream")
+		publishBranch(t, upstream, "feature/collision")
+		mustGit(t, dir, "fetch", "upstream")
+		file := filepath.Join(dir, "feature-collision.txt")
+		if err := os.WriteFile(file, []byte("local draft"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		target, err := ResolveBranch(dir, "refs/remotes/upstream/feature/collision")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckoutTracking(dir, target); err == nil {
+			t.Error("checkout accepted a conflicting untracked file")
+		}
+		if content, err := os.ReadFile(file); err != nil || string(content) != "local draft" {
+			t.Errorf("local draft = %q, %v", content, err)
+		}
+		if got := mustGit(t, dir, "symbolic-ref", "--short", "HEAD"); got != "main" {
+			t.Errorf("HEAD changed to %q on failed checkout", got)
+		}
+		if got := mustGit(t, dir, "branch", "--list", target.Branch); got != "" {
+			t.Errorf("failed checkout created a branch: %q", got)
+		}
+	})
+}
+
+func TestCheckoutTrackingUsesSourceRefspec(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := initRepo(t)
+		upstream := addRemote(t, dir, "upstream")
+		tip := publishBranch(t, upstream, "feature/source")
+		mustGit(t, dir, "config", "--replace-all", "remote.upstream.fetch", "+refs/heads/feature/*:refs/remotes/upstream/alias/*")
+		mustGit(t, dir, "fetch", "upstream")
+		ref := "refs/remotes/upstream/alias/source"
+		target, err := ResolveBranch(dir, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckoutTracking(dir, target); err != nil {
+			t.Fatal(err)
+		}
+		if got := mustGit(t, dir, "rev-parse", "HEAD"); got != tip {
+			t.Errorf("HEAD = %s, want %s", got, tip)
+		}
+		if got := mustGit(t, dir, "config", "branch.alias/source.merge"); got != "refs/heads/feature/source" {
+			t.Errorf("upstream source = %q, want refs/heads/feature/source", got)
+		}
+		if got, err := ResolveBranch(dir, ref); err != nil || got != (BranchTarget{Branch: target.Branch}) {
+			t.Errorf("resolving the ref again = %+v, %v, want the tracking local branch", got, err)
+		}
+	})
+}
+
+func TestFetchRemotesDoesNotRunGitHooks(t *testing.T) {
+	dir := initRepo(t)
+	origin := mustGit(t, dir, "remote", "get-url", "origin")
+	publishBranch(t, origin, "feature/fresh")
+
+	hooks := t.TempDir()
+	hook := filepath.Join(hooks, "reference-transaction")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "config", "core.hooksPath", filepath.ToSlash(hooks))
+	if _, err := FetchRemotes(context.Background(), dir); err != nil {
+		t.Fatalf("in-process fetch with a configured Git hook: %v", err)
+	}
+	if !slices.Contains(RemoteBranches(dir), "feature/fresh") {
+		t.Fatal("the fetch did not update the remote-tracking ref")
+	}
+}

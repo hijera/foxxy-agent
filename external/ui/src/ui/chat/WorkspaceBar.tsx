@@ -18,7 +18,7 @@ export { middleTruncate } from "./workspaceContext";
 export type WorkspacePick = {
   worktreePref: boolean;
   onPickFolder: (path: string) => void;
-  onPickBranch: (branch: string, worktree: boolean) => void;
+  onPickBranch: (branch: string, worktree: boolean, remoteRef?: string) => void;
   onWorktreeToggle: () => void;
   /** Fetches the remotes before the branch list shows (see WorkspaceChips). */
   onRefreshBranches?: (() => Promise<WorkspaceBranchFetch | null>) | undefined;

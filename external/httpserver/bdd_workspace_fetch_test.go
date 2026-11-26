@@ -279,3 +279,17 @@ func (s *wsFeatureState) branchTracks(branch, name, upstream string) error {
 	}
 	return nil
 }
+
+func (s *wsFeatureState) rememberRemoteBranch(name string) error {
+	refs, _ := s.body["remote_branch_refs"].(map[string]interface{})
+	ref, _ := refs[name].(string)
+	if !strings.HasPrefix(ref, "refs/remotes/") {
+		return fmt.Errorf("no remote ref for %q: %v", name, s.body)
+	}
+	s.pickedRemoteRef = ref
+	return nil
+}
+
+func (s *wsFeatureState) switchToRememberedRemoteBranch() error {
+	return s.switchToBranchInWorktree(s.pickedRemoteRef)
+}

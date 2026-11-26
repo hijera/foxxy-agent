@@ -403,14 +403,14 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	path := filepath.Join(root, dirName)
 	args := []string{"worktree", "add"}
 	switch {
+	case target.Remote != "":
+		// Keep the chosen remote, even if a local branch appeared during the
+		// fetch. Git will refuse to create a branch whose name is now taken.
+		args = append(args, "--track", "-b", branch, "--", path, target.upstreamRef())
 	case refExists(repoDir, "refs/heads/"+branch):
 		// A local branch is reused at its own tip; it is not rebased onto
 		// the fetched default branch.
 		args = append(args, "--", path, branch)
-	case target.Remote != "":
-		// A branch of a named remote with no local tip yet: the same as the
-		// origin case below, for whichever remote was picked.
-		args = append(args, "--track", "-b", branch, "--", path, target.upstreamRef())
 	case refExists(repoDir, "refs/remotes/origin/"+branch):
 		// The branch exists on origin but has no local tip: materialize it
 		// instead of silently redefining it at origin/<base>.

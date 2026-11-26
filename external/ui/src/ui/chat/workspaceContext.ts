@@ -38,6 +38,7 @@ export type WorkspaceContext = {
    * branch tracking it.
    */
   remote_branches?: string[];
+  remote_branch_refs?: Record<string, string>;
   worktrees?: WorkspaceWorktree[];
   is_svn_repo?: boolean;
   svn?: WorkspaceSvn;

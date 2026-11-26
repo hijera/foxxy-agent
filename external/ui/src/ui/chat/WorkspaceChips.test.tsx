@@ -383,6 +383,7 @@ describe("WorkspaceChips", () => {
       context: {
         ...gitCtx,
         remote_branches: ["feature/fresh", "fix/typo"],
+        remote_branch_refs: { "fix/typo": "refs/remotes/upstream/fix/typo" },
       },
     });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
@@ -393,7 +394,11 @@ describe("WorkspaceChips", () => {
       screen.queryByTestId("workspace-branch-row-feature/fresh"),
     ).toBeNull();
     fireEvent.click(screen.getByTestId("workspace-branch-row-fix/typo"));
-    expect(props.onPickBranch).toHaveBeenCalledWith("fix/typo", false);
+    expect(props.onPickBranch).toHaveBeenCalledWith(
+      "fix/typo",
+      false,
+      "refs/remotes/upstream/fix/typo",
+    );
     expect(screen.queryByTestId("workspace-branch-menu")).toBeNull();
   });
 

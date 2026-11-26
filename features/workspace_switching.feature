@@ -238,3 +238,18 @@ Feature: Workspace switching
     Then the context reports a git repository on branch "fix/upstream-only"
     And the context reports the session is in a worktree
     And the worktree path is ".foxxycode/worktrees/fix-upstream-only" inside repository "repo"
+
+  Scenario: A stale remote-only row cannot create an unrelated worktree
+    Given a workspace git repository "repo" with branches "main"
+    And branch "feature/gone" was pushed to remote "origin" of repository "repo" after its last fetch
+    And a session rooted at folder "repo"
+    And the session refreshed the remote branches
+    And I remember the remote branch row "feature/gone"
+    When branch "feature/gone" is deleted from remote "origin" of repository "repo"
+    And I refresh the remote branches
+    And I switch to the remembered remote branch in a worktree
+    Then the workspace request fails with status 409
+    When I request the workspace context
+    Then the context reports a git repository on branch "main"
+    And the context reports the session is not in a worktree
+    And the context lists no remote-only branch "feature/gone"
