@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,7 +9,10 @@ import {
 } from "@testing-library/react";
 import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
-import type { WorkspaceContext } from "./workspaceContext";
+import type {
+  WorkspaceBranchFetch,
+  WorkspaceContext,
+} from "./workspaceContext";
 import { WORKSPACE_RECENTS_KEY, pushWorkspaceRecent } from "./workspaceRecents";
 import { isEditorEmbed } from "../embedShell";
 import { initLocale, setLocale } from "../i18n/i18n";
@@ -213,6 +217,201 @@ describe("WorkspaceChips", () => {
     expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
   });
 
+  it("fetches the remotes before it lists the branches", async () => {
+    let finish: (value: WorkspaceBranchFetch) => void = () => {};
+    const onRefreshBranches = vi.fn(
+      () =>
+        new Promise<WorkspaceBranchFetch>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { rerender, props } = renderChips({ onRefreshBranches });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+
+    expect(onRefreshBranches).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("workspace-branch-refreshing")).toHaveTextContent(
+      "Fetching branches from the remotes…",
+    );
+    expect(
+      screen.queryByTestId("workspace-branch-row-feature/login"),
+    ).toBeNull();
+
+    // The refresh answers with the context read after the fetch.
+    rerender(
+      <WorkspaceChips
+        {...props}
+        context={{ ...gitCtx, remote_branches: ["feature/fresh"] }}
+      />,
+    );
+    await act(async () => {
+      finish({ status: "ok", remotes: ["origin"] });
+    });
+
+    expect(screen.queryByTestId("workspace-branch-refreshing")).toBeNull();
+    expect(screen.queryByTestId("workspace-branch-refresh-warning")).toBeNull();
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/login"),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/fresh"),
+    ).toBeTruthy();
+  });
+
+  it("lists remote-only branches among the local ones, marked with a cloud", () => {
+    renderChips({
+      context: {
+        ...gitCtx,
+        branches: ["main", "feature/login", "zeta"],
+        remote_branches: ["feature/fresh", "alpha"],
+      },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    const rows = [
+      ...screen
+        .getByTestId("workspace-branch-menu")
+        .querySelectorAll("[data-testid^='workspace-branch-row-']"),
+    ];
+    // The current branch first, then one alphabetical list of both kinds.
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "main",
+      "alpha",
+      "feature/fresh",
+      "feature/login",
+      "zeta",
+    ]);
+    const remote = screen.getByTestId("workspace-branch-row-feature/fresh");
+    expect(
+      remote.querySelector("[data-testid='workspace-branch-remote-icon']"),
+    ).toBeTruthy();
+    expect(remote.getAttribute("title")).toContain("Not checked out here yet");
+    // The cloud opens its row, and the local rows keep its slot empty so
+    // every name starts in the same column.
+    expect(remote.firstElementChild?.className).toBe("workspace-branch-mark");
+    expect(remote.firstElementChild?.firstElementChild).toBe(
+      remote.querySelector("[data-testid='workspace-branch-remote-icon']"),
+    );
+    const local = screen.getByTestId("workspace-branch-row-feature/login");
+    expect(
+      local.querySelector("[data-testid='workspace-branch-remote-icon']"),
+    ).toBeNull();
+    expect(local.firstElementChild?.className).toBe("workspace-branch-mark");
+    expect(screen.getByTestId("workspace-branch-menu")).not.toHaveTextContent(
+      "Remote",
+    );
+  });
+
+  it("keeps the cached branches and warns when the refresh fails", async () => {
+    const onRefreshBranches = vi.fn(async () => ({
+      status: "failed" as const,
+      remotes: ["origin"],
+      error: "remote origin: could not read Username\nsecond line",
+    }));
+    renderChips({
+      onRefreshBranches,
+      context: { ...gitCtx, remote_branches: ["feature/cached"] },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+
+    const warning = await screen.findByTestId(
+      "workspace-branch-refresh-warning",
+    );
+    expect(warning).toHaveTextContent(
+      "Could not refresh the remote branches. The list may be out of date.",
+    );
+    expect(warning).toHaveTextContent("remote origin: could not read Username");
+    expect(warning).not.toHaveTextContent("second line");
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/login"),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/cached"),
+    ).toBeTruthy();
+  });
+
+  it("treats a refresh that throws as a failed one", async () => {
+    renderChips({
+      onRefreshBranches: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(
+      await screen.findByTestId("workspace-branch-refresh-warning"),
+    ).toBeTruthy();
+    expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
+  });
+
+  it("does not let a refresh from an earlier opening decide a later one", async () => {
+    const pending: Array<(value: WorkspaceBranchFetch) => void> = [];
+    const onRefreshBranches = vi.fn(
+      () =>
+        new Promise<WorkspaceBranchFetch>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    renderChips({ onRefreshBranches });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(onRefreshBranches).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      pending[0]?.({ status: "failed", error: "stale" });
+    });
+    expect(screen.getByTestId("workspace-branch-refreshing")).toBeTruthy();
+    expect(screen.queryByTestId("workspace-branch-refresh-warning")).toBeNull();
+
+    await act(async () => {
+      pending[1]?.({ status: "ok", remotes: ["origin"] });
+    });
+    expect(screen.queryByTestId("workspace-branch-refreshing")).toBeNull();
+    expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
+  });
+
+  it("keeps the rows as they were when no branch is only on a remote", () => {
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(
+      screen
+        .getByTestId("workspace-branch-menu")
+        .querySelector(".workspace-branch-mark"),
+    ).toBeNull();
+  });
+
+  it("picks a remote-only branch by its name and filters it with the rest", () => {
+    const { props } = renderChips({
+      context: {
+        ...gitCtx,
+        remote_branches: ["feature/fresh", "fix/typo"],
+      },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "typo" },
+    });
+    expect(
+      screen.queryByTestId("workspace-branch-row-feature/fresh"),
+    ).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-branch-row-fix/typo"));
+    expect(props.onPickBranch).toHaveBeenCalledWith("fix/typo", false);
+    expect(screen.queryByTestId("workspace-branch-menu")).toBeNull();
+  });
+
+  it("explains an empty result only when no branch of either kind matches", () => {
+    renderChips({
+      context: { ...gitCtx, remote_branches: ["fix/typo"] },
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "typo" },
+    });
+    expect(screen.queryByTestId("workspace-branch-empty")).toBeNull();
+    fireEvent.change(screen.getByTestId("workspace-branch-filter"), {
+      target: { value: "missing" },
+    });
+    expect(screen.getByTestId("workspace-branch-empty")).toBeTruthy();
+  });
+
   it("lists recent folders with the current workspace checked", () => {
     pushWorkspaceRecent({ path: "/repos/other", name: "other" });
     renderChips();
@@ -233,7 +432,9 @@ describe("WorkspaceChips", () => {
     });
 
     expect(screen.getByTestId("workspace-recent-row-other")).toBeTruthy();
-    expect(screen.queryByTestId("workspace-recent-row-foxxycode-agent")).toBeNull();
+    expect(
+      screen.queryByTestId("workspace-recent-row-foxxycode-agent"),
+    ).toBeNull();
 
     fireEvent.change(screen.getByTestId("workspace-recent-filter"), {
       target: { value: "missing" },
@@ -241,6 +442,54 @@ describe("WorkspaceChips", () => {
     expect(screen.getByTestId("workspace-recent-empty")).toHaveTextContent(
       "No recent folders match",
     );
+  });
+
+  it("localizes workspace controls in Russian", () => {
+    setLocale("ru");
+    renderChips({ context: { ...gitCtx, branch: "" } });
+
+    expect(screen.getByTestId("composer-branch-chip")).toHaveTextContent(
+      "отсоединённая",
+    );
+    expect(screen.getByTestId("composer-worktree-chip")).toHaveTextContent(
+      "worktree",
+    );
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    expect(screen.getByTestId("workspace-folder-menu")).toHaveTextContent(
+      "Недавние",
+    );
+    expect(screen.getByTestId("workspace-open-folder")).toHaveTextContent(
+      "Открыть папку…",
+    );
+  });
+
+  it("localizes the refresh of the branch list in Russian", async () => {
+    setLocale("ru");
+    let finish: (value: WorkspaceBranchFetch) => void = () => {};
+    renderChips({
+      context: { ...gitCtx, remote_branches: ["feature/fresh"] },
+      onRefreshBranches: () =>
+        new Promise<WorkspaceBranchFetch>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(screen.getByTestId("workspace-branch-refreshing")).toHaveTextContent(
+      "Получаю ветки с удалённых репозиториев…",
+    );
+    await act(async () => {
+      finish({ status: "failed", error: "timeout" });
+    });
+    expect(
+      screen.getByTestId("workspace-branch-refresh-warning"),
+    ).toHaveTextContent(
+      "Не удалось обновить ветки с удалённых репозиториев. Список может быть устаревшим.",
+    );
+    expect(
+      screen
+        .getByTestId("workspace-branch-row-feature/fresh")
+        .getAttribute("title"),
+    ).toContain("Локально этой ветки ещё нет");
   });
 
   it("picks a recent folder and remembers it", () => {
@@ -362,7 +611,9 @@ describe("WorkspaceChips", () => {
     const { props } = renderChips({ context: svnCtx, svnFolderPref: true });
     fireEvent.click(screen.getByTestId("composer-svn-chip"));
     const menu = screen.getByTestId("workspace-svn-menu");
-    const rows = menu.querySelectorAll("[data-testid^='workspace-svn-branch-row-']");
+    const rows = menu.querySelectorAll(
+      "[data-testid^='workspace-svn-branch-row-']",
+    );
     expect(rows.length).toBe(3);
     // The current branch leads the list, then trunk.
     expect(rows[0]?.textContent).toBe("branches/feature-x");
@@ -373,7 +624,9 @@ describe("WorkspaceChips", () => {
 
   it("toggles the svn branch-folder preference through the checkbox", () => {
     const { props } = renderChips({ context: svnCtx });
-    const box = screen.getByTestId("composer-svn-folder-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-svn-folder-checkbox",
+    ) as HTMLInputElement;
     expect(box.type).toBe("checkbox");
     expect(box.checked).toBe(false);
     fireEvent.click(box);
@@ -386,7 +639,8 @@ describe("WorkspaceChips", () => {
       (screen.getByTestId("composer-svn-chip") as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-svn-folder-checkbox") as HTMLInputElement).disabled,
+      (screen.getByTestId("composer-svn-folder-checkbox") as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     fireEvent.click(screen.getByTestId("composer-svn-chip"));
     expect(screen.queryByTestId("workspace-svn-menu")).toBeNull();
@@ -395,9 +649,9 @@ describe("WorkspaceChips", () => {
   it("renders the svn chips in Russian", () => {
     setLocale("ru");
     renderChips({ context: svnCtx });
-    expect(screen.getByTestId("composer-svn-folder-chip").textContent).toContain(
-      "папка-ветка",
-    );
+    expect(
+      screen.getByTestId("composer-svn-folder-chip").textContent,
+    ).toContain("папка-ветка");
   });
 
   it("reaches other drives through the drive level and a typed path", async () => {

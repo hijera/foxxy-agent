@@ -17,7 +17,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/mcp"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 func TestMCPMenuTogglesTrustedServerThroughFakeBotAPI(t *testing.T) {

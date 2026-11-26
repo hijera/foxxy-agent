@@ -2287,6 +2287,12 @@ export const messagesEn: Record<string, string> = {
   "messages.spawnAgentTimeout": "Timeout {seconds}s",
   "messages.spawnAgentTimeoutHint": "Maximum agent execution time",
   "workspace.noBranches": "No branches",
+  "workspace.fetchingBranches": "Fetching branches from the remotes…",
+  "workspace.fetchFailed":
+    "Could not refresh the remote branches. The list may be out of date.",
+  "workspace.remoteOnly": "On the remote only",
+  "workspace.remoteOnlyHint":
+    "Not checked out here yet: picking it creates a local branch that tracks the remote one",
   "mcp.error.saveChanged":
     "The entry changed in its file since this editor opened. Cancel and open it again to see what it holds now.",
   "mcp.edit.title": "Edit entry ({origin})",

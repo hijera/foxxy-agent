@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {

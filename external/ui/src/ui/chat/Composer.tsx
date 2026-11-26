@@ -17,7 +17,10 @@ import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
-import type { WorkspaceContext } from "./workspaceContext";
+import type {
+  WorkspaceBranchFetch,
+  WorkspaceContext,
+} from "./workspaceContext";
 import {
   ContextBreakdownPopover,
   type ContextBreakdown,
@@ -157,7 +160,9 @@ function renamePastedImages(files: File[], seq: { n: number }): File[] {
     const ext = imageExtFromMime(f.type);
     // The same inference the send path applies: a clipboard that omitted the
     // MIME type still gets a live chip preview from the deterministic name.
-    return normalizeClipboardImageFile(new File([f], `pasted-${seq.n}.${ext}`, { type: f.type }));
+    return normalizeClipboardImageFile(
+      new File([f], `pasted-${seq.n}.${ext}`, { type: f.type }),
+    );
   });
 }
 
@@ -189,7 +194,10 @@ function useImageObjectUrl(file: File): string {
 function AttachedFileChip({
   file,
   disabled,
-  onRemove, tip, removeLabel, icon,
+  onRemove,
+  tip,
+  removeLabel,
+  icon,
 }: {
   file: File;
   disabled: boolean;
@@ -274,9 +282,13 @@ function AttachedFileChip({
   );
 }
 
-function fmtBytes(n: number, t: (key: string, params?: Record<string, string | number>) => string): string {
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
   if (n < 1024) return t("composer.bytesB", { n });
-  if (n < 1024 * 1024) return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  if (n < 1024 * 1024)
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
   return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
@@ -498,6 +510,10 @@ export function Composer(props: {
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
+  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  onWorkspaceRefreshBranches?:
+    | (() => Promise<WorkspaceBranchFetch | null>)
+    | undefined;
   /** A plate joined to the top edge of the card (the plate of a running chat,
    *  naming where it works): under the queue and the banners, flush with the
    *  card. Without one, a chat that has not started gets the plate of picks. */
@@ -526,9 +542,9 @@ export function Composer(props: {
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const [dragOverCard, setDragOverCard] = useState(false);
   const pastedSeqRef = useRef({ n: 0 });
-  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | "permission" | null>(
-    null,
-  );
+  const [menuOpen, setMenuOpen] = useState<
+    "mode" | "llm" | "reasoning" | "permission" | null
+  >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   /** Direction the anchored menu opens, chosen from available space when it opens. */
@@ -545,6 +561,7 @@ export function Composer(props: {
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   // Falls back to local state so the component still works standalone (tests, embeds).
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
@@ -553,7 +570,9 @@ export function Composer(props: {
   const setAttachedFiles = useCallback(
     (next: File[] | ((prev: File[]) => File[])) => {
       const resolve = (prev: File[]) =>
-        typeof next === "function" ? (next as (p: File[]) => File[])(prev) : next;
+        typeof next === "function"
+          ? (next as (p: File[]) => File[])(prev)
+          : next;
       if (onAttachedFilesChange) {
         onAttachedFilesChange(resolve(props.attachedFiles ?? []));
         return;
@@ -631,31 +650,49 @@ export function Composer(props: {
     if (arg === null) return false;
     props.onDocsCommand(arg);
     return true;
-  }, [props.onMCPCommand, props.onDocsCommand, props.value, sendableAttachedFiles.length]);
-  const queueDraft = useCallback((mode?: QueueMode, alternate = false) => {
-    if (runLocalCommandFromDraft()) {
-      return;
-    }
-    const txt = props.value.trim();
-    if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
-      return;
-    }
-    // This very draft is already on its way to the queue (queuedDraftTextRef).
-    if (queuedDraftTextRef.current !== null && queuedDraftTextRef.current === txt) {
-      return;
-    }
-    const chosen = mode ?? props.queueMode;
-    if (!chosen) {
-      queueChoiceAnsweredRef.current = false;
-      setQueueChoice({ alternate });
-      return;
-    }
-    setQueueChoice(null);
-    const files = [...sendableAttachedFiles];
-    if (files.length > 0) setAttachedFiles([]);
-    queuedDraftTextRef.current = txt;
-    props.onQueue(txt, chosen, files);
-  }, [props.value, props.onQueue, props.queueMode, runLocalCommandFromDraft, sendableAttachedFiles, setAttachedFiles]);
+  }, [
+    props.onMCPCommand,
+    props.onDocsCommand,
+    props.value,
+    sendableAttachedFiles.length,
+  ]);
+  const queueDraft = useCallback(
+    (mode?: QueueMode, alternate = false) => {
+      if (runLocalCommandFromDraft()) {
+        return;
+      }
+      const txt = props.value.trim();
+      if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
+        return;
+      }
+      // This very draft is already on its way to the queue (queuedDraftTextRef).
+      if (
+        queuedDraftTextRef.current !== null &&
+        queuedDraftTextRef.current === txt
+      ) {
+        return;
+      }
+      const chosen = mode ?? props.queueMode;
+      if (!chosen) {
+        queueChoiceAnsweredRef.current = false;
+        setQueueChoice({ alternate });
+        return;
+      }
+      setQueueChoice(null);
+      const files = [...sendableAttachedFiles];
+      if (files.length > 0) setAttachedFiles([]);
+      queuedDraftTextRef.current = txt;
+      props.onQueue(txt, chosen, files);
+    },
+    [
+      props.value,
+      props.onQueue,
+      props.queueMode,
+      runLocalCommandFromDraft,
+      sendableAttachedFiles,
+      setAttachedFiles,
+    ],
+  );
   /** The answer to the first-use question: it is Enter's mode from now on. */
   const chooseQueueMode = (mode: QueueMode) => {
     if (queueChoiceAnsweredRef.current) {
@@ -676,7 +713,6 @@ export function Composer(props: {
   }, [t]);
   /** True while a file drag hovers the composer field (drop-target highlight). */
   const [dropActive, setDropActive] = useState(false);
-  const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** True while an enhance-prompt request is in flight (spins the wand, disables re-entry). */
   const [enhancing, setEnhancing] = useState(false);
   /** Last enhance failure, shown above the composer bar. Cleared on retry or manual edit. */
@@ -875,7 +911,9 @@ export function Composer(props: {
     }
     const el =
       composerCardRef.current ??
-      document.querySelector<HTMLElement>(".composer-wrap-docked .composer-card");
+      document.querySelector<HTMLElement>(
+        ".composer-wrap-docked .composer-card",
+      );
     if (!el) {
       setSheetBottomPx(null);
       return;
@@ -901,14 +939,18 @@ export function Composer(props: {
       return;
     }
     if (typeof window !== "undefined") {
-      setPickerUseSheet(window.matchMedia(shellStackMaxWidthMediaQuery).matches);
+      setPickerUseSheet(
+        window.matchMedia(shellStackMaxWidthMediaQuery).matches,
+      );
     }
     measureSheetBottom();
     window.addEventListener("resize", measureSheetBottom);
     window.addEventListener("scroll", measureSheetBottom, { passive: true });
     const card =
       composerCardRef.current ??
-      document.querySelector<HTMLElement>(".composer-wrap-docked .composer-card");
+      document.querySelector<HTMLElement>(
+        ".composer-wrap-docked .composer-card",
+      );
     const ro =
       typeof ResizeObserver !== "undefined" && card
         ? new ResizeObserver(() => measureSheetBottom())
@@ -940,7 +982,9 @@ export function Composer(props: {
       return;
     }
     const useSheet = window.matchMedia(shellStackMaxWidthMediaQuery).matches;
-    const el = useSheet ? composerCardRef.current : composerFieldWrapRef.current;
+    const el = useSheet
+      ? composerCardRef.current
+      : composerFieldWrapRef.current;
     if (!el) {
       setPickerFloatRect(null);
       return;
@@ -963,7 +1007,10 @@ export function Composer(props: {
     const rail = useSheet
       ? document.querySelector<HTMLElement>(".rail-column")
       : null;
-    const top = Math.max(viewportTop, rail?.getBoundingClientRect().bottom ?? 0);
+    const top = Math.max(
+      viewportTop,
+      rail?.getBoundingClientRect().bottom ?? 0,
+    );
     const maxH = Math.max(
       0,
       Math.min(
@@ -1027,12 +1074,7 @@ export function Composer(props: {
         msgEl?.removeEventListener("scroll", onMsgs);
       }
     };
-  }, [
-    pickerOpen,
-    pickerUseSheet,
-    measurePickerFloat,
-    props.isEmpty,
-  ]);
+  }, [pickerOpen, pickerUseSheet, measurePickerFloat, props.isEmpty]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1108,17 +1150,37 @@ export function Composer(props: {
         has_more: boolean;
         page: number;
       };
-      if (page === 1 && props.onDocsCommand && "docs".startsWith(prefix.toLowerCase()) &&
-          !body.items?.some((row) => row.name === "docs")) {
-        body.items = [...(body.items || []), { name: "docs", description: t("composer.docsCommand") }];
+      if (
+        page === 1 &&
+        props.onDocsCommand &&
+        "docs".startsWith(prefix.toLowerCase()) &&
+        !body.items?.some((row) => row.name === "docs")
+      ) {
+        body.items = [
+          ...(body.items || []),
+          { name: "docs", description: t("composer.docsCommand") },
+        ];
       }
-      if (page === 1 && props.onMCPCommand && "mcp".startsWith(prefix.toLowerCase()) &&
-          !body.items?.some((row) => row.name === "mcp")) {
-        body.items = [...(body.items || []), { name: "mcp", description: t("composer.mcpCommand") }];
+      if (
+        page === 1 &&
+        props.onMCPCommand &&
+        "mcp".startsWith(prefix.toLowerCase()) &&
+        !body.items?.some((row) => row.name === "mcp")
+      ) {
+        body.items = [
+          ...(body.items || []),
+          { name: "mcp", description: t("composer.mcpCommand") },
+        ];
       }
       return body;
     },
-    [props.sessionId, props.workspacePath, props.onDocsCommand, props.onMCPCommand, t],
+    [
+      props.sessionId,
+      props.workspacePath,
+      props.onDocsCommand,
+      props.onMCPCommand,
+      t,
+    ],
   );
 
   const fetchMentions = useCallback(
@@ -1270,7 +1332,13 @@ export function Composer(props: {
       setEnhancing(false);
       requestAnimationFrame(() => taRef.current?.focus());
     }
-  }, [enhancing, props.generating, props.value, props.sessionId, props.onChange]);
+  }, [
+    enhancing,
+    props.generating,
+    props.value,
+    props.sessionId,
+    props.onChange,
+  ]);
 
   const updateSlashMenu = useCallback(
     (value: string, caret: number) => {
@@ -1349,7 +1417,9 @@ export function Composer(props: {
           if (gen !== slashFetchGenRef.current) {
             return;
           }
-          setSlashErr(e instanceof Error ? e.message : t("composer.requestFailed"));
+          setSlashErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setSlashItems([]);
           setSlashHasMore(false);
           setSlashNoMatch(null);
@@ -1407,7 +1477,10 @@ export function Composer(props: {
       // IDE terminals for the @terminal menu section (best-effort, additive to
       // the workspace-file rows so the file-search path is unaffected).
       refreshTerminals();
-      const termRows: MentionRow[] = terminalPickerRows(draft.prefix, terminalRefs).map((row) => ({
+      const termRows: MentionRow[] = terminalPickerRows(
+        draft.prefix,
+        terminalRefs,
+      ).map((row) => ({
         kind: "terminal",
         insert: `@${row.path_rel}`,
         label: row.path_rel,
@@ -1534,7 +1607,14 @@ export function Composer(props: {
       };
       void run(0);
     },
-    [fetchMentions, atNoMatch, props.sessionId, refreshTerminals, terminalRefs, t],
+    [
+      fetchMentions,
+      atNoMatch,
+      props.sessionId,
+      refreshTerminals,
+      terminalRefs,
+      t,
+    ],
   );
 
   // Re-evaluate the open @ menu once the IDE terminal list arrives so the
@@ -1671,7 +1751,10 @@ export function Composer(props: {
     }
     const timer = window.setTimeout(() => {
       const scope = workspaceScope(props.sessionId, props.workspacePath);
-      const query = applyWorkspaceQuery(new URLSearchParams(), scope).toString();
+      const query = applyWorkspaceQuery(
+        new URLSearchParams(),
+        scope,
+      ).toString();
       fetch(`/foxxycode/mentions/check${query ? `?${query}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...scope.headers },
@@ -1691,7 +1774,9 @@ export function Composer(props: {
           for (const m of body.mentions || []) {
             next.set(m.token, { typed: m.typed ?? "", kind: m.kind ?? "" });
           }
-          for (const match of props.value.matchAll(/(?:^|\s)(@terminal(?::[^\s]+)?)(?=\s|$)/g)) {
+          for (const match of props.value.matchAll(
+            /(?:^|\s)(@terminal(?::[^\s]+)?)(?=\s|$)/g,
+          )) {
             const token = match[1];
             if (token) next.set(token, { typed: token, kind: "terminal" });
           }
@@ -1735,21 +1820,38 @@ export function Composer(props: {
     setCaretPos(el.selectionStart ?? el.value.length);
   }, [props.value]);
 
+  // The mirror scrolls itself rather than being moved by a transform: two
+  // scroll containers snap a fractional offset (a zoomed page's scrollTop,
+  // 214 CSS px at 125% is 267.5 device px) to the same device pixel, a
+  // translated layer does not, and the lines then stand half a pixel apart.
+  const syncMirrorScroll = useCallback(() => {
+    const ta = taRef.current;
+    const mirror = mirrorRef.current;
+    if (ta && mirror) {
+      mirror.scrollTop = ta.scrollTop;
+    }
+  }, []);
+
   const adjustMirrorToTextarea = useCallback(() => {
     const ta = taRef.current;
+    const mirror = mirrorRef.current;
     const inner = mirrorInnerRef.current;
-    if (!ta || !inner) {
+    if (!ta || !mirror || !inner) {
       return;
     }
-    const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
-    inner.style.paddingRight = `${44 + sw}px`;
-    inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
-    setComposerScrollTop(ta.scrollTop);
-  }, []);
+    // The inline-block textarea leaves the stack a few pixels taller than
+    // itself, and a mirror filling the stack showed the next line there
+    // while the field had already clipped it. Its own height, to the
+    // fraction (131.5px for five rows), keeps the two clipped alike.
+    mirror.style.height = getComputedStyle(ta).height;
+    // Room below the text so the mirror can always scroll as far as the
+    // field does.
+    inner.style.minHeight = `${ta.scrollHeight + mirror.clientHeight}px`;
+    syncMirrorScroll();
+  }, [syncMirrorScroll]);
 
   useLayoutEffect(() => {
     if (!maskComposerText) {
-      setComposerScrollTop(0);
       return;
     }
     adjustMirrorToTextarea();
@@ -1765,15 +1867,37 @@ export function Composer(props: {
     }
     const ro = new ResizeObserver(() => adjustMirrorToTextarea());
     ro.observe(ta);
-    return () => ro.disconnect();
+    // A page zoom or a window moved to a screen of another density lays the
+    // text out again - a classic scrollbar keeps its device pixels, glyphs
+    // are hinted for the new scale - without the field changing its size in
+    // CSS pixels, which is all the observer reports. The textarea then
+    // wraps and scrolls anew and the mirror has to follow it.
+    window.addEventListener("resize", adjustMirrorToTextarea);
+    let density: MediaQueryList | null = null;
+    const onDensity = () => {
+      adjustMirrorToTextarea();
+      watchDensity();
+    };
+    const watchDensity = () => {
+      density?.removeEventListener("change", onDensity);
+      density =
+        typeof window.matchMedia === "function"
+          ? window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+          : null;
+      density?.addEventListener("change", onDensity);
+    };
+    watchDensity();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", adjustMirrorToTextarea);
+      density?.removeEventListener("change", onDensity);
+    };
   }, [maskComposerText, adjustMirrorToTextarea]);
 
   function syncComposerScroll() {
-    const ta = taRef.current;
-    if (!ta || !maskComposerText) {
-      return;
+    if (maskComposerText) {
+      syncMirrorScroll();
     }
-    setComposerScrollTop(ta.scrollTop);
   }
 
   // A settings command whose value the composer already has a control for
@@ -1934,7 +2058,7 @@ export function Composer(props: {
       const mention = /\s/.test(rel) ? `@"${rel}"` : `@${rel}`;
       const el = taRef.current;
       const value = el ? el.value : props.value;
-      const caret = el ? el.selectionStart ?? value.length : value.length;
+      const caret = el ? (el.selectionStart ?? value.length) : value.length;
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const lead = before !== "" && !/\s$/.test(before) ? " " : "";
@@ -1957,7 +2081,10 @@ export function Composer(props: {
 
   // IntelliJ pushes an already-relative path via window.foxxycodeUi.insertFileMention
   // → the file-mention bus. Subscribe once; insertFileMention is stable enough.
-  useEffect(() => subscribeFileMention((rel) => insertFileMention(rel)), [insertFileMention]);
+  useEffect(
+    () => subscribeFileMention((rel) => insertFileMention(rel)),
+    [insertFileMention],
+  );
 
   /**
    * Inserts text at the live caret, preferring `execCommand("insertText")` so
@@ -2019,7 +2146,9 @@ export function Composer(props: {
         );
       }
       const el = taRef.current;
-      const before = el ? el.value.slice(0, el.selectionStart ?? el.value.length) : "";
+      const before = el
+        ? el.value.slice(0, el.selectionStart ?? el.value.length)
+        : "";
       const lead = before !== "" && !/\s$/.test(before) ? " " : "";
       insertAtLiveCaret(`${lead}${token} `);
     },
@@ -2269,7 +2398,9 @@ export function Composer(props: {
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {
-        setSlashErr(e instanceof Error ? e.message : t("composer.requestFailed"));
+        setSlashErr(
+          e instanceof Error ? e.message : t("composer.requestFailed"),
+        );
       } finally {
         setSlashLoading(false);
       }
@@ -2315,7 +2446,8 @@ export function Composer(props: {
   }
 
   const reasoningLevels = props.llmReasoningLevels ?? [];
-  const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
+  const showReasoning =
+    reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
   const reasoningVal = (props.llmReasoning || "").trim();
   const reasoningLabel = reasoningVal
     ? reasoningLevelLabel(reasoningVal)
@@ -2426,16 +2558,25 @@ export function Composer(props: {
     }
   }
   const tip = contextIdle
-    ? [t("composer.contextTipIdle"), t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) })].join("\n")
+    ? [
+        t("composer.contextTipIdle"),
+        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
+      ].join("\n")
     : [
         t("composer.contextTipUsed", {
           percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
         }),
         usage
           ? [
-              t("composer.contextTipInput", { count: fmtInt(usage.inputTokens) }),
-              t("composer.contextTipOutput", { count: fmtInt(usage.outputTokens) }),
-              t("composer.contextTipTotal", { count: fmtInt(usage.totalTokens) }),
+              t("composer.contextTipInput", {
+                count: fmtInt(usage.inputTokens),
+              }),
+              t("composer.contextTipOutput", {
+                count: fmtInt(usage.outputTokens),
+              }),
+              t("composer.contextTipTotal", {
+                count: fmtInt(usage.totalTokens),
+              }),
             ].join("\n")
           : "",
         t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
@@ -2492,7 +2633,9 @@ export function Composer(props: {
                 }}
               >
                 <span className="slash-row-name">/{row.name}</span>
-                {row.hint ? <span className="slash-row-hint">{row.hint}</span> : null}
+                {row.hint ? (
+                  <span className="slash-row-hint">{row.hint}</span>
+                ) : null}
                 <span className="slash-row-desc">{row.description}</span>
               </button>
             </li>
@@ -2862,8 +3005,11 @@ export function Composer(props: {
 
   // The plate over the card: the one a running chat hands in (cardTop), or,
   // before the chat starts, the folder, branch and worktree as picks on it.
-  const plate: ReactNode = props.cardTop ?? (
-    props.workspaceCtx && props.onWorkspacePickFolder && !props.workspaceLocked ? (
+  const plate: ReactNode =
+    props.cardTop ??
+    (props.workspaceCtx &&
+    props.onWorkspacePickFolder &&
+    !props.workspaceLocked ? (
       <WorkspaceBar
         context={props.workspaceCtx}
         pick={{
@@ -2874,37 +3020,37 @@ export function Composer(props: {
           onSvnFolderToggle: props.onSvnFolderToggle ?? (() => {}),
           onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
           onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+          onRefreshBranches: props.onWorkspaceRefreshBranches,
           opensUp: !props.isEmpty,
         }}
       />
-    ) : null
-  );
+    ) : null);
 
   const enhanceButton = (
     <button
-              type="button"
-              className="composer-enhance-btn"
-              aria-label={t("composer.enhance")}
-              title={t("composer.enhance")}
-              data-testid="composer-enhance-btn"
-              disabled={enhancing || props.generating || idleSendDisabled}
-              onClick={() => void enhancePrompt()}
-            >
-              <svg
-                className={
-                  enhancing
-                    ? "composer-enhance-icon is-spinning"
-                    : "composer-enhance-icon"
-                }
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                width="12"
-                height="12"
-                aria-hidden="true"
-              >
-                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-              </svg>
-            </button>
+      type="button"
+      className="composer-enhance-btn"
+      aria-label={t("composer.enhance")}
+      title={t("composer.enhance")}
+      data-testid="composer-enhance-btn"
+      disabled={enhancing || props.generating || idleSendDisabled}
+      onClick={() => void enhancePrompt()}
+    >
+      <svg
+        className={
+          enhancing
+            ? "composer-enhance-icon is-spinning"
+            : "composer-enhance-icon"
+        }
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        width="12"
+        height="12"
+        aria-hidden="true"
+      >
+        <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+      </svg>
+    </button>
   );
   return (
     <>
@@ -2981,10 +3127,28 @@ export function Composer(props: {
           </ul>
         ) : null}
         {queueChoice ? (
-          <div className="composer-queue-choice" role="group" aria-label={t("composer.queueChoiceLabel")} data-testid="composer-queue-choice">
-            <span>{t("composer.queueChoiceQuestion", { key: sendMode === "ctrl_enter" ? "Ctrl+Enter" : sendMode === "off" ? t("composer.queueThisMessage") : "Enter" })}</span>
-            <button type="button" onClick={() => chooseQueueMode("steer")}>{t("composer.queueChoiceSteer")}</button>
-            <button type="button" onClick={() => chooseQueueMode("after_turn")}>{t("composer.queueChoiceAfterTurn")}</button>
+          <div
+            className="composer-queue-choice"
+            role="group"
+            aria-label={t("composer.queueChoiceLabel")}
+            data-testid="composer-queue-choice"
+          >
+            <span>
+              {t("composer.queueChoiceQuestion", {
+                key:
+                  sendMode === "ctrl_enter"
+                    ? "Ctrl+Enter"
+                    : sendMode === "off"
+                      ? t("composer.queueThisMessage")
+                      : "Enter",
+              })}
+            </span>
+            <button type="button" onClick={() => chooseQueueMode("steer")}>
+              {t("composer.queueChoiceSteer")}
+            </button>
+            <button type="button" onClick={() => chooseQueueMode("after_turn")}>
+              {t("composer.queueChoiceAfterTurn")}
+            </button>
           </div>
         ) : null}
         {props.editingMessage ? (
@@ -3118,9 +3282,20 @@ export function Composer(props: {
               {(props.editingFiles || []).map((f, idx) => {
                 const { svg } = fileTypeIcon(f.mimeType, f.name);
                 return (
-                  <span key={`ef-${idx}`} className="composer-attachment-chip composer-attachment-chip--locked" title={f.name}>
-                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
-                    <span className="composer-attachment-chip-name">{f.name}</span>
+                  <span
+                    key={`ef-${idx}`}
+                    className="composer-attachment-chip composer-attachment-chip--locked"
+                    title={f.name}
+                  >
+                    <span
+                      className="composer-attachment-chip-icon"
+                      aria-hidden="true"
+                    >
+                      {svg}
+                    </span>
+                    <span className="composer-attachment-chip-name">
+                      {f.name}
+                    </span>
                   </span>
                 );
               })}
@@ -3144,7 +3319,9 @@ export function Composer(props: {
                     })}
                     icon={svg}
                     onRemove={() =>
-                      setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                      setAttachedFiles((prev) =>
+                        prev.filter((_, i) => i !== idx),
+                      )
                     }
                   />
                 );
@@ -3168,12 +3345,12 @@ export function Composer(props: {
               className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
             >
               {maskComposerText ? (
-                <div className="composer-mirror" aria-hidden="true">
-                  <div
-                    ref={mirrorInnerRef}
-                    className="composer-mirror-inner"
-                    style={{ transform: `translateY(-${composerScrollTop}px)` }}
-                  >
+                <div
+                  ref={mirrorRef}
+                  className="composer-mirror"
+                  aria-hidden="true"
+                >
+                  <div ref={mirrorInnerRef} className="composer-mirror-inner">
                     {composerSegments.map((seg, idx) =>
                       seg.type === "text" ? (
                         <span key={idx}>{seg.value}</span>
@@ -3340,7 +3517,8 @@ export function Composer(props: {
                     !ev.metaKey
                   ) {
                     ev.preventDefault();
-                    if (!props.editingMessage.busy) props.editingMessage.onCancel();
+                    if (!props.editingMessage.busy)
+                      props.editingMessage.onCancel();
                     return;
                   }
                   if (argOpen && argItems.length > 0) {
@@ -3407,7 +3585,12 @@ export function Composer(props: {
                     }
                     return;
                   }
-                  if (ev.key === "Tab" && slashOpen && slashItems.length > 0 && !props.generating) {
+                  if (
+                    ev.key === "Tab" &&
+                    slashOpen &&
+                    slashItems.length > 0 &&
+                    !props.generating
+                  ) {
                     ev.preventDefault();
                     const row0 = slashRows[slashActiveIdx];
                     if (row0) {
@@ -3512,7 +3695,6 @@ export function Composer(props: {
             </div>
           </div>
 
-
           {enhanceErr ? (
             <div
               className="composer-enhance-err"
@@ -3524,7 +3706,10 @@ export function Composer(props: {
           ) : null}
 
           <div className="composer-bar">
-            <div className="composer-tabs" aria-label={t("composer.composerOptions")}>
+            <div
+              className="composer-tabs"
+              aria-label={t("composer.composerOptions")}
+            >
               {props.llmModelMultimodal ? (
                 <>
                   <input
@@ -3681,7 +3866,10 @@ export function Composer(props: {
               >
                 <ContextUsageRing fill01={pct01} />
                 {!contextPopoverOpen && !contextTipSuppressed ? (
-                  <span className="rail-tip composer-context-tip" role="tooltip">
+                  <span
+                    className="rail-tip composer-context-tip"
+                    role="tooltip"
+                  >
                     {tip}
                   </span>
                 ) : null}
@@ -3708,7 +3896,10 @@ export function Composer(props: {
                         ? t("composer.sendEdit")
                         : t("composer.send")
                 }
-                disabled={props.editingMessage?.busy || (!props.generating && idleSendDisabled)}
+                disabled={
+                  props.editingMessage?.busy ||
+                  (!props.generating && idleSendDisabled)
+                }
                 onClick={() => {
                   if (queueArmed) {
                     queueDraft();
@@ -3727,7 +3918,12 @@ export function Composer(props: {
                   </span>
                 ) : (
                   <span className="composer-send-glyph" aria-hidden="true">
-                    <svg viewBox="0 0 12 12" fill="currentColor" width="17" height="17">
+                    <svg
+                      viewBox="0 0 12 12"
+                      fill="currentColor"
+                      width="17"
+                      height="17"
+                    >
                       <path d="M2 0L11 6L2 12Z" />
                     </svg>
                   </span>
@@ -3778,15 +3974,14 @@ export function Composer(props: {
                   menuUseSheet || !menuAnchorRect
                     ? undefined
                     : modeMenuDirClass === "opens-up"
-                    ? {
-                        left: menuAnchorRect.left,
-                        bottom:
-                          window.innerHeight - menuAnchorRect.top + 8,
-                      }
-                    : {
-                        left: menuAnchorRect.left,
-                        top: menuAnchorRect.bottom + 8,
-                      }
+                      ? {
+                          left: menuAnchorRect.left,
+                          bottom: window.innerHeight - menuAnchorRect.top + 8,
+                        }
+                      : {
+                          left: menuAnchorRect.left,
+                          top: menuAnchorRect.bottom + 8,
+                        }
                 }
               >
                 {menuOpen === "mode"
@@ -3858,11 +4053,16 @@ export function Composer(props: {
                           className="mode-menu-empty"
                           data-testid="model-menu-empty"
                         >
-                          {t("composer.noModelsMatch", { query: llmQuery.trim() })}
+                          {t("composer.noModelsMatch", {
+                            query: llmQuery.trim(),
+                          })}
                         </div>
                       ) : llmGrouped ? (
                         llmGroups.map((g) => (
-                          <div key={g.vendor || "_"} className="mode-menu-group">
+                          <div
+                            key={g.vendor || "_"}
+                            className="mode-menu-group"
+                          >
                             <div className="mode-menu-group-label">
                               {g.vendor || t("composer.vendorOther")}
                             </div>

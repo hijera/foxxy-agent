@@ -229,7 +229,7 @@ export const messagesRu: Record<string, string> = {
   "composer.workspace.openFolder": "Открыть папку…",
   "composer.workspace.noBranches": "Веток нет",
   "composer.workspace.worktree": "worktree",
-  "composer.workspace.detached": "detached",
+  "composer.workspace.detached": "отсоединённая",
   "composer.workspace.worktreeSessionTitle":
     "Эта сессия работает в отдельном worktree",
   "composer.workspace.worktreeToggleTitle":
@@ -2371,6 +2371,12 @@ export const messagesRu: Record<string, string> = {
   "messages.spawnAgentTimeout": "Таймаут {seconds} с",
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
   "workspace.noBranches": "Веток нет",
+  "workspace.fetchingBranches": "Получаю ветки с удалённых репозиториев…",
+  "workspace.fetchFailed":
+    "Не удалось обновить ветки с удалённых репозиториев. Список может быть устаревшим.",
+  "workspace.remoteOnly": "Только на удалённом репозитории",
+  "workspace.remoteOnlyHint":
+    "Локально этой ветки ещё нет: при выборе будет создана локальная ветка, которая отслеживает удалённую",
   "mcp.error.saveChanged":
     "Запись изменилась в файле после открытия редактора. Закройте его и откройте запись снова, чтобы увидеть, что в ней сейчас.",
   "mcp.edit.title": "Изменить запись ({origin})",

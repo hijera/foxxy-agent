@@ -30,8 +30,8 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
-	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 )
 
 const (
@@ -97,7 +97,7 @@ func (w *pictureWorld) chatThatReadsImages(name string) error {
 	w.shot = buf.Bytes()
 
 	read, _ := json.Marshal(map[string]any{"path": name})
-	stub := &llmstub.Server{Rules: []llmstub.Rule{
+	stub := &llmstub.Server{Model: "foxxycode-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "look at the screenshot", Tool: &llmstub.ToolCall{Name: "read", Arguments: read}},
 		{Match: "pictures the tool calls above returned", Answer: "It is a red square."},
 	}}

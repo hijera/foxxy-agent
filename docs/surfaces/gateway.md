@@ -380,7 +380,7 @@ A switch that lands is reported at `info`, so the confirmation is in the log wit
 ### Debugging against a fake Bot API
 
 The log tells what the bot did with an update; it does not let you send one
-without a phone, a token and a model behind the answer. `cmd/tgfake` does: a
+without a phone, a token and a model behind the answer. `tgfake` does: a
 stand-in Bot API server that answers every method the gateway calls
 (`getMe`, `getUpdates` with real long polling, `sendMessage`,
 `editMessageText`, `answerCallbackQuery`, the Bot API 10.1 `sendRichMessage`
@@ -390,7 +390,7 @@ With `--llm` it also serves a scripted model, so the whole stand runs with no
 network at all:
 
 ```bash
-go run ./cmd/tgfake --llm --llm-delay 50ms      # Bot API + model on 127.0.0.1:18790
+go tool tgfake --llm --llm-delay 50ms      # Bot API + model on 127.0.0.1:18790
 ```
 
 Point `foxxycode serve` at it with **`FOXXYCODE_TELEGRAM_API_BASE`**, the origin the
@@ -431,9 +431,9 @@ model (add a second entry to `models` for the keyboard to offer a choice), try
 a settings command such as `/plan --once What can you do?`, and read the Bot
 API calls on the right as the log fills on the left.
 
-![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+![The chat page of tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
 
-*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+*The chat page of `tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
 
 The same page is an HTTP API, which is what a script or a coding agent drives:
 
@@ -502,9 +502,9 @@ cross-site frame, the way Telegram Web is. `npm run check:telegram` drives the
 same stand from a script (*Checking the Telegram Mini App* on the
 [web UI page](web-ui.md)).
 
-![The chat page of cmd/tgfake with a Mini App open: the chat on the left with the bot's answers, the web UI in a half-open phone frame in the middle with the mode sheet over its docked composer and Telegram's header with Back and Close above it, the Bot API calls on the right](../assets/tgfake-mini-app-dark-1280.png)
+![The chat page of tgfake with a Mini App open: the chat on the left with the bot's answers, the web UI in a half-open phone frame in the middle with the mode sheet over its docked composer and Telegram's header with Back and Close above it, the Bot API calls on the right](../assets/tgfake-mini-app-dark-1280.png)
 
-*The chat page of `cmd/tgfake` with the web UI open as the bot's Mini App, half open: the mode sheet and the composer stay in the part the phone shows, the chat above it.*
+*The chat page of `tgfake` with the web UI open as the bot's Mini App, half open: the mode sheet and the composer stay in the part the phone shows, the chat above it.*
 
 Rich-message previews expire 30 seconds after their last successful revision.
 The chat page and `/sim/chat/{id}` stop showing expired drafts; reading the

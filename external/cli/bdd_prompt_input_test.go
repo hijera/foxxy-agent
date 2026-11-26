@@ -4,7 +4,7 @@ package cli
 
 // Godog harness for features/cli_prompt_input.feature: cli.Run runs in this
 // process the way `foxxycode -p ...` would, with a pipe or a file as its stdin,
-// against a scripted OpenAI-compatible model (internal/tgfake/llmstub) that
+// against a scripted OpenAI-compatible model (tgfake's pkg/llmstub) that
 // records every request it answers. The error paths are unit tests below the
 // suite: each asserts that the model was never asked.
 
@@ -27,7 +27,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/mention"
 	"github.com/hijera/foxxycode-agent/internal/serve"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 )
 
 const promptInputAnswer = "stub answer for the one-shot run"
@@ -42,7 +42,7 @@ type recordingModel struct {
 
 func newRecordingModel() *recordingModel {
 	m := &recordingModel{}
-	stub := &llmstub.Server{Model: "foxxycode-demo", Answers: []string{promptInputAnswer}}
+	stub := &llmstub.Server{Model: "foxxycode-demo", StripTags: []string{"turn_context"}, Answers: []string{promptInputAnswer}}
 	inner := stub.Handler()
 	m.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/chat/completions") {

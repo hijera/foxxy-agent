@@ -3,7 +3,7 @@
 package telegram
 
 // Godog harness for features/gateway_session_identity.feature: drives a chat
-// message through the real handler against the fake Bot API (internal/tgfake)
+// message through the real handler against the fake Bot API (tgfake)
 // and a scripted agent, and asserts on the session id, on the prompt the agent
 // was handed and on the text that reached the chat. No LLM and no network
 // beyond the local httptest server.
@@ -23,7 +23,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 const (

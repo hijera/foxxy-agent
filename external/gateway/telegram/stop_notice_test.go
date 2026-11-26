@@ -17,7 +17,7 @@ func TestTelegramDoesNotRepeatTheStopNotice(t *testing.T) {
 	w := &pollingWorld{}
 	defer w.close()
 	for _, step := range []func() error{
-		func() error { return w.fakeBotAPI("foxxycode_fake_bot") },
+		func() error { return w.fakeBotAPI("foxxycode_fake_bot", "FoxxyCode Fake") },
 		w.gatewayPointedAtIt,
 	} {
 		if err := step(); err != nil {

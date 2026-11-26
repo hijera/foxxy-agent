@@ -31,7 +31,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
@@ -514,7 +514,7 @@ func TestHTTPRequestDefaultHeadersStayOffTheModelProvider(t *testing.T) {
 	}))
 	t.Cleanup(service.Close)
 
-	model := &llmstub.Server{Rules: []llmstub.Rule{{
+	model := &llmstub.Server{Model: "foxxycode-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{{
 		Tool:   &llmstub.ToolCall{Name: "http_request", Arguments: json.RawMessage(`{"url":"` + service.URL + `/items"}`)},
 		Answer: "done",
 	}}}

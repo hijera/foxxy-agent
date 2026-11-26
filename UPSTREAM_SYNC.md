@@ -8,6 +8,14 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.83 — 2026-11-26
+
+Checkpoint: `22f03f281f34b30f8713701d4c2a620e505d78cb` (tag `1.2.83`), following `cd42d7df06fb3c64c1b482e7c4463f3fc239ebb4` (`1.2.79`). Implementation: branch `codex/upstream-1.2.83`, based on current `origin/main` `5bc8593ba`. All 11 commits are accounted for: seven adapted constituent changes and four redundant integration/release merges. No remaining work in this range.
+
+- Ported composer caret alignment at fractional zoom and screen densities with a real-engine check; named instruction-file prompt blocks and unreadable-file diagnostics; remote fetching before the branch menu with remote-only tracking picks and cached failure warnings; and tgfake `v1.0.0` as an external Go module/tool with a pinned CI release stand.
+- Preserved every registered divergence, SVN workspace controls, deleted-worktree recovery, localization, the staged-file Prettier policy and the Chromium 104 baseline. Upstream's whole-SPA formatting sweep is not applied; touched files are formatted individually. The two branch-menu captures come from the real FoxxyCode component, not Coddy-branded media.
+- Validation: full shipped-tag `make test` with 3,798 SPA tests and the complete Go tree, `make lint`, `make check-windows`, `make lint-windows`, `make docs-check`, schema/fork guards and agent-rule adapters pass. Embedded SPA/full-tag documentation builds and Chromium 104 checks pass. The real-Chromium caret matrix passes all zoom, density and scrolling cases with zero differing pixels. The new Git fetch process also passes the desktop console-window guard. Scope and adaptations: `docs/plans/upstream-1.2.83-port.md`.
+
 ## Sync through upstream 1.2.79 — 2026-11-25
 
 Checkpoint: `cd42d7df06fb3c64c1b482e7c4463f3fc239ebb4` (tag `1.2.79`), following `d81d6cca0c12716035a0539130cab8ac66fe2a27` (`1.2.73`). Implementation: `7cdd8efa3b01994db27b9cb39d1504e8a74542a5`, based on PR #167 head `4959cccf21767fe95c7f08dc50c20f153b3f460e`. All 43 commits are accounted for: 29 adapted constituent changes and 14 redundant integration/release merges. No remaining work in this range.

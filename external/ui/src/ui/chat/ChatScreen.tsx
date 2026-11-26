@@ -30,7 +30,10 @@ import { finishedToolCalls } from "../changes/toolActivity";
 import { useWorkingCopy } from "../changes/workingCopy";
 import { useEditsPresentation } from "../changes/editsPresentation";
 import { editorEmbedId } from "../embedShell";
-import { SessionChangesCard, useChangesCard } from "../changes/SessionChangesCard";
+import {
+  SessionChangesCard,
+  useChangesCard,
+} from "../changes/SessionChangesCard";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { useT } from "../i18n/I18nProvider";
@@ -207,6 +210,10 @@ export function ChatScreen(props: {
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
+  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  onWorkspaceRefreshBranches?: () => Promise<
+    import("./workspaceContext").WorkspaceBranchFetch | null
+  >;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
   /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
@@ -276,7 +283,8 @@ export function ChatScreen(props: {
     const host = composerHostRef.current;
     if (!host) return;
     const extra = 10;
-    const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
+    const measure = () =>
+      Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
     // The reserve is the height of `.chat-scroll-tail` inside the scroll
     // container. Writing it from inside the ResizeObserver callback relayouts
     // the transcript in the same delivery loop, and when the rows still used
@@ -311,7 +319,9 @@ export function ChatScreen(props: {
       });
     };
     const ro =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(onResize)
+        : null;
     ro?.observe(host);
     return () => {
       if (frame) cancelAnimationFrame(frame);
@@ -524,7 +534,8 @@ export function ChatScreen(props: {
   // The reserve is written outside React to avoid a ResizeObserver loop in
   // JCEF. Follow its next layout only while the reader stays at the tail.
   followReserveRef.current = () => {
-    if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null) return;
+    if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null)
+      return;
     writeTranscriptScrollTop(transcriptScrollBottom());
   };
 
@@ -586,15 +597,22 @@ export function ChatScreen(props: {
   ) : null;
 
   // Every finished tool call may have changed the working copy.
-  const canReviewChanges = !readOnlyNotice && !!props.onOpenEdits &&
-    (props.workspaceCtx?.is_git_repo !== false || props.workspaceCtx?.is_svn_repo === true);
+  const canReviewChanges =
+    !readOnlyNotice &&
+    !!props.onOpenEdits &&
+    (props.workspaceCtx?.is_git_repo !== false ||
+      props.workspaceCtx?.is_svn_repo === true);
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
     enabled: canReviewChanges,
     toolActivity: finishedToolCalls(props.items),
   });
   const editsPresentation = useEditsPresentation();
   const useCard = editsPresentation === "card";
-  const showChangesCard = useChangesCard(props.sessionId ?? "", useCard && canReviewChanges, workingCopy);
+  const showChangesCard = useChangesCard(
+    props.sessionId ?? "",
+    useCard && canReviewChanges,
+    workingCopy,
+  );
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
   const workspaceBar =
@@ -609,9 +627,10 @@ export function ChatScreen(props: {
       />
     ) : undefined;
   const embedId = editorEmbedId();
-  const openFiles = props.sessionId && embedId !== "vscode" && embedId !== "intellij"
-    ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
-    : undefined;
+  const openFiles =
+    props.sessionId && embedId !== "vscode" && embedId !== "intellij"
+      ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
+      : undefined;
 
   const messageListProps: Omit<
     MessageListProps,
@@ -629,8 +648,12 @@ export function ChatScreen(props: {
       ? { onOpenTasks: props.onOpenBackgroundTasks }
       : {}),
     turnActive: props.turnActive,
-    ...(props.workspaceCtx?.path ? { workspacePath: props.workspaceCtx.path } : {}),
-    ...(props.onOpenSession ? { onOpenSubagentTranscript: props.onOpenSession } : {}),
+    ...(props.workspaceCtx?.path
+      ? { workspacePath: props.workspaceCtx.path }
+      : {}),
+    ...(props.onOpenSession
+      ? { onOpenSubagentTranscript: props.onOpenSession }
+      : {}),
     ...(props.onFetchToolCallFull
       ? { onFetchToolCallFull: props.onFetchToolCallFull }
       : {}),
@@ -683,7 +706,9 @@ export function ChatScreen(props: {
     "main",
     isEmpty && !showSkeleton ? "is-empty" : "",
     props.sessionFadingOut ? "session-fading-out" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className={mainClassName}>
@@ -702,23 +727,55 @@ export function ChatScreen(props: {
           </div>
           <div className="chat-skeleton-bars" aria-hidden="true">
             <div className="chat-skeleton-header">
-              <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "180px", height: "18px", borderRadius: "6px" }}
+              />
             </div>
             <div className="chat-skeleton-messages">
               <div className="chat-skeleton-row chat-skeleton-row--user">
-                <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{
+                    width: "220px",
+                    height: "38px",
+                    borderRadius: "12px",
+                  }}
+                />
               </div>
               <div className="chat-skeleton-row">
-                <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "78%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "62%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "70%", height: "14px", borderRadius: "6px" }}
+                />
               </div>
               <div className="chat-skeleton-row chat-skeleton-row--user">
-                <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{
+                    width: "160px",
+                    height: "38px",
+                    borderRadius: "12px",
+                  }}
+                />
               </div>
               <div className="chat-skeleton-row">
-                <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "72%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "50%", height: "14px", borderRadius: "6px" }}
+                />
               </div>
             </div>
           </div>
@@ -822,8 +879,12 @@ export function ChatScreen(props: {
                 {...(props.onPasteChipCaptured
                   ? { onPasteChipCaptured: props.onPasteChipCaptured }
                   : {})}
-                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
-                {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
+                {...(props.onDocsCommand
+                  ? { onDocsCommand: props.onDocsCommand }
+                  : {})}
+                {...(props.onMCPCommand
+                  ? { onMCPCommand: props.onMCPCommand }
+                  : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -848,7 +909,9 @@ export function ChatScreen(props: {
                         : {}),
                     }
                   : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
+                  : {})}
                 {...(props.onWorkspacePickFolder
                   ? {
                       workspaceCtx: props.workspaceCtx ?? null,
@@ -857,6 +920,8 @@ export function ChatScreen(props: {
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorkspaceRefreshBranches:
+                        props.onWorkspaceRefreshBranches,
                       onWorktreeToggle: props.onWorktreeToggle,
                       onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
                       onSvnFolderToggle: props.onSvnFolderToggle,
@@ -1044,8 +1109,12 @@ export function ChatScreen(props: {
                   {...(props.onPasteChipCaptured
                     ? { onPasteChipCaptured: props.onPasteChipCaptured }
                     : {})}
-                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
-                  {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
+                  {...(props.onDocsCommand
+                    ? { onDocsCommand: props.onDocsCommand }
+                    : {})}
+                  {...(props.onMCPCommand
+                    ? { onMCPCommand: props.onMCPCommand }
+                    : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}
@@ -1070,7 +1139,9 @@ export function ChatScreen(props: {
                           : {}),
                       }
                     : {})}
-                  {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                  {...(props.knownSkillNames
+                    ? { knownSkillNames: props.knownSkillNames }
+                    : {})}
                   {...(props.editingFiles && props.editingFiles.length > 0
                     ? { editingFiles: props.editingFiles }
                     : {})}
@@ -1102,8 +1173,11 @@ export function ChatScreen(props: {
                         workspaceLocked: props.workspaceLocked ?? false,
                         onWorkspacePickFolder: props.onWorkspacePickFolder,
                         onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorkspaceRefreshBranches:
+                          props.onWorkspaceRefreshBranches,
                         onWorktreeToggle: props.onWorktreeToggle,
-                        onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                        onWorkspacePickSvnBranch:
+                          props.onWorkspacePickSvnBranch,
                         onSvnFolderToggle: props.onSvnFolderToggle,
                       }
                     : {})}

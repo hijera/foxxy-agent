@@ -14,7 +14,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 func TestTelegramAPIEndpoint(t *testing.T) {
