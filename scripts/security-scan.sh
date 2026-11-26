@@ -57,7 +57,7 @@ SEMGREP_IMAGE="semgrep/semgrep:1.177.0@sha256:acaac22ffc7b7cc5926de0751b223bce0b
 # it. Inside the container GOTOOLCHAIN=auto lets go switch to the `toolchain`
 # line of go.mod, so the standard library it judges is the one release builds
 # link, even when this image lags behind that line.
-GO_IMAGE="golang:1.26.8-bookworm@sha256:dc9ad6c05acc7a88e5b71bde60a5fe3bd4b9f0db209011711b464107438a8107"
+GO_IMAGE="golang:1.26.11-bookworm@sha256:ea47ee45f1284d60f9cc09cb2c3bb4f508c256b640bd8bb30342ff13d1adcb52"
 GOVULNCHECK_VERSION="v1.8.0"
 
 SEC_SCANNERS="${SEC_SCANNERS:-trivy,semgrep,govulncheck}"
@@ -403,7 +403,11 @@ if "govulncheck" in scanners:
     # (module). One advisory can come at several depths; the deepest counts.
     try:
         text = open(os.path.join(out, "govulncheck.json")).read()
-    except Exception:
+    except Exception as exc:
+        # The fork's gate policy (see load_report above): a report a scanner
+        # was asked for must be readable, or the gate fails rather than counts
+        # zero findings.
+        failures.append(f"GATE-FAIL govulncheck.json: report unreadable ({exc})")
         text = None
     if text is not None:
         order = ["module", "package", "symbol"]
@@ -417,7 +421,11 @@ if "govulncheck" in scanners:
                 break
             try:
                 msg, pos = dec.raw_decode(text, pos)
-            except ValueError:
+            except ValueError as exc:
+                # A truncated stream is not a clean one either: what parsed
+                # before the cut must not pass as the whole report.
+                failures.append(
+                    f"GATE-FAIL govulncheck.json: report unparsable at byte {pos} ({exc})")
                 break
             finding = msg.get("finding") if isinstance(msg, dict) else None
             if not finding:
