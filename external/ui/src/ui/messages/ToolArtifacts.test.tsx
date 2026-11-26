@@ -447,10 +447,48 @@ test("a second pointer click on artifact actions closes the menu", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-test("resizing the window closes artifact actions without treating Window as a Node", () => {
+// A resize used to close the menu outright; now it re-places the menu from its
+// trigger, and closes it only once the trigger cannot be seen any more. The
+// resize path runs the target-less follow, never the outside-press check that
+// reads `event.target` as a Node: the resize event's target is the Window, and
+// a `contains(Window)` there throws before anything is re-placed or closed.
+test("resizing the window re-places the menu without treating Window as a Node", () => {
   render(<ArtifactCard artifact={artifact} />);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Actions for release-notes.pdf" }),
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  const at = (top: number) =>
+    vi
+      .spyOn(trigger, "getBoundingClientRect")
+      .mockReturnValue(
+        DOMRect.fromRect({ x: 272, y: top, width: 28, height: 28 }),
+      );
+
+  at(100);
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menu")).toHaveStyle({ top: "134px" });
+
+  at(400);
+  fireEvent.resize(window);
+  expect(screen.getByRole("menu")).toBeVisible();
+  expect(screen.getByRole("menu")).toHaveStyle({ top: "434px" });
+});
+
+test("resizing the window closes the menu once its trigger is out of sight", () => {
+  render(<ArtifactCard artifact={artifact} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  const rect = vi
+    .spyOn(trigger, "getBoundingClientRect")
+    .mockReturnValue(
+      DOMRect.fromRect({ x: 272, y: 300, width: 28, height: 28 }),
+    );
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menu")).toBeVisible();
+
+  rect.mockReturnValue(
+    DOMRect.fromRect({ x: 272, y: -80, width: 28, height: 28 }),
   );
   fireEvent.resize(window);
   expect(screen.queryByRole("menu")).toBeNull();

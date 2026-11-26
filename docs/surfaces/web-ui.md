@@ -1091,8 +1091,9 @@ A failed or cancelled call, and one whose arguments do not parse, keeps the raw 
 
 The file card's actions menu is mounted above the transcript, outside the card's
 thumbnail clipping. It stays within the viewport on narrow panels, closes on a
-second click, Escape, outside click, resize or transcript scroll, and keeps its
-own scrolling available when the window is short.
+second click, Escape or outside click, follows its trigger through a resize or
+a transcript scroll and closes it once the trigger can no longer be seen, and
+keeps its own scrolling available when the window is short.
 
 **Reveal on server** sends a POST to the verified artifact's reveal route and
 opens its original source in the file manager of the machine running FoxxyCode

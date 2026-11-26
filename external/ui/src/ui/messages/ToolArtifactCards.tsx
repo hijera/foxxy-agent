@@ -188,8 +188,8 @@ export function ArtifactCard(props: {
   // The menu is rendered into the document, not into the card: the card is
   // `overflow: hidden` (it clips a thumbnail to its corners) and cut the menu
   // off, so a click on the trigger drew nothing. Placed from the trigger before
-  // the first paint, it follows the trigger while the page scrolls and closes
-  // once the trigger cannot be seen any more.
+  // the first paint, it follows the trigger while the page scrolls or the
+  // window resizes and closes once the trigger cannot be seen any more.
   useLayoutEffect(() => {
     if (!menu) return undefined;
     const place = () => {
@@ -231,12 +231,13 @@ export function ArtifactCard(props: {
     };
     document.addEventListener("mousedown", press);
     window.addEventListener("scroll", follow, true);
-    const resize = () => setMenu(false);
-    window.addEventListener("resize", resize);
+    // `follow` takes no event: a resize's target is the Window, not a Node, and
+    // the outside-press check that reads one must not run on it.
+    window.addEventListener("resize", follow);
     return () => {
       document.removeEventListener("mousedown", press);
       window.removeEventListener("scroll", follow, true);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", follow);
       setPlace(null);
     };
   }, [menu]);
