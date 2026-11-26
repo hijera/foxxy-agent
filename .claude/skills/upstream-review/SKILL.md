@@ -7,8 +7,9 @@ description: Review a coddy-agent port into FoxxyCode against the original upstr
 
 Review the requested wave rather than importing additional upstream work. Read
 `AGENTS.md`, `.cursor/rules/upstream-divergences.mdc`, `ports.yaml` and the
-applicable scoped Cursor rules. Use `UPSTREAM_SYNC.md` when available for
-historical context; it can be local and ignored by Git.
+applicable scoped Cursor rules. Use `UPSTREAM_SYNC.md` for the current checkpoint
+and standing registry. Consult `docs/plans/upstream-sync-history.md` only when the
+review needs an older wave's detailed context.
 
 ## Establish the comparison
 

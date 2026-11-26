@@ -11,10 +11,11 @@ direction before applying patches.
 
 ## Establish the range
 
-Read `AGENTS.md`, `ports.yaml`, `UPSTREAM_SYNC.md` when present, and
-`.cursor/rules/upstream-divergences.mdc`. The journal can be local and ignored by
-Git. If it is absent, use the operator's explicit range and known port history;
-do not invent a synchronization checkpoint.
+Read `AGENTS.md`, `ports.yaml`, `UPSTREAM_SYNC.md` and
+`.cursor/rules/upstream-divergences.mdc`. The tracker holds the current checkpoint
+and standing registry; use `docs/plans/upstream-sync-history.md` only for historical
+context that the selected wave needs. If the tracker is absent, use the operator's
+explicit range and known port history; do not invent a synchronization checkpoint.
 
 Inspect `git status --short` and `git remote -v`. For an authorized sync, fetch
 the configured upstream explicitly. If adding a missing `upstream` remote, use
