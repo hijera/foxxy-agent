@@ -552,7 +552,8 @@ export const messagesEn: Record<string, string> = {
   "appearance.editsPresentation.card":
     "Changed-files card below the transcript",
   "appearance.editsStartExpanded": "Open Edits expanded",
-  "appearance.editsStartExpanded.help": "Start in the larger window and show the first file’s diff. By default, file previews are folded.",
+  "appearance.editsStartExpanded.help":
+    "Start in the larger window and show the first file’s diff. By default, file previews are folded.",
   "appearance.effects.label": "Animations and translucency",
   "appearance.effects.description":
     "Bouncing dots, shimmering titles and translucent blurred panels, in every client. In the IntelliJ panel they start switched off: every frame of them is copied into the IDE window, which slows the IDE down, especially without a GPU.",

@@ -163,8 +163,8 @@ type HTTPCORSConfig struct {
 	// machine: an http or https origin whose host is localhost, a *.localhost
 	// name, 127.0.0.0/8 or [::1], on any port (an IPv4-mapped IPv6 spelling
 	// such as [::ffff:127.0.0.1] is none of those: list it in AllowedOrigins if
-	// it is wanted). It is the laptop case of a remote coddy serve - the web UI
-	// comes from the laptop's own coddy serve, and its port moves between
+	// it is wanted). It is the laptop case of a remote foxxycode serve - the web UI
+	// comes from the laptop's own foxxycode serve, and its port moves between
 	// installations - where AllowedOrigins would need the exact string of each.
 	// Narrower than "*", and like "*" only as safe as the credential behind the
 	// API.
