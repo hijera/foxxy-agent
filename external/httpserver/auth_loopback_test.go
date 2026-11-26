@@ -133,12 +133,11 @@ func TestIsDirectLoopbackClient(t *testing.T) {
 		{"ipv6 peer and host", "[::1]:50000", "[::1]:12345", nil, true},
 		{"localhost host without a port", "127.0.0.1:50000", "localhost", nil, true},
 		{"Host names are compared without case", "127.0.0.1:50000", "LocalHost:12345", nil, true},
-		{"same-origin browser client", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "http://127.0.0.1:12345", "Sec-Fetch-Site": "same-origin"}, true},
-		{"browser navigation from the address bar", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Sec-Fetch-Site": "none"}, true},
-		{"another loopback port", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "http://127.0.0.1:5173"}, false},
-		{"same site without an origin header", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Sec-Fetch-Site": "same-site"}, false},
-		{"opaque origin", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "null"}, false},
-		{"another scheme", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "https://127.0.0.1:12345"}, false},
+		// fork(loopback-sign-in): browser headers do not narrow the exception - a page on
+		// another loopback port is a direct loopback client too (owner decision 2026-11-26).
+		{"a page on another loopback port", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "http://127.0.0.1:5173"}, true},
+		{"a same-site page without an origin header", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Sec-Fetch-Site": "same-site"}, true},
+		{"an opaque origin", "127.0.0.1:50000", "127.0.0.1:12345", map[string]string{"Origin": "null"}, true},
 		{"a peer on the network", "192.168.1.20:50000", "127.0.0.1:12345", nil, false},
 		{"a name that resolves to loopback (DNS rebinding)", "127.0.0.1:50000", "attacker.example:12345", nil, false},
 		{"a lookalike name", "127.0.0.1:50000", "127.0.0.1.nip.io:12345", nil, false},

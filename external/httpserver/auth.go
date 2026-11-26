@@ -184,10 +184,13 @@ func (s *Server) loopbackPassesSignIn(r *http.Request, pol authPolicy) bool {
 }
 
 // isDirectLoopbackClient reports a request that comes straight from this machine: the peer is a
-// loopback address, the Host it was addressed to is a loopback name, and no proxy or
-// cross-origin browser request is involved. A reverse proxy on the same host also connects from 127.0.0.1,
+// loopback address, the Host it was addressed to is a loopback name, and nothing on the way
+// announced itself as a proxy. A reverse proxy on the same host also connects from 127.0.0.1,
 // which is why any forwarding header disqualifies the request; a page on another site that
 // resolves its own name to 127.0.0.1 (DNS rebinding) still sends that name as Host.
+// fork(loopback-sign-in): a browser page on another loopback port is a direct loopback client
+// too - CORS admission and the open-CORS warning govern it, not this gate (owner decision
+// 2026-11-26: no second gate behind cors.allow_loopback).
 func isDirectLoopbackClient(r *http.Request) bool {
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -204,19 +207,6 @@ func isDirectLoopbackClient(r *http.Request) bool {
 		if r.Header.Get(h) != "" {
 			return false
 		}
-	}
-	switch strings.ToLower(r.Header.Get("Sec-Fetch-Site")) {
-	case "", "same-origin", "none":
-	default:
-		return false
-	}
-	if origin := r.Header.Get("Origin"); origin != "" {
-		// There is no proxy on this path, so we know the scheme as well as the host.
-		scheme := "http://"
-		if r.TLS != nil {
-			scheme = "https://"
-		}
-		return strings.EqualFold(origin, scheme+r.Host)
 	}
 	return true
 }
