@@ -24,15 +24,19 @@ type SkillSummary struct {
 // BuiltinCommands returns the deterministic built-in slash commands (they run
 // without an LLM turn, unlike skills). Shared by the ACP available-commands
 // update and the HTTP commands endpoint so both surfaces stay in sync. compact
-// is included while compaction is enabled. Plugin and export are always present.
+// is included while compaction is enabled. Goal, plugin and export are always present.
 func BuiltinCommands(compactEnabled bool) []SkillSummary {
-	cmds := make([]SkillSummary, 0, 3)
+	cmds := make([]SkillSummary, 0, 4)
 	if compactEnabled {
 		cmds = append(cmds, SkillSummary{
 			Name:        "compact",
 			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
 		})
 	}
+	cmds = append(cmds, SkillSummary{
+		Name:        "goal",
+		Description: "Work on a goal until a second model confirms it: /goal [-m <id>] [-r <level>] <objective>, /goal, /goal pause|resume|clear",
+	})
 	cmds = append(cmds, SkillSummary{
 		Name:        "export",
 		Description: "Export the session history to a file in the workspace: /export [md|html|json|jsonl|pdf|docx] [path] [--no-tools] [--no-thinking]",

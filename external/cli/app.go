@@ -56,7 +56,20 @@ type App struct {
 	mgr   backend
 	// settingsVersion is the version of the last settings snapshot shown.
 	settingsVersion uint64
-	log             *slog.Logger
+	// The session goal (goal.go): the snapshot on screen and its version; the
+	// versions whose notice was handled already, so the copy of an update that
+	// arrives down a second stream is not printed twice; whether the running
+	// turn is a goal command typed here, which answers for its first notice
+	// itself; and the goal menu while it is on screen.
+	goal        *acp.SessionGoal
+	goalVersion uint64
+	goalNoticed []uint64
+	goalEchoes  []string
+	// promptsAfterTurn are menu prompts whose turn was over before they could
+	// queue behind it, sent once the console sees it end (queue.go).
+	promptsAfterTurn []heldPrompt
+	goalMenu         *selectorModal
+	log              *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote foxxycode serve server.
 	remoteURL string
@@ -415,6 +428,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	if switched {
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
+		a.resetGoal()
 	}
 	a.sessionID = id
 	if switched {
@@ -919,6 +933,9 @@ func (a *App) submitPrompt(text string) {
 	row := newUserMessage(a.theme, text)
 	a.chat.AddChild(row)
 	images := a.takeDraftImages()
+	// A goal command answers for itself in its turn (goal.go), so the notice
+	// of the change it makes is not printed a second time.
+	a.expectGoalEcho(text)
 	a.startTurnWorker(acp.SessionPromptParams{
 		SessionID:  a.sessionID,
 		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
@@ -1415,6 +1432,7 @@ func (a *App) resetTranscript() {
 	a.curAssistant = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
+	a.resetGoal()
 }
 
 // newSession starts a fresh session (used by /new). Switches serialize: a
@@ -1485,6 +1503,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
 		tui.AutocompleteItem{Value: "mcp", Label: "mcp", Description: "Manage MCP servers, tools and workspace trust"},
+		tui.AutocompleteItem{Value: "goal", Label: "goal", Description: "Show and manage the session goal; /goal <objective> sets one and starts work"},
 		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read FoxxyCode's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit foxxycode"},
 	)

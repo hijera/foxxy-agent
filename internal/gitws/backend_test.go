@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -493,4 +494,27 @@ func TestGlobalExcludesAreHonoured(t *testing.T) {
 			t.Fatalf("a file the XDG ignore file covers was listed: %+v", changes)
 		}
 	})
+}
+
+func TestFileRepositoryPath(t *testing.T) {
+	if got := fileRepositoryPath("", "/tmp/repo"); got != "/tmp/repo" {
+		t.Fatalf("POSIX path = %q", got)
+	}
+	if got := fileRepositoryPath("server", "/share/repo"); got != "//server/share/repo" {
+		t.Fatalf("UNC path = %q", got)
+	}
+	got := fileRepositoryPath("", "/C:/work/repo")
+	if runtime.GOOS == "windows" && got != "C:/work/repo" {
+		t.Fatalf("Windows URL path = %q", got)
+	}
+	if runtime.GOOS != "windows" && got != "/C:/work/repo" {
+		t.Fatalf("non-Windows absolute path = %q", got)
+	}
+	got = fileRepositoryPath("C", "/work/repo")
+	if runtime.GOOS == "windows" && got != "C:/work/repo" {
+		t.Fatalf("Windows drive URL = %q", got)
+	}
+	if runtime.GOOS != "windows" && got != "//C/work/repo" {
+		t.Fatalf("non-Windows host path = %q", got)
+	}
 }

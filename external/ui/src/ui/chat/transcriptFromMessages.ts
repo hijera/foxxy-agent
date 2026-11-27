@@ -1,5 +1,9 @@
-import { appendDeferredAssistant, emptyDeferredAssistant } from "./transcriptDeferredAssistant";
+import {
+  appendDeferredAssistant,
+  emptyDeferredAssistant,
+} from "./transcriptDeferredAssistant";
 import { parseBackgroundWakeTasks } from "./backgroundWake";
+import { parseGoalTurn } from "./goal";
 import { pickRicherQuestionToolArgs } from "./questionPromptSessionStore";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
@@ -10,6 +14,7 @@ import {
   partialTurnThinkingItemId,
   stableAssistantItemId,
   stableCompactionItemId,
+  stableGoalTurnItemId,
   stablePlanDocumentItemId,
   stableThinkingItemId,
   stableToolCallItemId,
@@ -66,7 +71,9 @@ const COMPACTION_PREAMBLE = "Summary of the compacted part:";
 
 function stripCompactionPreamble(s: string): string {
   const i = s.indexOf(COMPACTION_PREAMBLE);
-  return i >= 0 ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart() : s.trim();
+  return i >= 0
+    ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart()
+    : s.trim();
 }
 
 /**
@@ -118,7 +125,11 @@ export function transcriptItemsFromMessages(p: {
   let pendingAbsoluteIndex = p.window.offset;
   const flushAssistant = () => {
     if (!pendingAssistant.content) return;
-    next.push({ id: assistantId(pendingAbsoluteIndex), type: "assistant_message", ...pendingAssistant });
+    next.push({
+      id: assistantId(pendingAbsoluteIndex),
+      type: "assistant_message",
+      ...pendingAssistant,
+    });
     pendingAssistant = emptyDeferredAssistant();
   };
   p.messages.forEach((m: RawSessionMessage, i: number) => {
@@ -157,6 +168,20 @@ export function transcriptItemsFromMessages(p: {
           id: stableWakeItemId(userTurnIdx),
           type: "background_wake",
           tasks: wakeTasks,
+          ...(cat ? { createdAtUtc: cat } : {}),
+        });
+        return;
+      }
+      // Nobody typed the first message of a turn the session supervisor
+      // started for the goal either: its content is the instruction the model
+      // read, and a goal row stands in its place. It opens a turn of its own,
+      // as the server counts it.
+      const goalTurn = parseGoalTurn((m as Record<string, unknown>).goal_turn);
+      if (goalTurn) {
+        next.push({
+          id: stableGoalTurnItemId(userTurnIdx),
+          type: "goal_turn",
+          turn: goalTurn,
           ...(cat ? { createdAtUtc: cat } : {}),
         });
         return;
@@ -240,7 +265,11 @@ export function transcriptItemsFromMessages(p: {
       if (content.trim()) {
         const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         if (!pendingAssistant.content) pendingAbsoluteIndex = abs;
-        pendingAssistant = appendDeferredAssistant(pendingAssistant, content, acat);
+        pendingAssistant = appendDeferredAssistant(
+          pendingAssistant,
+          content,
+          acat,
+        );
       }
       const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
       if (tcs.length > 0) flushAssistant();

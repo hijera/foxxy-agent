@@ -23,6 +23,7 @@ import {
   type WorkspaceRecent,
 } from "./workspaceRecents";
 import { WorkspaceFolderModal } from "./WorkspaceFolderModal";
+import { FitMiddleText } from "./FitMiddleText";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -230,10 +231,11 @@ export function WorkspaceChips(props: Props) {
           aria-expanded={menuOpen === "branch"}
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
         >
-          <BranchIcon />
-          <span className="workspace-bar-text">
-            {ctx.branch || t("composer.workspace.detached")}
-          </span>
+          <BranchIcon worktree={ctx.is_worktree === true} />
+          <FitMiddleText
+            className="workspace-bar-text"
+            text={ctx.branch || t("workspace.detached")}
+          />
         </button>
       ) : null}
 

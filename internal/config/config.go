@@ -179,6 +179,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}
+	if err := cfg.Supervisor.Validate(cfg); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -419,10 +419,11 @@ type SessionMeta struct {
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
-	HookContext string `json:"hookContext,omitempty"`
-	Title       string `json:"title,omitempty"`
-	TitlePinned string `json:"titlePinned,omitempty"`
-	TitleAuto   string `json:"titleAuto,omitempty"`
+	HookContext string     `json:"hookContext,omitempty"`
+	Goal        *GoalState `json:"goal,omitempty"`
+	Title       string     `json:"title,omitempty"`
+	TitlePinned string     `json:"titlePinned,omitempty"`
+	TitleAuto   string     `json:"titleAuto,omitempty"`
 	// Tags are the flat labels the listing filters and groups by, normalized
 	// by NormalizeTags before they reach this struct.
 	Tags []string `json:"tags,omitempty"`
@@ -1308,6 +1309,9 @@ func (f *FileStore) Save(state *State) error {
 		Pinned:            pinned,
 		PinnedAt:          strings.TrimSpace(pinnedAt),
 		PinnedRank:        pinnedRank,
+	}
+	if goal := state.GetGoal(); goal.Set() {
+		meta.Goal = &goal
 	}
 	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true

@@ -494,6 +494,21 @@ Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, a
 |-----|------|---------|-------------|
 | `debug.enable` | boolean | false | Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, traces every LLM connection (its route through a proxy, each network step, silences and how the request ended), and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config. |
 | `debug.capture_llm` | boolean | true | Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enable; set to false to keep debug logs while suppressing large bodies. |
+
+### `supervisor`
+
+Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://github.com/hijera/foxxy-agent/blob/main/docs/features/session-supervisor.md.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `supervisor.enable` | boolean | false | Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says. |
+| `supervisor.model` | string | "" | Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge. |
+| `supervisor.verify` | boolean or null | true | Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true. |
+| `supervisor.stall_seconds` | integer or null | 300 | Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it. |
+| `supervisor.max_nudges` | integer or null | 2 | Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor. |
+| `supervisor.max_continuations` | integer or null | 10 | Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited. |
+| `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
+| `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 <!-- docsgen:config:end -->
 
 ## Notes

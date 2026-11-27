@@ -353,12 +353,18 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.markWokeTasks(wake)
 		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
 	}
+	// A goal turn the supervisor started opens with its marker the same way:
+	// the clients show a one-line row, never the instruction text.
+	goalTurn := a.takeTurnGoal()
+	if goalTurn != nil {
+		_ = a.server.SendSessionUpdate(a.state.GetID(), session.GoalTurnUpdate(goalTurn))
+	}
 	// A prompt the turn boundary started from the queue was typed into no
 	// client's view of this run, unlike an ordinary prompt, which its surface
 	// shows the moment it is sent. It is announced the way a steer read is
 	// (message_queue.go), before it is persisted, so a live transcript shows
 	// the operator's message above the answer to it.
-	if wake == nil && session.PromptEcho(ctx, a.state.GetID()) {
+	if wake == nil && goalTurn == nil && session.PromptEcho(ctx, a.state.GetID()) {
 		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeUserMessageChunk,
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
@@ -370,6 +376,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts:     imageParts,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		BackgroundWake: wake,
+		GoalTurn:       goalTurn,
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	// The turn's clock is announced before anything slow happens - the memory
@@ -2041,8 +2048,8 @@ func (a *Agent) runReActLoop(
 			case repeatTripped && loopNudges >= loopNudgeBudget:
 				if stuckAction == config.AgentLoopStuckActionStop {
 					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
-					return string(acp.StopReasonRefused), fmt.Errorf(
-						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
+					return string(acp.StopReasonRefused), &session.LoopStopError{Msg: fmt.Sprintf(
+						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)}
 				}
 				a.log.Warn("loop guard quarantined a repeated tool call", "tool", tc.Name)
 				if !a.quarantineLoop(tc, nil) {
@@ -2382,9 +2389,9 @@ func loopAbortChannelName(c loopAbortChannel) string {
 // nudge. The session manager records it as a UI log entry with a Retry control.
 func loopAbortError(c loopAbortChannel) error {
 	if c == loopAbortReasoning {
-		return fmt.Errorf("stopped: the model kept repeating the same reasoning without reaching an answer")
+		return &session.LoopStopError{Msg: "stopped: the model kept repeating the same reasoning without reaching an answer"}
 	}
-	return fmt.Errorf("stopped: the model kept repeating the same output instead of finishing the task")
+	return &session.LoopStopError{Msg: "stopped: the model kept repeating the same output instead of finishing the task"}
 }
 
 // executeToolCall runs a single tool call and reports updates to the client.
@@ -2753,6 +2760,21 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 		// Telegram chat as photos. After a reload they come from the result
 		// message itself, which keeps them.
 		previewMeta = session.ToolImagesMeta(previewMeta, toolImagesForSurfaces(sessionID, a.callImages))
+	}
+
+	// The digest of the whole result, not of the preview the update carries:
+	// the session supervisor tells a repeated call that returned the same
+	// thing from one whose output changed past the preview's lines.
+	if payload != "" {
+		if previewMeta == nil {
+			previewMeta = map[string]interface{}{}
+		}
+		foxxycodeMeta, _ := previewMeta["foxxycode"].(map[string]interface{})
+		if foxxycodeMeta == nil {
+			foxxycodeMeta = map[string]interface{}{}
+			previewMeta["foxxycode"] = foxxycodeMeta
+		}
+		foxxycodeMeta[session.ToolResultDigestMetaKey] = session.ToolResultDigest(payload)
 	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{

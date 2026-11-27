@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -312,8 +313,26 @@ func (s knownHavesSession) UploadPack(ctx context.Context, req *packp.UploadPack
 // through it; opening the repository directly serves both kinds.
 type fileLoader struct{}
 
+// fileRepositoryPath converts the URL path go-git exposes back to a host path:
+// a Windows volume is /C:/... in a file URL, and a non-local host names a UNC
+// share. Other paths, including POSIX absolute ones, stay unchanged.
+func fileRepositoryPath(host, path string) string {
+	if runtime.GOOS == "windows" && len(host) == 1 &&
+		(host[0] >= 'A' && host[0] <= 'Z' || host[0] >= 'a' && host[0] <= 'z') {
+		return host + ":" + path
+	}
+	if host != "" && !strings.EqualFold(host, "localhost") {
+		path = "//" + host + path
+	}
+	if runtime.GOOS == "windows" && len(path) > 2 && path[0] == '/' && path[2] == ':' &&
+		(path[1] >= 'A' && path[1] <= 'Z' || path[1] >= 'a' && path[1] <= 'z') {
+		return path[1:]
+	}
+	return path
+}
+
 func (fileLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
-	repo, err := git.PlainOpen(ep.Path)
+	repo, err := git.PlainOpen(fileRepositoryPath(ep.Host, ep.Path))
 	if err != nil {
 		return nil, transport.ErrRepositoryNotFound
 	}

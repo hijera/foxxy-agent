@@ -48,6 +48,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Session model, reasoning, mode and permissions; settings commands, turn overrides and updates across surfaces.
+- [Session goal and supervisor](features/session-supervisor.md) - /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
 - [Git worktrees](features/worktrees.md) - Fresh feature branches from origin, session moves, the web composer and project grouping.
 - [Rules and instructions](features/rules.md) - Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { hasEdits, type WorkingCopy } from "../changes/workingCopy";
@@ -9,6 +10,7 @@ import {
   type WorkspaceBranchFetch,
   type WorkspaceContext,
 } from "./workspaceContext";
+import { FitMiddleText } from "./FitMiddleText";
 import { BranchIcon, FolderIcon } from "./workspaceIcons";
 import { WorkspaceChips } from "./WorkspaceChips";
 
@@ -35,13 +37,16 @@ export type WorkspacePick = {
  * folder and the branch are buttons that open their menus and the worktree a
  * checkbox (WorkspaceChips), the branch and the worktree only in a git
  * repository. Once the chat runs it is a fact: the repository, its branch -
- * with a tooltip naming the worktree when the chat runs in a linked one.
+ * with a tooltip naming the worktree when the chat runs in a linked one. The
+ * goal mark of a session with a goal (`goal`, the composer's) stands left of
+ * git's change count.
  */
 export function WorkspaceBar(props: {
   context: WorkspaceContext;
   workingCopy?: WorkingCopy | undefined;
   onOpenEdits?: (() => void) | undefined;
   pick?: WorkspacePick | undefined;
+  goal?: ReactNode;
 }) {
   const { t, tp } = useT();
   const ctx = props.context;
@@ -96,9 +101,7 @@ export function WorkspaceBar(props: {
               data-testid="workspace-bar-branch"
             >
               <BranchIcon worktree={ctx.is_worktree === true} />
-              <span className="workspace-bar-text">
-                {middleTruncate(branch, BRANCH_CHARS)}
-              </span>
+              <FitMiddleText className="workspace-bar-text" text={branch} />
             </span>
           ) : null}
           {ctx.is_svn_repo ? (
@@ -117,6 +120,7 @@ export function WorkspaceBar(props: {
           ) : null}
         </>
       )}
+      {props.goal}
       {showEdits && totals ? (
         <button
           type="button"

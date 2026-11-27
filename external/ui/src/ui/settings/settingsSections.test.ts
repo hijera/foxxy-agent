@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { initLocale } from "../i18n/i18n";
-import { deriveSettingsSections } from "./settingsSections";
+import { deriveSettingsSections, knownSectionLabel } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
 
 // Mirrors the top-level shape + order produced by Go UISchemaMap().
@@ -24,8 +24,16 @@ const rootSchema: JsonSchema = {
     "ui",
   ],
   properties: {
-    providers: { type: "array", title: "LLM providers", items: { type: "object" } },
-    models: { type: "array", title: "Logical models", items: { type: "object" } },
+    providers: {
+      type: "array",
+      title: "LLM providers",
+      items: { type: "object" },
+    },
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: { type: "object" },
+    },
     agent: { type: "object", title: "ReAct agent", properties: {} },
     compaction: { type: "object", title: "Context compaction", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
@@ -71,7 +79,9 @@ test("the ui schema key is hidden — its locale is edited by the General picker
 });
 
 test("array sections carry their label field", () => {
-  const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
   expect(byId.providers!.kind).toBe("array");
   expect(byId.providers!.labelField).toBe("name");
   expect(byId.models!.kind).toBe("array");
@@ -118,7 +128,9 @@ test("the MCP servers tab follows Tools though no schema property names it", () 
 });
 
 test("System group folds the rarely edited tail keys", () => {
-  const system = deriveSettingsSections(rootSchema).find((s) => s.id === "system");
+  const system = deriveSettingsSections(rootSchema).find(
+    (s) => s.id === "system",
+  );
   expect(system?.kind).toBe("group");
   expect(system?.childKeys).toEqual(["prompts", "instructions"]);
 });
@@ -171,11 +183,20 @@ test("an unknown schema section keeps its server-provided title", () => {
     ...rootSchema,
     properties: {
       ...rootSchema.properties,
-      custom_section: { type: "object", title: "Custom longer section title", properties: {} },
+      custom_section: {
+        type: "object",
+        title: "Custom longer section title",
+        properties: {},
+      },
     },
-    "x-foxxycode-property-order": [...(rootSchema["x-foxxycode-property-order"] as string[]), "custom_section"],
+    "x-foxxycode-property-order": [
+      ...(rootSchema["x-foxxycode-property-order"] as string[]),
+      "custom_section",
+    ],
   } as unknown as JsonSchema;
-  const section = deriveSettingsSections(schema).find((s) => s.id === "custom_section");
+  const section = deriveSettingsSections(schema).find(
+    (s) => s.id === "custom_section",
+  );
   expect(section?.label).toBe("Custom longer section title");
 });
 
@@ -239,7 +260,14 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 // On a relay that predates its settings page the schema is not there at all;
 // the app knows it is on a relay and still leaves the Sessions tab out.
 test("a relay without a settings page keeps only Appearance", () => {
-  expect(deriveSettingsSections(null, { relay: true }).map((s) => s.id)).toEqual([
-    "appearance",
-  ]);
+  expect(
+    deriveSettingsSections(null, { relay: true }).map((s) => s.id),
+  ).toEqual(["appearance"]);
+});
+
+test("the session goal tab is named in the active locale", () => {
+  initLocale("ru");
+  expect(knownSectionLabel("supervisor")).toBe("Цель сессии");
+  initLocale("en");
+  expect(knownSectionLabel("supervisor")).toBe("Session goal");
 });

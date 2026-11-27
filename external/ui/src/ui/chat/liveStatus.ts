@@ -16,8 +16,12 @@
  */
 
 import { parseMcpToolName } from "../messages/toolDisplayName";
-import { toolCallTargetIsPath, toolCallTargetText } from "./permissionToolPreview";
+import {
+  toolCallTargetIsPath,
+  toolCallTargetText,
+} from "./permissionToolPreview";
 import { relativeToolTarget } from "./toolTargetPath";
+import { opensTurn } from "./backgroundWake";
 import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
@@ -288,7 +292,7 @@ export function deriveLiveStatus(
     if (!it) {
       continue;
     }
-    if (it.type === "user_message" || it.type === "background_wake") {
+    if (opensTurn(it)) {
       turnStartedAtMs = parseCreatedAt(it.createdAtUtc);
       break;
     }

@@ -23,7 +23,10 @@
        all follow. */
     --foxxycode-mobile-bar-h: calc(
       78px +
-        max(env(safe-area-inset-top, 0px), var(--foxxycode-telegram-safe-top, 0px))
+        max(
+          env(safe-area-inset-top, 0px),
+          var(--foxxycode-telegram-safe-top, 0px)
+        )
     );
   }
 
@@ -37,7 +40,10 @@
   html[data-telegram-mini-app="true"] .rail-column {
     padding-top: calc(
       10px +
-        max(env(safe-area-inset-top, 0px), var(--foxxycode-telegram-safe-top, 0px))
+        max(
+          env(safe-area-inset-top, 0px),
+          var(--foxxycode-telegram-safe-top, 0px)
+        )
     );
     padding-left: max(
       10px,
@@ -88,11 +94,12 @@
     );
   }
 
-  /* Bottom sheets: the composer's menus, and the slash, @ and context
-     pickers on the start screen (above the docked composer they are placed
-     from its card, which is lifted already). Capped to what is visible under
-     the top bar. */
+  /* Bottom sheets: the composer's menus and the goal popover, and the slash,
+     @ and context pickers on the start screen (above the docked composer they
+     are placed from its card, which is lifted already). Capped to what is
+     visible under the top bar. */
   html[data-telegram-mini-app="true"] .mode-menu--sheet,
+  html[data-telegram-mini-app="true"] .goal-popover--sheet,
   html[data-telegram-mini-app="true"]
     .slash-menu--sheet:not(.slash-menu--above-composer),
   html[data-telegram-mini-app="true"]
@@ -114,7 +121,10 @@
     .context-breakdown-menu--sheet
     .context-breakdown-menu-scroll {
     max-height: 46vh;
-    max-height: min(46vh, calc(var(--foxxycode-telegram-stable-height, 100dvh) * 0.55));
+    max-height: min(
+      46vh,
+      calc(var(--foxxycode-telegram-stable-height, 100dvh) * 0.55)
+    );
   }
 
   /* Dialogs and the image viewer centre in what is visible. */

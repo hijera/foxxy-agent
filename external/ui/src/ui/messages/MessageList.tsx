@@ -35,13 +35,17 @@ import { AssistantMessage } from "./AssistantMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
+import { GoalTurnMessage } from "./GoalTurnMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 import { opensTurn } from "../chat/backgroundWake";
-import { artifactMarkerIds, artifactMarkersForAssistant } from "../chat/inlineArtifacts";
+import {
+  artifactMarkerIds,
+  artifactMarkersForAssistant,
+} from "../chat/inlineArtifacts";
 import type { ToolArtifact } from "../chat/toolArtifacts";
 
 /**
@@ -154,7 +158,9 @@ export function MessageList(props: {
     serverSnapshotLiveConnection,
   );
   const reconnecting =
-    connectionEpoch >= 0 && !!props.sessionId && isReconnecting(props.sessionId);
+    connectionEpoch >= 0 &&
+    !!props.sessionId &&
+    isReconnecting(props.sessionId);
   // A turn can be parked before its first model call, waiting for the session's MCP servers.
   const mcpEpoch = useSyncExternalStore(
     subscribeMcpConnecting,
@@ -194,9 +200,10 @@ export function MessageList(props: {
     ],
   );
 
-  // The server numbers every user-role message of the transcript, a woken
-  // turn's first message included, so the wake counts here too: an edit of a
-  // later message must name the message the server knows by that index.
+  // The server numbers every user-role message of the transcript, the first
+  // message of a woken turn and of a goal turn included, so those count here
+  // too: an edit of a later message must name the message the server knows by
+  // that index.
   const userMsgIndexById = useMemo(
     () => userMsgIndices(props.items, props.userMsgIndexBase ?? 0),
     [props.items, props.userMsgIndexBase],
@@ -329,6 +336,12 @@ export function MessageList(props: {
           // panel keeps a bell for what woke it.
           return null;
         }
+        if (it.type === "goal_turn") {
+          // A turn the session supervisor started for the goal: a compact
+          // row, never a user bubble, since nobody typed the instruction the
+          // model read. It opens a turn and has no edit or copy controls.
+          return <GoalTurnMessage key={it.id} rowId={it.id} turn={it.turn} />;
+        }
         if (it.type === "memory_run") {
           // The memory subagent's run is the live status line's business and
           // the Tasks drawer's record; the transcript shows nothing for it.
@@ -347,7 +360,9 @@ export function MessageList(props: {
               rowId={it.id}
               content={it.content}
               {...(rowArtifacts ? { artifacts: rowArtifacts } : {})}
-              {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
+              {...(props.onMentionArtifact
+                ? { onMentionArtifact: props.onMentionArtifact }
+                : {})}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
@@ -382,8 +397,8 @@ export function MessageList(props: {
                 name={it.name}
                 overview={it.overview}
                 content={it.content}
-                {...it.body !== undefined ? { body: it.body } : {}}
-                {...it.path ? { path: it.path } : {}}
+                {...(it.body !== undefined ? { body: it.body } : {})}
+                {...(it.path ? { path: it.path } : {})}
                 discarded={it.discarded === true}
                 expanded={it.expanded}
                 onExpandedChange={(ex) =>
@@ -431,7 +446,9 @@ export function MessageList(props: {
                 itemId={it.id}
                 payload={it.payload}
                 resolved={it.resolved}
-                inactive={props.turnActive === false && props.generating !== true}
+                inactive={
+                  props.turnActive === false && props.generating !== true
+                }
                 onResolved={(state) =>
                   props.onQuestionPromptResolved?.(
                     it.payload.sessionId,
@@ -452,8 +469,12 @@ export function MessageList(props: {
             rowId={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
-            questionInactive={props.turnActive === false && props.generating !== true}
-            {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
+            questionInactive={
+              props.turnActive === false && props.generating !== true
+            }
+            {...(props.workspacePath
+              ? { workspacePath: props.workspacePath }
+              : {})}
             {...(props.onOpenSubagentTranscript
               ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
               : {})}
@@ -483,8 +504,16 @@ export function MessageList(props: {
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
-            {...(it.artifacts !== undefined ? { artifacts: it.artifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)) } : {})}
-            {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
+            {...(it.artifacts !== undefined
+              ? {
+                  artifacts: it.artifacts.filter(
+                    (artifact) => !inlineArtifactIds.has(artifact.id),
+                  ),
+                }
+              : {})}
+            {...(props.onMentionArtifact
+              ? { onMentionArtifact: props.onMentionArtifact }
+              : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

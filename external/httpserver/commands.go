@@ -177,6 +177,8 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	// Standalone HTTP gets the same workspace verification as serve and ACP.
+	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	if pid := strings.TrimSpace(params.SessionID); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			_ = logCloser.Close()

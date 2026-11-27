@@ -13,8 +13,9 @@ export function transcriptItemsLooselyEqual(
   switch (a.type) {
     case "user_message":
       return (
-        (b as Extract<TranscriptItem, { type: "user_message" }>).content.trim() ===
-        a.content.trim()
+        (
+          b as Extract<TranscriptItem, { type: "user_message" }>
+        ).content.trim() === a.content.trim()
       );
     case "background_wake":
       return (
@@ -22,9 +23,18 @@ export function transcriptItemsLooselyEqual(
           .map((t) => t.id)
           .join(",") === a.tasks.map((t) => t.id).join(",")
       );
+    case "goal_turn": {
+      const bt = (b as Extract<TranscriptItem, { type: "goal_turn" }>).turn;
+      return (
+        bt.kind === a.turn.kind &&
+        bt.index === a.turn.index &&
+        bt.objective === a.turn.objective
+      );
+    }
     case "thinking":
       return (
-        (b as Extract<TranscriptItem, { type: "thinking" }>).status === a.status &&
+        (b as Extract<TranscriptItem, { type: "thinking" }>).status ===
+          a.status &&
         (b as Extract<TranscriptItem, { type: "thinking" }>).content.trim() ===
           a.content.trim()
       );
@@ -144,7 +154,10 @@ export function mergeTranscriptPreferLocalSuffix(
   const localNotices = new Set(
     local
       .filter((it) => it.type === "system_notice")
-      .map((it) => (it as Extract<TranscriptItem, { type: "system_notice" }>).message),
+      .map(
+        (it) =>
+          (it as Extract<TranscriptItem, { type: "system_notice" }>).message,
+      ),
   );
   let cut = serverNext.length;
   while (cut > 0) {
@@ -195,23 +208,17 @@ function mergeServerPrefix(
     ) {
       return [...serverNext.slice(0, -1), lastL];
     }
-    if (lastS.type === "assistant_message" && lastL.type === "assistant_message") {
+    if (
+      lastS.type === "assistant_message" &&
+      lastL.type === "assistant_message"
+    ) {
       const sText = lastS.content;
       const lText = lastL.content;
-      if (
-        lText.length > sText.length &&
-        lText.startsWith(sText)
-      ) {
-        return [
-          ...serverNext.slice(0, -1),
-          { ...lastL, streaming: false },
-        ];
+      if (lText.length > sText.length && lText.startsWith(sText)) {
+        return [...serverNext.slice(0, -1), { ...lastL, streaming: false }];
       }
       if (!sText.trim() && lText.trim()) {
-        return [
-          ...serverNext.slice(0, -1),
-          { ...lastL, streaming: false },
-        ];
+        return [...serverNext.slice(0, -1), { ...lastL, streaming: false }];
       }
     }
   }
@@ -228,7 +235,9 @@ export function preserveUserMessageFiles(
   local: TranscriptItem[] | undefined,
 ): TranscriptItem[] {
   if (!local || local.length === 0) return merged;
-  const localFiles: NonNullable<Extract<TranscriptItem, { type: "user_message" }>["files"]>[] = [];
+  const localFiles: NonNullable<
+    Extract<TranscriptItem, { type: "user_message" }>["files"]
+  >[] = [];
   for (const it of local) {
     if (it.type === "user_message" && it.files && it.files.length > 0) {
       localFiles.push(it.files);
@@ -303,4 +312,3 @@ export function keepLocalTranscriptIfServerEmpty(p: {
   }
   return null;
 }
-
