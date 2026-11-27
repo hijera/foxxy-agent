@@ -36,26 +36,39 @@ test("shows all options on focus and picks one", () => {
   expect(screen.getByTestId("val").textContent).toBe("anthropic");
 });
 
-test("shows the option label even when a mouse or keyboard selection keeps focus", () => {
-  function LabeledHarness() {
-    const [value, setValue] = React.useState("keep");
-    return (
-      <>
-        <Combobox
-          value={value}
-          onChange={setValue}
-          options={[
-            { value: "keep", label: "Keep screenshots" },
-            { value: "latest", label: "Remove intermediate screenshots" },
-          ]}
-          showOptionLabel
-          ariaLabel="Screenshot mode"
-        />
-        <span data-testid="mode-key">{value}</span>
-      </>
-    );
-  }
+function LabeledHarness() {
+  const [value, setValue] = React.useState("keep");
+  return (
+    <>
+      <Combobox
+        value={value}
+        onChange={setValue}
+        options={[
+          { value: "keep", label: "Keep screenshots" },
+          { value: "latest", label: "Remove intermediate screenshots" },
+        ]}
+        showOptionLabel
+        ariaLabel="Screenshot mode"
+      />
+      <span data-testid="mode-key">{value}</span>
+    </>
+  );
+}
 
+// Types one character the way a browser does: the character replaces whatever
+// the input's current selection covers (the whole label, when the component
+// selected it, or an insertion at the caret when it did not).
+function typeOverSelection(input: HTMLInputElement, ch: string) {
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  fireEvent.change(input, {
+    target: {
+      value: input.value.slice(0, start) + ch + input.value.slice(end),
+    },
+  });
+}
+
+test("shows the option label even when a mouse or keyboard selection keeps focus", () => {
   render(<LabeledHarness />);
   const input = screen.getByRole<HTMLInputElement>("combobox");
   act(() => input.focus());
@@ -71,6 +84,39 @@ test("shows the option label even when a mouse or keyboard selection keeps focus
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("Keep screenshots");
   expect(screen.getByTestId("mode-key").textContent).toBe("keep");
+});
+
+test("typing after focus replaces the shown label instead of appending to it", () => {
+  render(<LabeledHarness />);
+  const input = screen.getByRole<HTMLInputElement>("combobox");
+  act(() => input.focus());
+  expect(input.selectionStart).toBe(0);
+  expect(input.selectionEnd).toBe(input.value.length);
+
+  typeOverSelection(input, "l");
+  expect(screen.getByTestId("mode-key").textContent).toBe("l");
+  expect(input.value).toBe("l");
+  expect(
+    screen.getByRole("option", { name: "Remove intermediate screenshots" }),
+  ).toBeTruthy();
+});
+
+test("typing after a selection that keeps focus also replaces the label", () => {
+  render(<LabeledHarness />);
+  const input = screen.getByRole<HTMLInputElement>("combobox");
+  act(() => input.focus());
+  fireEvent.mouseDown(
+    screen.getByRole("option", { name: "Remove intermediate screenshots" }),
+  );
+  expect(input.value).toBe("Remove intermediate screenshots");
+  expect(input.selectionStart).toBe(0);
+  expect(input.selectionEnd).toBe(input.value.length);
+
+  typeOverSelection(input, "keep");
+  expect(screen.getByTestId("mode-key").textContent).toBe("keep");
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("Keep screenshots");
 });
 
 test("typing filters options and keeps the typed text", () => {

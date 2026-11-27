@@ -290,6 +290,38 @@ func (w *configRoundTripWorld) wantScreenshotBudgets(first, second int) error {
 	return nil
 }
 
+// clearScreenshotBudgets saves both models with the field removed, the way
+// the settings form does for a blank field: the saved document carries no key,
+// so the model inherits the browser-wide limit again.
+func (w *configRoundTripWorld) clearScreenshotBudgets() error {
+	return w.save(func(doc map[string]interface{}) error {
+		models, err := modelRows(doc)
+		if err != nil {
+			return err
+		}
+		delete(models[0], "max_screenshots")
+		delete(models[1], "max_screenshots")
+		return nil
+	})
+}
+
+func (w *configRoundTripWorld) wantNoScreenshotBudgets() error {
+	doc, err := w.read()
+	if err != nil {
+		return err
+	}
+	models, err := modelRows(doc)
+	if err != nil {
+		return err
+	}
+	for _, row := range models {
+		if _, ok := row["max_screenshots"]; ok {
+			return fmt.Errorf("screenshot budget for %v is still saved, want the key removed", row["model"])
+		}
+	}
+	return nil
+}
+
 func (w *configRoundTripWorld) wantOneLineChanged(before, after string) error {
 	if strings.Count(w.initial, before) != 1 {
 		return fmt.Errorf("the fixture must carry %q exactly once", before)
@@ -322,6 +354,8 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			sc.Step(`^config\.yaml is what it was with "([^"]*)" written as "([^"]*)"$`, w.wantOneLineChanged)
 			sc.Step(`^the settings screen saves screenshot budgets of (\d+) and (\d+) for the two models$`, w.saveScreenshotBudgets)
 			sc.Step(`^reopening the settings shows screenshot budgets of (\d+) and (\d+) for the two models$`, w.wantScreenshotBudgets)
+			sc.Step(`^the settings screen clears the screenshot budgets of the two models$`, w.clearScreenshotBudgets)
+			sc.Step(`^reopening the settings shows no screenshot budgets for the two models$`, w.wantNoScreenshotBudgets)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
