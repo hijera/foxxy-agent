@@ -1,6 +1,13 @@
 import { getLocale } from "./i18n";
 import { schemaEnumLabelRu, schemaTextRu } from "./messages/schema.ru";
 
+const schemaEnumLabelEn: Record<string, string> = {
+  keep: "Keep screenshots in context",
+  latest: "Remove intermediate screenshots",
+  replace_old: "Replace old screenshots with descriptions",
+  separate_session: "Process screenshots in a separate session",
+};
+
 /**
  * Translate a config JSON Schema string (a field `title` or `description` from
  * the Go backend). English is canonical; for `ru` we look up an overlay entry and
@@ -23,7 +30,7 @@ export function tSchemaText(text: string | undefined | null): string {
  */
 export function tSchemaEnumLabel(token: string): string {
   if (getLocale() === "ru") {
-    return schemaEnumLabelRu[token] ?? token;
+    return schemaEnumLabelRu[token] ?? schemaEnumLabelEn[token] ?? token;
   }
-  return token;
+  return schemaEnumLabelEn[token] ?? token;
 }

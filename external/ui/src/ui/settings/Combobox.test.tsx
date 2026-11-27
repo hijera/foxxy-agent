@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { Combobox } from "./Combobox";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
 
@@ -28,6 +34,43 @@ test("shows all options on focus and picks one", () => {
   expect(screen.getByText("anthropic")).toBeTruthy();
   fireEvent.mouseDown(screen.getByText("anthropic"));
   expect(screen.getByTestId("val").textContent).toBe("anthropic");
+});
+
+test("shows the option label even when a mouse or keyboard selection keeps focus", () => {
+  function LabeledHarness() {
+    const [value, setValue] = React.useState("keep");
+    return (
+      <>
+        <Combobox
+          value={value}
+          onChange={setValue}
+          options={[
+            { value: "keep", label: "Keep screenshots" },
+            { value: "latest", label: "Remove intermediate screenshots" },
+          ]}
+          showOptionLabel
+          ariaLabel="Screenshot mode"
+        />
+        <span data-testid="mode-key">{value}</span>
+      </>
+    );
+  }
+
+  render(<LabeledHarness />);
+  const input = screen.getByRole<HTMLInputElement>("combobox");
+  act(() => input.focus());
+  fireEvent.mouseDown(
+    screen.getByRole("option", { name: "Remove intermediate screenshots" }),
+  );
+  expect(document.activeElement).toBe(input);
+  expect(input.value).toBe("Remove intermediate screenshots");
+  expect(screen.getByTestId("mode-key").textContent).toBe("latest");
+
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("Keep screenshots");
+  expect(screen.getByTestId("mode-key").textContent).toBe("keep");
 });
 
 test("typing filters options and keeps the typed text", () => {

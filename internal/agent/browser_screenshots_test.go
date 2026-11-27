@@ -36,7 +36,7 @@ func TestBrowserScreenshotEvictions(t *testing.T) {
 		{"child receives every image", config.BrowserScreenshotSubagent, 0, []int{1, 3}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := browserImageEvictions(messages, config.BrowserScreenshotSettings{Mode: tc.mode, MaxScreenshots: tc.max})
+			got := browserImageEvictions(messages, tc.mode, tc.max)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("evictions = %v, want %v", got, tc.want)
 			}
@@ -76,9 +76,10 @@ func TestBrowserScreenshotReplacementDescribesEachEvictedImageOnce(t *testing.T)
 			var messages []llm.Message
 			for _, name := range []string{"first.png", "second.png", "third.png"} {
 				part := llm.ImagePart{DataURL: "data:image/png;base64,AA==", Name: name}
-				messages = a.addBrowserScreenshots(context.Background(), provider, messages, []browserScreenshot{{part: part}})
+				messages = addBrowserScreenshots(messages, []browserScreenshot{{part: part}})
+				a.fitBrowserScreenshots(t.Context(), llmTransport{provider: provider}, messages)
 			}
-			a.fitBrowserScreenshots(context.Background(), provider, messages)
+			a.fitBrowserScreenshots(t.Context(), llmTransport{provider: provider}, messages)
 			if !reflect.DeepEqual(provider.names, tc.want) {
 				t.Fatalf("described images = %v, want %v", provider.names, tc.want)
 			}
@@ -130,7 +131,8 @@ func TestBrowserScreenshotSeparateSessionReturnsOnlyReport(t *testing.T) {
 	child := &screenshotChildStub{}
 	a.SetSubagentRuntime(child)
 	part := llm.ImagePart{DataURL: "data:image/png;base64,AA==", Name: "page.png"}
-	got := a.addBrowserScreenshots(context.Background(), nil, nil, []browserScreenshot{{part: part, prompt: "Is submit visible?"}})
+	got := addBrowserScreenshots(nil, []browserScreenshot{{part: part, prompt: "Is submit visible?"}})
+	a.fitBrowserScreenshots(t.Context(), llmTransport{}, got)
 	if len(got) != 1 || len(got[0].ImageParts) != 0 || !strings.Contains(got[0].Content, "The submit button is visible.") {
 		t.Fatalf("parent received %#v", got)
 	}
@@ -181,5 +183,71 @@ func TestBrowserScreenshotLimitReplaysRequestWithoutRerunningTool(t *testing.T) 
 	}
 	if !provider.rejected || executions != 1 || provider.calls != 2 {
 		t.Fatalf("image rejected=%v, tool executions=%d, accepted model requests=%d", provider.rejected, executions, provider.calls)
+	}
+}
+
+type screenshotBudgetProvider struct {
+	toolThenDoneProvider
+	names []string
+}
+
+func (p *screenshotBudgetProvider) Stream(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	for _, msg := range messages {
+		if msg.BrowserScreenshot && len(msg.ImageParts) > 0 {
+			p.names = append(p.names, msg.ImageParts[0].Name)
+		}
+	}
+	return p.toolThenDoneProvider.Stream(ctx, messages, defs, onChunk)
+}
+
+func TestBrowserScreenshotBudgetFollowsRequestModel(t *testing.T) {
+	legacy, limit, unlimited := 1, 2, 0
+	for _, tc := range []struct {
+		name  string
+		limit *int
+		want  []string
+	}{
+		{"model limit overrides legacy", &limit, []string{"second.png", "third.png"}},
+		{"zero disables legacy limit", &unlimited, []string{"first.png", "second.png", "third.png"}},
+		{"unset inherits legacy limit", nil, []string{"third.png"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &session.State{ID: "sess_shot_models", CWD: t.TempDir(), Mode: session.ModeAgent}
+			cfg := &config.Config{
+				Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+				Models: []config.ModelEntry{
+					{Model: "fake/start", MaxTokens: 100, MaxScreenshots: &legacy},
+					{Model: "fake/next", MaxTokens: 100, MaxScreenshots: tc.limit},
+				},
+				Agent:   config.Agent{Model: "fake/start"},
+				Browser: config.BrowserConfig{ScreenshotSettings: &config.BrowserScreenshotSettings{MaxScreenshots: legacy}},
+			}
+			a := NewAgent(cfg, st, resumePermissionSender{}, nil)
+			provider := &screenshotBudgetProvider{toolThenDoneProvider: toolThenDoneProvider{toolName: "fake_browser_shots"}}
+			var built []string
+			a.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
+				built = append(built, in.Model)
+				return provider, nil
+			}
+			a.registry.Register(&tools.Tool{
+				Definition: llm.ToolDefinition{Name: "fake_browser_shots", InputSchema: map[string]interface{}{"type": "object"}},
+				Execute: func(_ context.Context, _ string, env *tools.Env) (string, error) {
+					for _, name := range []string{"first.png", "second.png", "third.png"} {
+						env.AddBrowserScreenshot("data:image/png;base64,AA==", "", name, "")
+					}
+					st.SetSelectedModelID("fake/next")
+					return "captured three screenshots", nil
+				},
+			})
+			if result, err := a.Run(t.Context(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "capture screenshots and switch models"}}); err != nil || result != string(acp.StopReasonEndTurn) {
+				t.Fatalf("turn result = %q, %v", result, err)
+			}
+			if !reflect.DeepEqual(built, []string{"start", "next"}) {
+				t.Fatalf("provider models = %v, want start then next", built)
+			}
+			if !reflect.DeepEqual(provider.names, tc.want) {
+				t.Fatalf("screenshots sent to the next model = %v, want %v", provider.names, tc.want)
+			}
+		})
 	}
 }

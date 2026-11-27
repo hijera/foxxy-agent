@@ -77,13 +77,11 @@ func browserSchema() map[string]interface{} {
 	mode := strProp("Screenshot handling mode", "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.")
 	mode["enum"] = []string{BrowserScreenshotKeep, BrowserScreenshotLatest, BrowserScreenshotReplace, BrowserScreenshotSubagent}
 	mode["default"] = BrowserScreenshotKeep
-	limit := intProp("Maximum screenshots per request", "User attachments also count toward this limit. Zero leaves the local limit disabled.")
-	limit["minimum"] = 0
 	screenshotSettings := objectSchema("Working with screenshots", "",
 		map[string]interface{}{
-			"mode": mode, "max_screenshots": limit,
+			"mode":          mode,
 			"model_decides": boolProp("Take screenshots at the model's discretion", "Capture when the model asks for a screenshot. Omit a capture on other browser actions."),
-		}, []string{"mode", "max_screenshots", "model_decides"}, nil)
+		}, []string{"mode", "model_decides"}, nil)
 	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
 		map[string]interface{}{
 			"enable":              boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
@@ -281,6 +279,11 @@ func UISchemaMap() map[string]interface{} {
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
+		"max_screenshots": map[string]interface{}{
+			"type": "integer", "title": "Maximum screenshots per request",
+			"description": "User image attachments also count. Zero disables the limit. Leave blank to inherit any legacy browser limit.",
+			"minimum":     0, "default": nil,
+		},
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
@@ -432,7 +435,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "max_screenshots", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",

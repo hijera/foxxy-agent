@@ -1,4 +1,11 @@
-import { Fragment, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { Chevron } from "../components/Chevron";
 
 import { t } from "../i18n/i18n";
@@ -271,8 +278,7 @@ function SchemaField(props: {
       return <>{override}</>;
     }
   }
-  let ph =
-    placeholderFromDefault(schema);
+  let ph = placeholderFromDefault(schema);
   if (
     schema["x-foxxycode-provider-api-key-env-placeholder"] === true &&
     parentObj
@@ -320,7 +326,9 @@ function SchemaField(props: {
     return (
       <fieldset
         className={
-          disabled ? "settings-fieldset settings-fieldset-disabled" : "settings-fieldset"
+          disabled
+            ? "settings-fieldset settings-fieldset-disabled"
+            : "settings-fieldset"
         }
         disabled={disabled || undefined}
       >
@@ -359,13 +367,18 @@ function SchemaField(props: {
     return (
       <fieldset
         className={
-          disabled ? "settings-fieldset settings-fieldset-disabled" : "settings-fieldset"
+          disabled
+            ? "settings-fieldset settings-fieldset-disabled"
+            : "settings-fieldset"
         }
         disabled={disabled || undefined}
       >
         <LegendWithHint label={label} description={desc} />
         {setCount > 0 ? (
-          <p className="settings-field-desc" data-testid="settings-secret-list-state">
+          <p
+            className="settings-field-desc"
+            data-testid="settings-secret-list-state"
+          >
             {tp("settings.secret.listSet", setCount)}
           </p>
         ) : null}
@@ -491,8 +504,11 @@ function SchemaField(props: {
   }
 
   if (fieldType === "integer" || fieldType === "number") {
-    let n: number;
-    if (typeof value === "number" && Number.isFinite(value)) {
+    const blankIsUnset = schema.default === null;
+    let n: number | "";
+    if (blankIsUnset && (value === undefined || value === null)) {
+      n = "";
+    } else if (typeof value === "number" && Number.isFinite(value)) {
       n = value;
     } else if (
       typeof schema.default === "number" &&
@@ -510,14 +526,14 @@ function SchemaField(props: {
           className="settings-input"
           type="number"
           disabled={disabled}
-          value={Number.isFinite(n) ? n : 0}
+          value={n}
           min={schema.minimum}
           max={schema.maximum}
           placeholder={ph}
           aria-label={label}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const x = e.target.valueAsNumber;
-            onChange(Number.isFinite(x) ? x : 0);
+            onChange(Number.isFinite(x) ? x : blankIsUnset ? undefined : 0);
           }}
         />
       </div>
@@ -542,7 +558,9 @@ function SchemaField(props: {
           type="password"
           autoComplete="new-password"
           value={s}
-          placeholder={set ? tr("settings.secret.keep") : tr("settings.secret.unset")}
+          placeholder={
+            set ? tr("settings.secret.keep") : tr("settings.secret.unset")
+          }
           aria-label={label}
           data-testid={`settings-secret-${path}`}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>

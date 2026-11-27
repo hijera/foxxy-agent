@@ -323,12 +323,6 @@
         "screenshot_settings": {
           "additionalProperties": false,
           "properties": {
-            "max_screenshots": {
-              "description": "User attachments also count toward this limit. Zero leaves the local limit disabled.",
-              "minimum": 0,
-              "title": "Maximum screenshots per request",
-              "type": "integer"
-            },
             "mode": {
               "default": "keep",
               "description": "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.",
@@ -344,11 +338,7 @@
           },
           "title": "Working with screenshots",
           "type": "object",
-          "x-foxxycode-property-order": [
-            "mode",
-            "max_screenshots",
-            "model_decides"
-          ]
+          "x-foxxycode-property-order": ["mode", "model_decides"]
         },
         "screenshots": {
           "default": true,
@@ -1024,6 +1014,13 @@
             "title": "Context window (tokens)",
             "type": "integer"
           },
+          "max_screenshots": {
+            "default": null,
+            "description": "User image attachments also count. Zero disables the limit. Leave blank to inherit any legacy browser limit.",
+            "minimum": 0,
+            "title": "Maximum screenshots per request",
+            "type": "integer"
+          },
           "max_tokens": {
             "default": 4096,
             "description": "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
@@ -1075,6 +1072,7 @@
           "temperature",
           "max_context_tokens",
           "multimodal",
+          "max_screenshots",
           "stream",
           "reasoning_levels",
           "reasoning_default",

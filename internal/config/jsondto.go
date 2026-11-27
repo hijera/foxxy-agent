@@ -158,6 +158,7 @@ type ModelJSON struct {
 	Temperature      float64 `json:"temperature"`
 	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
 	Multimodal       bool    `json:"multimodal,omitempty"`
+	MaxScreenshots   *int    `json:"max_screenshots,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
@@ -563,6 +564,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		// the DTO its own copies so a caller mutating one side cannot leak into
 		// the other, as the other pointer-typed sections already do.
 		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.MaxScreenshots = cloneIntPtr(m.MaxScreenshots)
 		mj.Stream = cloneBoolPtr(m.Stream)
 		out.Models = append(out.Models, mj)
 	}
@@ -866,6 +868,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, m := range j.Models {
 		me := ModelEntry(m)
 		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.MaxScreenshots = cloneIntPtr(m.MaxScreenshots)
 		me.Stream = cloneBoolPtr(m.Stream)
 		cfg.Models = append(cfg.Models, me)
 	}

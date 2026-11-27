@@ -50,7 +50,6 @@ browser:
   screenshots: true      # false = text-only, use read_page / page_log / evaluate
   screenshot_settings:
     mode: keep           # keep, latest, replace_old, or separate_session
-    max_screenshots: 0   # 0 leaves the local request limit off
     model_decides: false # true captures only when the model asks
   executable_path: ""    # "" = auto-detect; or a path to a Chrome/Chromium binary
   timeout_seconds: 30     # per-action timeout
@@ -119,9 +118,9 @@ Open **Settings → Browser tool → Working with screenshots** to choose how th
 agent receives screenshots. Captured files remain in the session's assets for
 inspection in the transcript.
 
-![Browser screenshot settings showing the mode, request limit and capture switch](../assets/browser-tool/browser-screenshot-settings-dark-1280.png)
+![Browser screenshot settings showing the mode and capture switch](../assets/browser-tool/browser-screenshot-settings-dark-1280.png)
 
-*Screenshot settings with a four-image budget and capture on request.*
+*Browser screenshot handling with capture on request.*
 
 | Mode | What the main model receives |
 |---|---|
@@ -130,8 +129,25 @@ inspection in the transcript.
 | Replace old screenshots with descriptions (`replace_old`) | Recent screenshots up to the budget. When another frame would exceed it, the model describes the oldest frame and its description takes the place of the image. |
 | Process screenshots in a separate session (`separate_session`) | A text report from a tool-free subagent. The child receives one screenshot and its visual check prompt, then returns a description and the result of the check. This mode needs enabled subagents and an available slot. |
 
-`max_screenshots` applies to each model request. User image attachments reserve
-their slots before browser screenshots. For a four-image model, set it to `4`.
+Set **Maximum screenshots per request** in **Settings → Logical models → your
+model → Model**, or set `max_screenshots` on that model's YAML entry. For a
+four-image model, use `4`. User image attachments reserve their slots before
+browser screenshots. FoxxyCode uses the limit of the model receiving the request.
+
+```yaml
+models:
+  - model: example/qwen3.6-35b-a3b
+    max_screenshots: 4
+  - model: example/other-vision-model
+    max_screenshots: 0
+```
+
+![Logical model settings showing a screenshot budget of four](../assets/browser-tool/model-screenshot-budget-dark-1280.png)
+
+Zero disables the local limit for that model. A blank field inherits
+`browser.screenshot_settings.max_screenshots` from older configurations if
+present. Otherwise the local limit is disabled.
+
 If the provider reports an image-count error before returning any output, the
 agent retries the model request with fewer browser screenshots. Completed browser
 actions and commands remain completed. User attachments are preserved, so a

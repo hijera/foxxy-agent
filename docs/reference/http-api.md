@@ -198,6 +198,11 @@ header where the client can set one, since a query token reaches proxy access lo
 
 The running turn also emits **`turn_progress`** with **`startedAt`** (RFC3339), **`elapsedMs`**, **`outputTokens`** and **`estimated`**. The first frame starts the clock before model output; later frames update the generated-token count at most once a second and after each model call. **`GET /foxxycode/sessions/{id}/activity`** returns the same snapshot as **`turnStartedAt`**, **`turnElapsedMs`**, **`turnOutputTokens`** and **`turnTokensEstimated`** while this process runs the turn, so a client joining late can restore it. These four fields are absent for a turn held by another process.
 
+The settings document stores the browser screenshot budget as
+`models[].max_screenshots`. Send a non-negative integer for the model, with
+`0` disabling the local cap. An omitted value or `null` inherits the old
+browser-wide limit if it is present.
+
 ## Endpoint summary
 
 | Method | Path | Notes |

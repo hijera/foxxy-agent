@@ -43,3 +43,8 @@ Feature: A settings save rewrites only what the operator changed
     And the second browser saves what it read with "agent.model" set to "spare/tiny"
     And the second browser reverts its model using the save response without another read
     Then config.yaml is what it was with "max_turns: 40" written as "max_turns: 42"
+
+  Scenario: Screenshot budgets are saved separately for each model
+    Given a foxxycode server whose config.yaml spells its paths with ${FOXXYCODE_HOME}, ${CWD}, ~ and ${VAR}
+    When the settings screen saves screenshot budgets of 4 and 0 for the two models
+    Then reopening the settings shows screenshot budgets of 4 and 0 for the two models

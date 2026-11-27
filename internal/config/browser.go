@@ -11,9 +11,10 @@ const (
 
 // BrowserScreenshotSettings controls capture decisions and delivery to the model.
 type BrowserScreenshotSettings struct {
-	Mode           string `yaml:"mode,omitempty" json:"mode,omitempty"`
-	MaxScreenshots int    `yaml:"max_screenshots,omitempty" json:"max_screenshots,omitempty"`
-	ModelDecides   bool   `yaml:"model_decides,omitempty" json:"model_decides,omitempty"`
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	// MaxScreenshots is the legacy fallback for models with no explicit limit.
+	MaxScreenshots int  `yaml:"max_screenshots,omitempty" json:"max_screenshots,omitempty"`
+	ModelDecides   bool `yaml:"model_decides,omitempty" json:"model_decides,omitempty"`
 }
 
 // BrowserDefaultTimeoutSeconds is the default per-action timeout for the interactive

@@ -105,6 +105,11 @@
             "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary.",
             "default": false
           },
+          "max_screenshots": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Per-request image budget for browser screenshot delivery with this model. User images reserve their slots first. Zero disables the cap. Omit or set null to inherit the legacy browser-wide limit, if configured."
+          },
           "reasoning_levels": {
             "type": "array",
             "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, kimi-* except the non-thinking kimi-k2-instruct checkpoints, including vendor-namespace ids such as moonshotai/kimi-k2-thinking, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button.",
@@ -2016,7 +2021,7 @@
             "max_screenshots": {
               "type": "integer",
               "minimum": 0,
-              "description": "Image budget per model request for browser screenshots. User attachments reserve their slots first. Zero disables the local limit.",
+              "description": "Legacy browser-wide image budget for models without models[].max_screenshots. Use models[].max_screenshots to set a limit for each model.",
               "default": 0
             },
             "model_decides": {

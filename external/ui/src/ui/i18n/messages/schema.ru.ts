@@ -660,8 +660,8 @@ export const schemaTextRu: Record<string, string> = {
   "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.":
     "Выберите, какие скриншоты увидит модель. Замена старых кадров описаниями может снизить эффективность кэша запросов. В отдельной сессии каждый кадр проверяется отдельно.",
   "Maximum screenshots per request": "Максимум скриншотов на запрос",
-  "User attachments also count toward this limit. Zero leaves the local limit disabled.":
-    "Изображения из вложений пользователя тоже занимают места. 0 отключает локальный лимит.",
+  "User image attachments also count. Zero disables the limit. Leave blank to inherit any legacy browser limit.":
+    "Изображения во вложениях тоже учитываются. 0 отключает лимит. Пустое поле сохраняет прежний общий лимит, если он задан.",
   "Take screenshots at the model's discretion":
     "Делать скриншоты по усмотрению модели",
   "Capture when the model asks for a screenshot. Omit a capture on other browser actions.":

@@ -1070,7 +1070,9 @@ func (a *Agent) runReActLoop(
 		// too. firstTokenTimedOut records that this timer, and not the user or the loop
 		// guard, did the cancelling, which the error paths below cannot otherwise tell
 		// apart.
-		a.fitBrowserScreenshots(ctx, transport.provider, messages)
+		// A tool can switch models. Apply the screenshot budget once the
+		// transport for this request has been settled.
+		a.fitBrowserScreenshots(ctx, transport, messages)
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		if retryAllowance == nil {
 			retryAllowance = llm.NewRetryAllowance(a.cfg.Agent.EffectiveLLMRetryMax())
@@ -2207,7 +2209,7 @@ func (a *Agent) runReActLoop(
 		// it out of history avoids a spurious user bubble in the transcript and re-sending
 		// every screenshot on later turns.
 		if screenshots := a.takeToolImages(); len(screenshots) > 0 {
-			messages = a.addBrowserScreenshots(ctx, transport.provider, messages, screenshots)
+			messages = addBrowserScreenshots(messages, screenshots)
 		}
 	}
 

@@ -1,4 +1,10 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 
@@ -21,8 +27,8 @@ export function Combobox(props: {
   disabled?: boolean | undefined;
   /**
    * When true, the collapsed input shows the matching option's label instead of
-   * the raw value (used for enum fields with translated labels). While focused the
-   * raw value is shown so it stays editable. Off by default so free-text
+   * the raw value (used for enum fields with translated labels). Typing shows
+   * the search text until a selection is made. Off by default so free-text
    * comboboxes (provider, model id) keep showing what the user typed.
    */
   showOptionLabel?: boolean | undefined;
@@ -34,15 +40,15 @@ export function Combobox(props: {
   openUp?: boolean | undefined;
 }) {
   const { t } = useT();
-  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } = props;
+  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } =
+    props;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState(false);
-  const [focused, setFocused] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const shownValue =
-    props.showOptionLabel && !focused
+    props.showOptionLabel && !typed
       ? (options.find((o) => o.value === value)?.label ?? value)
       : value;
 
@@ -104,6 +110,9 @@ export function Combobox(props: {
       if (open && filtered.length > 0) {
         e.preventDefault();
       }
+      if (props.showOptionLabel) {
+        setTyped(false);
+      }
       setOpen(false);
     }
   };
@@ -128,11 +137,10 @@ export function Combobox(props: {
           setHighlight(-1);
         }}
         onFocus={() => {
-          setFocused(true);
           setTyped(false);
           setOpen(true);
         }}
-        onBlur={() => setFocused(false)}
+        onBlur={props.showOptionLabel ? () => setTyped(false) : undefined}
         onKeyDown={onKeyDown}
       />
       <button

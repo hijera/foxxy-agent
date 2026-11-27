@@ -9,7 +9,7 @@
 
 ## Unreleased — 2026-11-27
 
-**Browser actions and screenshots.** The agent can work with tabs, the keyboard, forms and dialogs. Screenshot settings let it keep the newest frame, replace older frames with descriptions, review a frame in a separate session or capture on demand.
+**Browser actions and screenshots.** The agent can work with tabs, the keyboard, forms and dialogs. Screenshot settings let it keep the newest frame, replace older frames with descriptions, review a frame in a separate session or capture on demand. Each logical model has its own screenshot limit per request, and the browser selector shows the name of the chosen mode.
 
 **Composer caret at any zoom.** The caret and the input mirror no longer drift apart at fractional page zoom and high display density: the text under the cursor stays put through zooming and scrolling.
 
