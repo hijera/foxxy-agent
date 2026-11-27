@@ -3,6 +3,8 @@ package session_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -89,6 +91,14 @@ func (w *supervisorWorld) asksForDatabase() error {
 	return nil
 }
 
+func (w *supervisorWorld) workspaceWithSpec() error {
+	w.session([]string{"The specification is implemented."}, func(context.Context, *config.Config, *session.State, session.GoalCheckRequest) (session.GoalCheckResult, error) {
+		return session.GoalCheckResult{Verdict: session.GoalVerdictMet}, nil
+	})
+	cwd := w.mgr.SessionByID(w.sid).GetCWD()
+	return os.WriteFile(filepath.Join(cwd, "spec.md"), []byte("Keep the public response format."), 0o600)
+}
+
 func (w *supervisorWorld) send(text string) error {
 	_, err := w.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
 		SessionID: w.sid, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}},
@@ -110,6 +120,15 @@ func (w *supervisorWorld) firstIsKickoff() error {
 	users := w.userMessages()
 	if len(users) == 0 || users[0].GoalTurn == nil || users[0].GoalTurn.Kind != acp.GoalTurnKickoff || users[0].GoalTurn.Objective != "ship the fix" {
 		return fmt.Errorf("first message = %+v, want the goal kickoff", users)
+	}
+	return nil
+}
+
+func (w *supervisorWorld) kickoffIncludesSpec() error {
+	users := w.userMessages()
+	if len(users) != 1 || users[0].GoalTurn == nil || users[0].GoalTurn.Kind != acp.GoalTurnKickoff ||
+		users[0].GoalTurn.Objective != "implement @spec.md" || !strings.Contains(users[0].Content, "Keep the public response format.") {
+		return fmt.Errorf("user messages = %+v, want the kickoff with the attached specification", users)
 	}
 	return nil
 }
@@ -173,8 +192,10 @@ func TestSessionSupervisorFeature(t *testing.T) {
 			w := &supervisorWorld{t: t}
 			sc.Step(`^an agent session whose model ships the fix only on its second turn$`, w.secondTurnShips)
 			sc.Step(`^an agent session whose model asks which database to use$`, w.asksForDatabase)
+			sc.Step(`^an agent session with a specification file$`, w.workspaceWithSpec)
 			sc.Step(`^the operator sends "([^"]*)"$`, w.send)
 			sc.Step(`^the first turn is the goal kickoff$`, w.firstIsKickoff)
+			sc.Step(`^the goal kickoff includes the specification$`, w.kickoffIncludesSpec)
 			sc.Step(`^the supervisor continues the work naming what is left$`, w.continuationNamesWhatIsLeft)
 			sc.Step(`^the goal is complete after one continuation$`, w.completeAfterOne)
 			sc.Step(`^no supervisor turn reads as a message the operator typed$`, w.noOperatorEcho)

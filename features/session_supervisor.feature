@@ -17,3 +17,8 @@ Feature: A session goal is worked on until a second model confirms it
     When the operator sends "/goal migrate the store"
     Then the goal is blocked with the question for the operator
     And no continuation was started
+
+  Scenario: A goal can refer to a specification file
+    Given an agent session with a specification file
+    When the operator sends "/goal implement @spec.md"
+    Then the goal kickoff includes the specification

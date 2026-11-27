@@ -140,29 +140,35 @@ func (r *goalRun) update(notice string, fn func(*GoalState) bool) bool {
 	return fn(&r.implicit)
 }
 
-// runSupervisedTurn runs one prompt of a top-level agent session. A /goal
-// command is answered here, whichever surface or queue it came from; a turn
-// of a session with an active goal (or any turn, with supervisor.enable) is
-// checked when it ends, and unfinished work gets bounded continuation turns.
-func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp.ContentBlock, sender acp.UpdateSender, opts *PromptRunOpts) (string, error) {
+// runSupervisedTurn also reports whether a /goal command was handled. Some
+// goal commands change session state without writing a model turn, and the
+// queue must consume them even when the message revision stays the same.
+func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp.ContentBlock, sender acp.UpdateSender, opts *PromptRunOpts, cmd GoalCommand) (string, bool, error) {
 	topLevel := st.Subagent() == nil && (opts == nil || !opts.subagentTurn)
+	handled := topLevel && cmd.Kind != GoalCommandNone
 	var first *llm.GoalTurn
-	if topLevel {
-		if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
-			var notice string
-			var err error
-			prompt, first, notice, err = m.applyGoalCommand(st, cmd, opts)
-			if err != nil {
-				notice = err.Error()
-			}
-			if first == nil {
-				m.answerGoalCommand(st, sender, notice)
-				return string(acp.StopReasonEndTurn), nil
-			}
+	if handled {
+		if err := ctx.Err(); err != nil {
+			return string(acp.StopReasonCancelled), false, err
 		}
+		start, marker, notice, err := m.applyGoalCommand(st, cmd)
+		if err != nil {
+			notice = err.Error()
+		}
+		if marker == nil {
+			m.answerGoalCommand(st, sender, notice)
+			return string(acp.StopReasonEndTurn), true, nil
+		}
+		// The text block was the command. Keep the resources the mention
+		// resolver attached to it for the worker's first turn.
+		prompt = append(start, prompt[1:]...)
+		first = marker
 	}
-	if !topLevel || st.GetMode() != string(ModeAgent) || isAgentCommandPrompt(prompt) {
-		return m.runner(ctx, st, prompt, sender)
+	// A restricted chat turn cannot drive the supervisor or its workspace
+	// verifier. The next unrestricted turn picks up the active goal.
+	if !topLevel || st.GetTurnRestriction() != nil || st.GetMode() != string(ModeAgent) || isAgentCommandPrompt(prompt) {
+		stop, err := m.runner(ctx, st, prompt, sender)
+		return stop, handled, err
 	}
 	cfg := m.activeCfg()
 	run := &goalRun{m: m, st: st, sender: sender, cfg: cfg, persist: true}
@@ -170,12 +176,14 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 		woken := opts != nil && opts.BackgroundWake != nil
 		objective := strings.TrimSpace(contentBlocksToPlainText(prompt))
 		if !cfg.Supervisor.Enable || woken || objective == "" {
-			return m.runner(ctx, st, prompt, sender)
+			stop, err := m.runner(ctx, st, prompt, sender)
+			return stop, handled, err
 		}
 		run.persist = false
 		run.implicit = GoalState{Objective: objective, Status: GoalActive}
 	}
-	return run.loop(ctx, prompt, first)
+	stop, err := run.loop(ctx, prompt, first)
+	return stop, handled, err
 }
 
 // answerGoalCommand tells the operator what a /goal command did, on the
@@ -193,9 +201,9 @@ func (m *Manager) answerGoalCommand(st *State, sender acp.UpdateSender, notice s
 // applyGoalCommand carries out a /goal command. A command that starts work
 // (set, resume) returns the prompt and the marker of the turn to run; the
 // others return only the notice.
-func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
+func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
 	cfg := m.activeCfg()
-	if cmd.Kind != GoalCommandShow && opts != nil && opts.Restriction != nil {
+	if cmd.Kind != GoalCommandShow && st.GetTurnRestriction() != nil {
 		return nil, nil, "", fmt.Errorf("only the bot's admins can change the session goal")
 	}
 	if cmd.Err != "" {
@@ -308,13 +316,20 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 					remaining = result.Remaining
 				}
 			}
+			goal = r.goal()
+			if overBudget(goal, sup) {
+				marker, prompt = r.endAtLimit(goal, remaining)
+				if marker == nil {
+					return string(acp.StopReasonRefused), nil
+				}
+				continue
+			}
 			if r.nudges >= sup.NudgeLimit() {
 				blocked := r.stuckReason(reason)
 				r.finish(GoalBlocked, blocked, "Goal blocked: "+blocked)
 				return string(acp.StopReasonEndTurn), nil
 			}
 			r.nudges++
-			goal = r.goal()
 			marker = &llm.GoalTurn{Kind: acp.GoalTurnRecover, Index: r.nudges, Limit: sup.NudgeLimit(), Objective: goal.Objective, Reason: reason, Remaining: remaining}
 			prompt = goalPrompt(goalRecoveryText(goal, reason, remaining, cfg))
 			continue
@@ -359,12 +374,10 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		}
 		goal = r.goal()
 		if goal.Continuations >= sup.ContinuationLimit() || overBudget(goal, sup) {
-			if !r.persist {
-				r.st.SetTurnStopNotice(fmt.Sprintf("Supervisor stopped after %d automatic continuations. Remaining: %s", goal.Continuations, strings.Join(result.Remaining, "; ")))
+			marker, prompt = r.endAtLimit(goal, result.Remaining)
+			if marker == nil {
 				return string(acp.StopReasonRefused), nil
 			}
-			marker = &llm.GoalTurn{Kind: acp.GoalTurnWrapUp, Objective: goal.Objective, Reason: limitReason(goal, sup), Remaining: result.Remaining}
-			prompt = goalPrompt(goalWrapUpText(goal, result, cfg))
 			continue
 		}
 		used := goal.Continuations + 1
@@ -378,6 +391,22 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 			Reason: result.Reason, Remaining: result.Remaining}
 		prompt = goalPrompt(goalContinuationText(r.goal(), result, used, cfg))
 	}
+}
+
+// endAtLimit gives an explicit goal one summary turn and an implicit goal
+// a stop notice.
+func (r *goalRun) endAtLimit(goal GoalState, remaining []string) (*llm.GoalTurn, []acp.ContentBlock) {
+	reason := limitReason(goal, r.cfg.Supervisor)
+	if !r.persist {
+		notice := "Supervisor stopped: " + reason
+		if len(remaining) > 0 {
+			notice += ". Remaining: " + strings.Join(remaining, "; ")
+		}
+		r.st.SetTurnStopNotice(notice)
+		return nil, nil
+	}
+	marker := &llm.GoalTurn{Kind: acp.GoalTurnWrapUp, Objective: goal.Objective, Reason: reason, Remaining: remaining}
+	return marker, goalPrompt(goalWrapUpText(goal, remaining, r.cfg))
 }
 
 // runStep runs one turn under the watchdog and charges its time and tokens to
@@ -401,16 +430,18 @@ func (r *goalRun) runStep(ctx context.Context, prompt []acp.ContentBlock, marker
 	cancel()
 	<-watchDone
 	elapsed, tokens := time.Since(started), watch.tokens()
-	if r.persist {
-		r.st.UpdateGoal("", func(g *GoalState) bool {
-			if g.ID != r.goalID {
-				return false
-			}
-			g.ActiveMs += elapsed.Milliseconds()
-			g.TokensUsed += tokens
-			return true
-		})
+	if !r.persist {
+		r.implicit.TokensUsed += tokens
+		return stop, watch, err
 	}
+	r.st.UpdateGoal("", func(g *GoalState) bool {
+		if g.ID != r.goalID {
+			return false
+		}
+		g.ActiveMs += elapsed.Milliseconds()
+		g.TokensUsed += tokens
+		return true
+	})
 	return stop, watch, err
 }
 

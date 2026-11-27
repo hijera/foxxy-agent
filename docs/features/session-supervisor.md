@@ -8,13 +8,13 @@ The supervisor is a second model rather than the worker grading itself. It judge
 
 | Command | What it does |
 |---|---|
-| `/goal [-m\|--model <id>] [-r\|--reasoning <level>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. |
+| `/goal [-m\|--model <id>] [-r\|--reasoning <level>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and refer to it with an `@file` mention. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. |
 | `/goal` | Shows the goal: its status and why, continuations used, the last check's verdict, and what is still open. The web UI and the console open their goal menu instead. |
 | `/goal pause` | Stops the automatic continuations and keeps the goal. A turn working on it finishes the step it is in. |
 | `/goal resume [-m\|--model <id>] [-r\|--reasoning <level>]` | Makes a paused, blocked or limited goal active again with a fresh continuation and token budget, and starts a turn. The goal keeps the checker it was set with unless the options name another. |
 | `/goal clear` | Removes the goal. `stop`, `off`, `cancel`, `reset` and `none` work as well. |
 
-The commands work in the web composer, the console, ACP editors, `POST /v1/responses`, Telegram and Pachca. In a messenger, only the bot's admins can set, pause, resume or clear a goal; any permitted user can show it. A goal is worked on in agent mode. It is saved with the session, so it survives a restart, and a compaction keeps the progress toward it in the summary.
+The commands work in the web composer, the console, ACP editors, `POST /v1/responses`, Telegram and Pachca. In a messenger, only the bot's admins can set, pause, resume or clear a goal; any permitted user can show it. Restricted messenger turns answer the chat message and leave the goal for the next unrestricted turn. A goal is worked on in agent mode. It is saved with the session, so it survives a restart, and a compaction keeps the progress toward it in the summary.
 
 ## How a goal is worked on
 
@@ -28,7 +28,7 @@ The commands work in the web composer, the console, ACP editors, `POST /v1/respo
 4. **Continue.** For `not_met`, the next turn opens with the verdict's reason, what is still open, the checklist, the whole objective again, and the budget used so far. Restating the objective keeps a long run from drifting toward an easier task.
 5. **Stop.** The goal becomes `complete` when the check (and the verifier) find it met, and `blocked` with the question when the work needs you. It becomes `limited` when `max_continuations` or `token_budget` is used up. Before that last stop the worker gets one wrap-up turn: no new work, only a summary of what is done, what is open and the next step.
 
-A message you send while the supervisor works goes first; the goal is checked again after its turn. A `/goal` command sent while a turn runs waits for the turn's end, whatever the queue mode, and runs before any continuation. Pausing, clearing or replacing the goal while the supervisor is checking it takes effect at once: the check's verdict is dropped and no continuation starts. A turn that leaves a background command or subagent running with `notify_on_finish` defers its check: the wake that reports the work starts the next supervised turn. Work that wakes nobody - a system task such as the memory run, a task started with `notify_on_finish: false`, a process without a waker - is not waited for. Stop ends the run without changing the goal's status. Your next message is checked against the goal again, or use `/goal pause`.
+A message you send while the supervisor works goes first; the goal is checked again after its turn. A `/goal` command sent while a turn runs waits for the turn's end, whatever the queue mode, and runs once before any continuation. Pausing, clearing or replacing the goal while the supervisor is checking it takes effect at once: the check's verdict is dropped and no continuation starts. A turn that leaves a background command or subagent running with `notify_on_finish` defers its check: the wake that reports the work starts the next supervised turn. Work that wakes nobody - a system task such as the memory run, a task started with `notify_on_finish: false`, a process without a waker - is not waited for. Stop ends the run without changing the goal's status. Your next message is checked against the goal again, or use `/goal pause`.
 
 Turns the supervisor starts are not messages you typed. Every surface shows each one as a one-line row, live and after a reload: **Goal set: ...**, **Goal continuation 2 of 10: tests still fail**, **Goal recovery 1 of 2: ...**, **Goal resumed: ...**. Telegram and Pachca post the same line as a message of its own, and the answer of the previous turn is sent before it.
 
@@ -50,7 +50,7 @@ While a goal turn runs, the watchdog sees every update the turn sends.
 - **Loop.** Each finished tool call is a fingerprint of its name, its canonical arguments and a hash of its result. When the last operations form a cycle of one, two or three that came round `loop_repeat` times, the turn is cut and a recovery turn asks the worker to summarize what it tried and change approach. A cycle of two or three needs at least two full rounds. Assistant text in between does not hide a loop. The same call with a different result is progress: a test run that fails differently, or a file read after it changed.
 - **Stuck and failed turns.** A turn the watchdog cut, the agent's own loop guard stopped, or the agent refused to go on with is checked before anything else, because a worker that loops is often one that needs you: a `needs_user` or `impossible` verdict blocks the goal with the question, anything left gets a recovery turn that names it and asks the worker to change approach or ask you. A passing provider error, such as a 5xx, a dropped stream or a stream that went silent, gets a recovery turn without a check. A usage limit pauses the goal. Any other error pauses it with the error as the reason.
 
-Recoveries count against `max_nudges` per run. When they run out, the goal is blocked with the last reason.
+Recoveries count against `max_nudges` per run. When they run out, the goal is blocked with the last reason. An exhausted token budget ends the run without starting a recovery.
 
 ## Configuration
 
@@ -80,7 +80,7 @@ The checking model is chosen per goal first: `/goal --model <id> --reasoning <le
 
 *Settings → Session goal (Dark, 1280 px).*
 
-`enable: true` puts ordinary turns under the same checks, with the latest request as the objective. Nothing is stored for them: a `blocked` or limited run ends with a notice. A goal is checked whatever `enable` says.
+`enable: true` puts ordinary turns under the same checks, with the latest request as the objective. These runs use the configured continuation and token budgets in memory. A `blocked` or limited run ends with a notice. A goal is checked whatever `enable` says.
 
 ## The goal on every surface
 

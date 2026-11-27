@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-11-27
 
+**Session goals.** A goal can include an `@file` reference. Queued goal commands run once, and the supervisor uses the reported token totals to decide when to stop automatic work.
+
 **Composer caret at any zoom.** The caret and the input mirror no longer drift apart at fractional page zoom and high display density: the text under the cursor stays put through zooming and scrolling.
 
 **Remote branches in the branch menu.** Opening the branch menu fetches every configured remote and lists branches that exist only there — picking one creates a local branch tracking the remote one. When the refresh fails, the list stays as it was with a warning that it may be out of date.

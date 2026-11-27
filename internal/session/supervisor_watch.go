@@ -40,7 +40,7 @@ type turnWatch struct {
 	ops       []string
 	seen      map[string]bool
 	calls     int
-	tokenSum  int
+	tokenUsed int
 	stoppedBy string
 }
 
@@ -72,7 +72,8 @@ func (w *turnWatch) SendSessionUpdate(sessionID string, update interface{}) erro
 	}
 	switch event := update.(type) {
 	case acp.TokenUsageUpdate:
-		w.tokenSum += max(event.InputTokens-event.CachedInputTokens, 0) + event.OutputTokens
+		// The agent reports cumulative totals for this turn after each call.
+		w.tokenUsed = max(event.InputTokens-event.CachedInputTokens, 0) + event.OutputTokens
 	case acp.ToolCallStatusUpdate:
 		switch event.Status {
 		case "in_progress":
@@ -229,7 +230,7 @@ func (w *turnWatch) toolCalls() int {
 func (w *turnWatch) tokens() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.tokenSum
+	return w.tokenUsed
 }
 
 // run is the stall timer. A person deciding, a tool executing or background

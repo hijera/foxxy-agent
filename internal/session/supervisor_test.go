@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -885,5 +887,100 @@ func TestGoalCommandQueuedDuringATurnRunsAtTheBoundary(t *testing.T) {
 	h.prompt("/goal ship it")
 	if goal := h.st().GetGoal(); goal.Status != session.GoalPaused || len(h.prompts) != 1 || len(h.checks) != 0 {
 		t.Fatalf("goal=%+v runs=%d checks=%d", goal, len(h.prompts), len(h.checks))
+	}
+}
+func TestGoalBudgetUsesLatestCumulativeSnapshot(t *testing.T) {
+	h := newGoalHarness(t)
+	h.mgr.Cfg().Supervisor.TokenBudget = intp(200)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		_ = snd.SendSessionUpdate(st.ID, acp.TokenUsageUpdate{InputTokens: 100, CachedInputTokens: 20, OutputTokens: 20})
+		_ = snd.SendSessionUpdate(st.ID, acp.TokenUsageUpdate{InputTokens: 200, CachedInputTokens: 55, OutputTokens: 45})
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.verdict(notMet("open"), met())
+	h.prompt("/goal finish the review")
+	g := h.st().GetGoal()
+	if g.TokensUsed != 190 || g.Status != session.GoalComplete {
+		t.Fatalf("tokens=%d status=%s turns=%v; want 190 and completion after continuation", g.TokensUsed, g.Status, h.kinds())
+	}
+}
+
+func TestQueuedGoalPauseIsConsumed(t *testing.T) {
+	h := newGoalHarness(t)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		if _, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, "/goal pause", session.QueueModeAfterTurn, nil); err != nil {
+			t.Fatal(err)
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.prompt("/goal finish the review")
+	if g, q := h.st().GetGoal(), h.st().QueuedMessages(); g.Status != session.GoalPaused || len(q) != 0 {
+		t.Fatalf("status=%s queue=%+v; a successful pause must consume the command", g.Status, q)
+	}
+}
+
+func TestQueuedGoalObjectiveMayMentionAFile(t *testing.T) {
+	h := newGoalHarness(t)
+	if err := os.WriteFile(filepath.Join(h.st().GetCWD(), "spec.md"), []byte("review the requirements"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		if _, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, "/goal complete @spec.md", session.QueueModeSteer, nil); err != nil {
+			t.Fatal(err)
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.prompt("start")
+	if g := h.st().GetGoal(); g.Objective != "complete @spec.md" || g.Status != session.GoalComplete {
+		t.Fatalf("objective=%q status=%s turns=%v; a file mention must not swallow the slash command", g.Objective, g.Status, h.kinds())
+	}
+}
+
+func TestImplicitGoalHonorsTokenBudget(t *testing.T) {
+	h := newGoalHarness(t)
+	h.mgr.Cfg().Supervisor.Enable = true
+	h.mgr.Cfg().Supervisor.TokenBudget = intp(100)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		_ = snd.SendSessionUpdate(st.ID, acp.TokenUsageUpdate{InputTokens: 100, OutputTokens: 20})
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.verdict(notMet("open"), met())
+	res := h.prompt("finish the review")
+	if turns := strings.Join(h.kinds(), ","); turns != "user" || res.StopReason != acp.StopReasonRefused || !strings.Contains(res.StopNotice, "token budget") {
+		t.Fatalf("turns=%s stop=%s notice=%q; want a token-budget stop", turns, res.StopReason, res.StopNotice)
+	}
+}
+
+func TestGoalRecoveryHonorsTokenBudget(t *testing.T) {
+	h := newGoalHarness(t)
+	h.mgr.Cfg().Supervisor.TokenBudget = intp(100)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		_ = snd.SendSessionUpdate(st.ID, acp.TokenUsageUpdate{InputTokens: 100, OutputTokens: 20})
+		return "", io.ErrUnexpectedEOF
+	}
+	h.prompt("/goal finish the review")
+	if g, turns := h.st().GetGoal(), strings.Join(h.kinds(), ","); turns != "kickoff,wrapup" || g.Status != session.GoalLimited {
+		t.Fatalf("turns=%s status=%s; want a wrap-up and a limited goal after the token budget was used", turns, g.Status)
+	}
+}
+
+func TestRestrictedTurnLeavesActiveGoalForTheOperator(t *testing.T) {
+	h := newGoalHarness(t)
+	h.st().SetGoal(mustGoal(t, "finish the review"))
+	restriction := &session.TurnRestriction{ConfineToWorkspace: true}
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		if st.GetTurnRestriction() != restriction {
+			t.Fatal("the chat turn lost its restriction")
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	_, err := h.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sid, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "what is in the workspace?"}},
+	}, nil, &session.PromptRunOpts{Restriction: restriction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := h.st().GetGoal(); g.Status != session.GoalActive || len(h.checks) != 0 || len(h.prompts) != 1 {
+		t.Fatalf("status=%s checks=%d runs=%d; want an ordinary restricted chat turn", g.Status, len(h.checks), len(h.prompts))
 	}
 }

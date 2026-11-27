@@ -132,11 +132,11 @@ func goalRecoveryText(g GoalState, reason string, remaining []string, cfg *confi
 }
 
 // goalWrapUpText is the last turn of a goal whose budget ran out.
-func goalWrapUpText(g GoalState, result GoalCheckResult, cfg *config.Config) string {
+func goalWrapUpText(g GoalState, remaining []string, cfg *config.Config) string {
 	return joinBlocks(
 		"[Goal budget used up] "+limitReason(g, cfg.Supervisor)+". Do not start new work for this goal.",
 		"Wrap up in this answer: what is done, what is still open and why, and the next step the operator should take. Do not claim the goal is complete unless the evidence shows it.",
-		goalRemainingBlock(result.Remaining),
+		goalRemainingBlock(remaining),
 		goalObjectiveBlock(g.Objective),
 	)
 }

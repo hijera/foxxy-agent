@@ -1636,6 +1636,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// plan mention below stays material to read (HydrateSessionPlanMentions
 	// inlines the document) instead of turning into a run request.
 	askMode := state.GetMode() == string(ModeAsk)
+	var goalCmd GoalCommand
+	if operatorTurn {
+		goalCmd = goalCommandOf(params.Prompt)
+	}
 
 	// A restricted turn (a messenger user who is not the bot's admin) does not
 	// run a plan: running one switches the session's mode, which is the
@@ -1667,7 +1671,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted && goalCmd.Kind == GoalCommandNone {
 		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
@@ -1694,7 +1698,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	ranRunner = true
 	m.log.DebugContext(ctx, "session.prompt.prepared", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts)
+	stopReason, _, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts, goalCmd)
 	if err != nil {
 		state.TakeTurnStopNotice()
 		if errors.Is(err, context.Canceled) {
@@ -1793,17 +1797,23 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// The capped answer and its notice are already in the transcript. A
 		// queued answer has its own ending and must not return the old notice.
 		state.TakeTurnStopNotice()
-		prompt := state.ResolveQueuedMentions(QueuedPromptBlocks(queued))
+		prompt := QueuedPromptBlocks(queued)
+		var queuedGoalCmd GoalCommand
+		if len(queued) == 1 {
+			queuedGoalCmd = goalCommandOf(prompt)
+		}
+		prompt = state.ResolveQueuedMentions(prompt)
 		if droppedNote != "" {
 			prompt = append(prompt, acp.ContentBlock{Type: acp.ContentTypeText, Text: droppedNote})
 		}
-		stopReason, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, prompt, sender, opts)
+		var goalHandled bool
+		stopReason, goalHandled, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, prompt, sender, opts, queuedGoalCmd)
 		state.ClearNextPromptQueued()
 		// The run ended before its prompt entered the conversation - a Stop that
 		// landed first, a hook that refused the text - and the check is the
 		// conversation rather than the context: a refusal returns without
 		// cancelling anything, and its message is as unread as one a Stop took.
-		unread := state.MessagesRev() == rev
+		unread := !goalHandled && state.MessagesRev() == rev
 		if unread {
 			// Nothing read the batch. An after_turn message waits again, as Stop
 			// promises, and the images it was to carry are not left for the next

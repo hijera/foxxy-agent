@@ -181,8 +181,8 @@ func resolveGoalChecker(cfg *config.Config, st *State, cmd GoalCommand, keep Goa
 	return "", "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, checker, strings.Join(choices, ", "))
 }
 
-// goalCommandOf is the /goal command a prompt is: one text block and nothing
-// else (an attachment makes it an ordinary message).
+// goalCommandOf recognizes a single text prompt before mention resolution
+// adds its resource blocks.
 func goalCommandOf(prompt []acp.ContentBlock) GoalCommand {
 	if len(prompt) != 1 || prompt[0].Type != acp.ContentTypeText {
 		return GoalCommand{}
