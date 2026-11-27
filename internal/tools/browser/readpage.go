@@ -175,7 +175,7 @@ func (m *Manager) executeReadPage(_ context.Context, argsJSON string, env *tooli
 	if err != nil {
 		return "", err
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}

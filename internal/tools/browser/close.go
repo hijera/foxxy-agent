@@ -26,6 +26,8 @@ func (m *Manager) CloseTool() *tooling.Tool {
 }
 
 func (m *Manager) executeClose(_ context.Context, _ string, env *tooling.Env) (string, error) {
-	m.closeSession(sessionKey(env))
+	if owner := m.sessionManager(env); owner != nil {
+		owner.closeSession(sessionKey(env))
+	}
 	return "browser closed", nil
 }

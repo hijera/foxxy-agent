@@ -35,7 +35,10 @@ import { SubagentsSection } from "./SubagentsSection";
 import { ProviderExportButtons } from "./ProviderExportButtons";
 import { ProviderImportMenu } from "./ProviderImportMenu";
 import { uniqueProviderName } from "./providerTransfer";
-import { SESSIONS_CONFIG_KEY, type SectionDescriptor } from "./settingsSections";
+import {
+  SESSIONS_CONFIG_KEY,
+  type SectionDescriptor,
+} from "./settingsSections";
 import { translate } from "../i18n/i18n";
 import {
   NEURALDEEP_API_BASE_OPTIONS,
@@ -266,7 +269,10 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
       return (
         <CodexAuthField
           providerName={providerName}
-          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          {...(Object.prototype.hasOwnProperty.call(
+            ctx.parentObj ?? {},
+            "proxy",
+          )
             ? { proxy: String(ctx.parentObj?.proxy ?? "") }
             : {})}
         />
@@ -386,7 +392,6 @@ export function SettingsSection(props: {
             schema={sub}
             value={asObject(doc[SESSIONS_CONFIG_KEY])}
             onChange={(v) => setKey(SESSIONS_CONFIG_KEY, v)}
-
             groups={[
               {
                 id: "sessions-storage",
@@ -396,12 +401,12 @@ export function SettingsSection(props: {
             ]}
           />
         ) : null}
-      <SessionsManager
-        activeSessionId={props.activeSessionId}
-        onSessionsDeleted={props.onSessionsDeleted}
-        projectScope={props.sessionsScope}
-        onSessionTagsChanged={props.onSessionTagsChanged}
-      />
+        <SessionsManager
+          activeSessionId={props.activeSessionId}
+          onSessionsDeleted={props.onSessionsDeleted}
+          projectScope={props.sessionsScope}
+          onSessionTagsChanged={props.onSessionTagsChanged}
+        />
       </div>
     );
   }
@@ -409,7 +414,11 @@ export function SettingsSection(props: {
   if (section.kind === "skills") {
     const sub = props_.skills;
     if (!sub) {
-      return <p className="settings-muted">{t("settings.skillsSchemaUnavailable")}</p>;
+      return (
+        <p className="settings-muted">
+          {t("settings.skillsSchemaUnavailable")}
+        </p>
+      );
     }
     return (
       <SkillsSection
@@ -417,7 +426,9 @@ export function SettingsSection(props: {
         value={asObject(doc.skills)}
         onChange={(v) => setKey("skills", v)}
         workspacePath={props.workspacePath}
-        {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})}
+        {...(props.activeSessionId
+          ? { activeSessionId: props.activeSessionId }
+          : {})}
       />
     );
   }
@@ -426,7 +437,13 @@ export function SettingsSection(props: {
   // in the two mcp.json files (project switches in mcp-overrides.json) and
   // apply at once, so it does not edit the settings document at all.
   if (section.kind === "mcp") {
-    return <MCPSection {...(props.activeSessionId ? { activeSessionId: props.activeSessionId } : {})} />;
+    return (
+      <MCPSection
+        {...(props.activeSessionId
+          ? { activeSessionId: props.activeSessionId }
+          : {})}
+      />
+    );
   }
 
   // Subagents edits its config section like any object tab, and additionally
@@ -437,7 +454,11 @@ export function SettingsSection(props: {
   if (section.kind === "subagents") {
     const sub = props_.subagents;
     if (!sub) {
-      return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
+      return (
+        <p className="settings-muted">
+          {t("settings.sectionSchemaUnavailable")}
+        </p>
+      );
     }
     return (
       <SubagentsSection
@@ -454,7 +475,11 @@ export function SettingsSection(props: {
   if (section.kind === "array") {
     const sub = props_[key];
     if (!sub) {
-      return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
+      return (
+        <p className="settings-muted">
+          {t("settings.sectionSchemaUnavailable")}
+        </p>
+      );
     }
     const override: FieldOverride | undefined =
       key === "models"
@@ -470,8 +495,7 @@ export function SettingsSection(props: {
                   onChange={(v) => ctx.onChange(v)}
                   providers={providerRows}
                   label={
-                    tSchemaText(ctx.schema.title) ||
-                    t("settings.modelIdLabel")
+                    tSchemaText(ctx.schema.title) || t("settings.modelIdLabel")
                   }
                 />
               );
@@ -594,7 +618,12 @@ export function SettingsSection(props: {
                 {
                   id: "advanced",
                   legend: t("settings.providers.group.advanced"),
-                  paths: ["user_agent", "api_key_command", "proxy", "timeout_ms"],
+                  paths: [
+                    "user_agent",
+                    "api_key_command",
+                    "proxy",
+                    "timeout_ms",
+                  ],
                   collapsible: true,
                 },
               ]
@@ -605,7 +634,12 @@ export function SettingsSection(props: {
                   {
                     id: "model",
                     legend: t("settings.models.group.model"),
-                    paths: ["model", "max_context_tokens", "multimodal"],
+                    paths: [
+                      "model",
+                      "max_context_tokens",
+                      "multimodal",
+                      "max_screenshots",
+                    ],
                   },
                   {
                     id: "generation",
@@ -682,7 +716,6 @@ export function SettingsSection(props: {
               schema={sub}
               value={asObject(doc[ck])}
               onChange={(v) => setKey(ck, v)}
-
               groups={[
                 {
                   id: ck,
@@ -700,29 +733,41 @@ export function SettingsSection(props: {
   // object section (agent, tools, memory, …)
   const sub = props_[key];
   if (!sub) {
-    return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
+    return (
+      <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>
+    );
   }
   const override: FieldOverride | undefined =
-    key === "gateways" ? gatewaysFieldOverride :
-    key === "agent" || key === "memory" || key === "autocomplete" || key === "compaction"
-      ? (ctx) =>
-          ctx.path === "model" ? (
-            <ModelPicker
-              value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
-              onChange={(v) => ctx.onChange(v)}
-              models={modelIds}
-              label={tSchemaText(ctx.schema.title) || t("settings.defaultModelLabel")}
-              description={tSchemaText(ctx.schema.description) || undefined}
-            />
-          ) : null
-      : undefined;
+    key === "gateways"
+      ? gatewaysFieldOverride
+      : key === "agent" ||
+          key === "memory" ||
+          key === "autocomplete" ||
+          key === "compaction"
+        ? (ctx) =>
+            ctx.path === "model" ? (
+              <ModelPicker
+                value={
+                  ctx.value === undefined || ctx.value === null
+                    ? ""
+                    : String(ctx.value)
+                }
+                onChange={(v) => ctx.onChange(v)}
+                models={modelIds}
+                label={
+                  tSchemaText(ctx.schema.title) ||
+                  t("settings.defaultModelLabel")
+                }
+                description={tSchemaText(ctx.schema.description) || undefined}
+              />
+            ) : null
+        : undefined;
   return (
     <SchemaForm
       schema={sub}
       value={asObject(doc[key])}
       onChange={(v) => setKey(key, v)}
       fieldOverride={override}
-
       groups={objectSectionGroups(key)}
     />
   );

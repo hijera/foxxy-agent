@@ -8,7 +8,9 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-27
+## Unreleased — 2026-11-28
+
+**Browser actions and screenshots.** The agent can work with tabs, the keyboard, forms and dialogs. Screenshot settings let it keep the newest frame, replace older frames with descriptions, review a frame in a separate session or capture on demand. Each logical model has its own screenshot limit per request, and the browser selector shows the name of the chosen mode. New actions have localized names, the upload permission dialog lists every selected file, and waiting for a page state can be interrupted with Stop.
 
 **Composer caret at any zoom.** The caret and the input mirror no longer drift apart at fractional page zoom and high display density: the text under the cursor stays put through zooming and scrolling.
 

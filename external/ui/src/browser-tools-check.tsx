@@ -1,7 +1,8 @@
-// Browser fixture renders the production transcript component with recorded tool shapes.
+// Browser fixture renders production transcript and permission components with recorded tool shapes.
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { ToolCallMessage } from "./ui/messages/ToolCallMessage";
+import { PermissionPromptSection } from "./ui/chat/PermissionPromptSection";
 import { setLocale } from "./ui/i18n/i18n";
 
 const query = new URLSearchParams(location.search);
@@ -65,6 +66,7 @@ const calls = [
   { name: "close", args: {}, result: "browser closed" },
 ];
 const selected = query.get("tool");
+const uploadPermission = query.get("permission") === "upload";
 createRoot(document.getElementById("root")!).render(
   <main
     style={{
@@ -76,19 +78,51 @@ createRoot(document.getElementById("root")!).render(
       padding: 16,
     }}
   >
-    {calls
-      .filter((call) => !selected || call.name === selected)
-      .map((call, index) => (
-        <ToolCallMessage
-          key={index}
-          toolCallId={`browser-${index}`}
-          title={`foxxycode_browser_${call.name}`}
-          argsText={JSON.stringify(call.args)}
-          resultText={call.result}
-          status="completed"
-          durationMs={240}
-          sessionId="fixture"
-        />
-      ))}
+    {uploadPermission ? (
+      <PermissionPromptSection
+        itemId="browser-upload-permission"
+        payload={{
+          sessionId: "fixture",
+          toolCall: {
+            toolCallId: "browser-upload",
+            title: "Run: foxxycode_browser_upload_file",
+            kind: "write",
+            content: [
+              {
+                type: "content",
+                content: {
+                  type: "text",
+                  text: `Arguments: ${JSON.stringify({
+                    selector: "#attachment",
+                    path: "fixtures/report.pdf",
+                    paths: ["fixtures/screenshot.png"],
+                  })}`,
+                },
+              },
+            ],
+          },
+          options: [
+            { optionId: "allow", name: "Allow", kind: "allow_once" },
+            { optionId: "reject", name: "Reject", kind: "reject_once" },
+          ],
+        }}
+        onResolved={() => {}}
+      />
+    ) : (
+      calls
+        .filter((call) => !selected || call.name === selected)
+        .map((call, index) => (
+          <ToolCallMessage
+            key={index}
+            toolCallId={`browser-${index}`}
+            title={`foxxycode_browser_${call.name}`}
+            argsText={JSON.stringify(call.args)}
+            resultText={call.result}
+            status="completed"
+            durationMs={240}
+            sessionId="fixture"
+          />
+        ))
+    )}
   </main>,
 );

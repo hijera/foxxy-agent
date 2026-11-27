@@ -4,6 +4,7 @@ package session
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"sort"
 	"strings"
@@ -43,7 +44,9 @@ func IsValidMode(mode string) bool {
 
 // State holds the complete state of a session.
 type State struct {
-	mu sync.RWMutex
+	mu            sync.RWMutex
+	browser       io.Closer
+	browserClosed bool
 
 	// ID is the unique session identifier.
 	ID string
@@ -2028,7 +2031,7 @@ func (s *State) Cancel() {
 	}
 }
 
-// CloseAll closes all MCP clients. The session does not come back after this — both callers
+// CloseAll closes the browser and all MCP clients. The session does not come back after this — both callers
 // either drop it or replace it with a freshly loaded State — so the readiness gate is settled
 // permanently, releasing anyone waiting on a connect that is now pointless.
 func (s *State) CloseAll() {
@@ -2037,6 +2040,9 @@ func (s *State) CloseAll() {
 	// transcript, so drop it here rather than leave it reachable from a dead state.
 	_ = s.takePendingReadyNotify()
 	s.mu.Lock()
+	browser := s.browser
+	s.browser = nil
+	s.browserClosed = true
 	s.cancelBackgroundMCPLocked()
 	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
 	clients = append(clients, s.configuredMCPClients...)
@@ -2044,9 +2050,26 @@ func (s *State) CloseAll() {
 	s.configuredMCPClients = nil
 	s.MCPClients = nil
 	s.mu.Unlock()
+	if browser != nil {
+		_ = browser.Close()
+	}
 	for _, c := range clients {
 		_ = c.Close()
 	}
+}
+
+// SessionBrowser returns the browser runtime shared by all turns of this live
+// session. Once the session is released, no new runtime can be installed.
+func (s *State) SessionBrowser(create func() io.Closer) io.Closer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.browserClosed {
+		return nil
+	}
+	if s.browser == nil {
+		s.browser = create()
+	}
+	return s.browser
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

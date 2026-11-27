@@ -1,4 +1,10 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 
@@ -21,8 +27,8 @@ export function Combobox(props: {
   disabled?: boolean | undefined;
   /**
    * When true, the collapsed input shows the matching option's label instead of
-   * the raw value (used for enum fields with translated labels). While focused the
-   * raw value is shown so it stays editable. Off by default so free-text
+   * the raw value (used for enum fields with translated labels). Typing shows
+   * the search text until a selection is made. Off by default so free-text
    * comboboxes (provider, model id) keep showing what the user typed.
    */
   showOptionLabel?: boolean | undefined;
@@ -34,17 +40,31 @@ export function Combobox(props: {
   openUp?: boolean | undefined;
 }) {
   const { t } = useT();
-  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } = props;
+  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } =
+    props;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState(false);
   const [focused, setFocused] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const shownValue =
-    props.showOptionLabel && !focused
+    props.showOptionLabel && !typed
       ? (options.find((o) => o.value === value)?.label ?? value)
       : value;
+
+  // While the label stands in for the raw value, a keystroke would land inside
+  // the label text and commit "label + character" as the value. Whenever the
+  // label appears with the focus on the field - focus, a selection that keeps
+  // focus, Escape - the whole label is selected, so the first character
+  // replaces it and the filter starts from the typed text alone. A click that
+  // places the caret is the default action and wins over this selection.
+  useEffect(() => {
+    if (props.showOptionLabel && focused && !typed) {
+      inputRef.current?.select();
+    }
+  }, [props.showOptionLabel, focused, typed, value]);
 
   const filtered = useMemo(() => {
     if (!typed) {
@@ -104,6 +124,9 @@ export function Combobox(props: {
       if (open && filtered.length > 0) {
         e.preventDefault();
       }
+      if (props.showOptionLabel) {
+        setTyped(false);
+      }
       setOpen(false);
     }
   };
@@ -111,6 +134,7 @@ export function Combobox(props: {
   return (
     <div className="settings-combobox" ref={rootRef}>
       <input
+        ref={inputRef}
         className="settings-input settings-combobox-input"
         type="text"
         role="combobox"
@@ -128,11 +152,16 @@ export function Combobox(props: {
           setHighlight(-1);
         }}
         onFocus={() => {
-          setFocused(true);
           setTyped(false);
+          setFocused(true);
           setOpen(true);
         }}
-        onBlur={() => setFocused(false)}
+        onBlur={() => {
+          setFocused(false);
+          if (props.showOptionLabel) {
+            setTyped(false);
+          }
+        }}
         onKeyDown={onKeyDown}
       />
       <button

@@ -2,6 +2,7 @@ package tooling
 
 import (
 	"context"
+	"io"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -11,6 +12,10 @@ import (
 
 // Env provides environmental context to tool execution.
 type Env struct {
+	// SessionBrowser keeps the browser runtime alive across turns and closes it
+	// when the live session is released. Nil for standalone tool callers.
+	SessionBrowser func(create func() io.Closer) io.Closer
+
 	// CWD is the session working directory.
 	CWD string
 
@@ -96,6 +101,8 @@ type Env struct {
 	// "data:<mime>;base64,..." payload; filePath is the absolute path where the asset was saved
 	// (may be empty). Optional; wired by the runner. Tools must nil-check before use.
 	AddToolImage func(dataURL, filePath, name string)
+	// AddBrowserScreenshot carries the requested visual check along with the image.
+	AddBrowserScreenshot func(dataURL, filePath, name, prompt string)
 
 	// LoadSkillBody returns a loaded skill's full instruction body by its command
 	// name, plus the list of available command names, backing the model-driven

@@ -59,11 +59,12 @@ type SVNJSON struct {
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
 // value round-trips as "use default" (true) rather than an explicit false.
 type BrowserJSON struct {
-	Screenshots    *bool  `json:"screenshots,omitempty"`
-	Enabled        bool   `json:"enable,omitempty"`
-	Headless       *bool  `json:"headless,omitempty"`
-	ExecutablePath string `json:"executable_path,omitempty"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	ScreenshotSettings *BrowserScreenshotSettings `json:"screenshot_settings,omitempty"`
+	Screenshots        *bool                      `json:"screenshots,omitempty"`
+	Enabled            bool                       `json:"enable,omitempty"`
+	Headless           *bool                      `json:"headless,omitempty"`
+	ExecutablePath     string                     `json:"executable_path,omitempty"`
+	TimeoutSeconds     int                        `json:"timeout_seconds,omitempty"`
 }
 
 // UIJSON mirrors UIConfig for JSON APIs.
@@ -157,6 +158,7 @@ type ModelJSON struct {
 	Temperature      float64 `json:"temperature"`
 	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
 	Multimodal       bool    `json:"multimodal,omitempty"`
+	MaxScreenshots   *int    `json:"max_screenshots,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
@@ -562,6 +564,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		// the DTO its own copies so a caller mutating one side cannot leak into
 		// the other, as the other pointer-typed sections already do.
 		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.MaxScreenshots = cloneIntPtr(m.MaxScreenshots)
 		mj.Stream = cloneBoolPtr(m.Stream)
 		out.Models = append(out.Models, mj)
 	}
@@ -808,8 +811,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Effects: c.UI.Effects,
 	}
 	out.Browser = BrowserJSON{
-		Screenshots: cloneBoolPtr(c.Browser.Screenshots),
-		Enabled:     c.Browser.Enabled, Headless: c.Browser.Headless,
+		ScreenshotSettings: cloneBrowserScreenshotSettings(c.Browser.ScreenshotSettings),
+		Screenshots:        cloneBoolPtr(c.Browser.Screenshots),
+		Enabled:            c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
 	}
 	out.VCS = VCSJSON{SVN: SVNJSON{
@@ -864,6 +868,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, m := range j.Models {
 		me := ModelEntry(m)
 		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.MaxScreenshots = cloneIntPtr(m.MaxScreenshots)
 		me.Stream = cloneBoolPtr(m.Stream)
 		cfg.Models = append(cfg.Models, me)
 	}
@@ -1108,8 +1113,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Effects: j.UI.Effects,
 	}
 	cfg.Browser = BrowserConfig{
-		Screenshots: cloneBoolPtr(j.Browser.Screenshots),
-		Enabled:     j.Browser.Enabled, Headless: j.Browser.Headless,
+		ScreenshotSettings: cloneBrowserScreenshotSettings(j.Browser.ScreenshotSettings),
+		Screenshots:        cloneBoolPtr(j.Browser.Screenshots),
+		Enabled:            j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
 	}
 	cfg.VCS = VCSConfig{SVN: SVNConfig{

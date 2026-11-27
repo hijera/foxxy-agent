@@ -36,7 +36,7 @@ func (m *Manager) PageLogTool() *tooling.Tool {
 }
 
 func (m *Manager) executePageLog(_ context.Context, _ string, env *tooling.Env) (string, error) {
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}

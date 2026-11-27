@@ -29,8 +29,13 @@ func (m *Manager) HoverTool() *tooling.Tool {
 	}
 }
 
+type hoverArgs struct {
+	selectorArgs
+	screenshotOptions
+}
+
 func (m *Manager) executeHover(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
-	args, err := tooling.ParseArgs[selectorArgs](argsJSON)
+	args, err := tooling.ParseArgs[hoverArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +43,7 @@ func (m *Manager) executeHover(_ context.Context, argsJSON string, env *tooling.
 	if sel == "" {
 		return "error: selector is required", nil
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}
@@ -64,5 +69,5 @@ func (m *Manager) executeHover(_ context.Context, argsJSON string, env *tooling.
 	})); err != nil {
 		return fmt.Sprintf("error: hover %q: %v", sel, err), nil
 	}
-	return finishAction(b, env, "hovered "+sel)
+	return finishAction(b, env, "hovered "+sel, args.screenshotOptions)
 }

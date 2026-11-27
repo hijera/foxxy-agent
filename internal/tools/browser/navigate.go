@@ -37,6 +37,7 @@ func (m *Manager) NavigateTool() *tooling.Tool {
 }
 
 type navigateArgs struct {
+	screenshotOptions
 	URL string `json:"url"`
 }
 
@@ -50,14 +51,14 @@ func (m *Manager) executeNavigate(_ context.Context, argsJSON string, env *tooli
 		return fmt.Sprintf("error: %v", err), nil
 	}
 
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}
 	if err := b.run(chromedp.Navigate(target)); err != nil {
 		return fmt.Sprintf("error: navigate %s: %v", target, err), nil
 	}
-	return finishAction(b, env, "navigated to "+target)
+	return finishAction(b, env, "navigated to "+target, args.screenshotOptions)
 }
 
 // validateNavigateURL requires an http(s) URL without embedded credentials.

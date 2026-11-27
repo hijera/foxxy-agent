@@ -14,13 +14,7 @@
           "type": "boolean"
         },
         "llm_continue_background_delays_ms": {
-          "default": [
-            5000,
-            20000,
-            80000,
-            120000,
-            120000
-          ],
+          "default": [5000, 20000, 80000, 120000, 120000],
           "description": "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.",
           "items": {
             "type": "integer"
@@ -35,10 +29,7 @@
           "type": "integer"
         },
         "llm_continue_error_delays_ms": {
-          "default": [
-            5000,
-            20000
-          ],
+          "default": [5000, 20000],
           "description": "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.",
           "items": {
             "type": "integer"
@@ -59,9 +50,7 @@
           "type": "integer"
         },
         "llm_continue_stall_delays_ms": {
-          "default": [
-            0
-          ],
+          "default": [0],
           "description": "Pause before each continuation after a stall, in milliseconds. The last entry repeats; the default 0 carries on at once, because the guard has already waited out the silence.",
           "items": {
             "type": "integer"
@@ -99,11 +88,7 @@
           "type": "boolean"
         },
         "llm_stall_retry_delays_ms": {
-          "default": [
-            60000,
-            180000,
-            300000
-          ],
+          "default": [60000, 180000, 300000],
           "description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so 60000, 180000, 300000 means one minute, then three, then five minutes forever.",
           "items": {
             "type": "integer"
@@ -144,10 +129,7 @@
         "loop_stuck_action": {
           "default": "quarantine",
           "description": "What the guard does once a tool loop has survived every nudge. \"quarantine\" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; \"stop\" ends the turn with a notice.",
-          "enum": [
-            "quarantine",
-            "stop"
-          ],
+          "enum": ["quarantine", "stop"],
           "title": "Loop stuck action",
           "type": "string"
         },
@@ -177,10 +159,7 @@
         },
         "queue_mode": {
           "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.",
-          "enum": [
-            "steer",
-            "after_turn"
-          ],
+          "enum": ["steer", "after_turn"],
           "title": "Queue mode",
           "type": "string"
         },
@@ -264,11 +243,7 @@
         "mode": {
           "default": "auto",
           "description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. \"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
-          "enum": [
-            "auto",
-            "chat",
-            "fim"
-          ],
+          "enum": ["auto", "chat", "fim"],
           "title": "Prompt mode",
           "type": "string"
         },
@@ -303,10 +278,7 @@
         "trigger": {
           "default": "auto",
           "description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. \"manual\" suggests only when you press the editor shortcut.",
-          "enum": [
-            "auto",
-            "manual"
-          ],
+          "enum": ["auto", "manual"],
           "title": "Trigger",
           "type": "string"
         }
@@ -348,6 +320,26 @@
           "title": "Headless",
           "type": "boolean"
         },
+        "screenshot_settings": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "default": "keep",
+              "description": "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.",
+              "enum": ["keep", "latest", "replace_old", "separate_session"],
+              "title": "Screenshot handling mode",
+              "type": "string"
+            },
+            "model_decides": {
+              "description": "Capture when the model asks for a screenshot. Omit a capture on other browser actions.",
+              "title": "Take screenshots at the model's discretion",
+              "type": "boolean"
+            }
+          },
+          "title": "Working with screenshots",
+          "type": "object",
+          "x-foxxycode-property-order": ["mode", "model_decides"]
+        },
         "screenshots": {
           "default": true,
           "description": "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.",
@@ -368,7 +360,8 @@
         "headless",
         "screenshots",
         "executable_path",
-        "timeout_seconds"
+        "timeout_seconds",
+        "screenshot_settings"
       ],
       "x-foxxycode-requires-build-tag": "browser"
     },
@@ -478,10 +471,7 @@
       },
       "title": "Debug",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "enable",
-        "capture_llm"
-      ]
+      "x-foxxycode-property-order": ["enable", "capture_llm"]
     },
     "gateways": {
       "additionalProperties": false,
@@ -518,24 +508,14 @@
                   },
                   "isolation": {
                     "description": "Per-chat session isolation override.",
-                    "enum": [
-                      "individual",
-                      "shared",
-                      "admin"
-                    ],
+                    "enum": ["individual", "shared", "admin"],
                     "title": "Isolation",
                     "type": "string"
                   }
                 },
-                "required": [
-                  "chat_id"
-                ],
+                "required": ["chat_id"],
                 "type": "object",
-                "x-foxxycode-property-order": [
-                  "chat_id",
-                  "isolation",
-                  "access"
-                ]
+                "x-foxxycode-property-order": ["chat_id", "isolation", "access"]
               },
               "title": "Per-chat overrides",
               "type": "array"
@@ -549,11 +529,7 @@
             "default_isolation": {
               "default": "individual",
               "description": "Fallback session isolation for group chats.",
-              "enum": [
-                "individual",
-                "shared",
-                "admin"
-              ],
+              "enum": ["individual", "shared", "admin"],
               "title": "Default isolation",
               "type": "string"
             },
@@ -599,14 +575,9 @@
                     "type": "array"
                   }
                 },
-                "required": [
-                  "name"
-                ],
+                "required": ["name"],
                 "type": "object",
-                "x-foxxycode-property-order": [
-                  "name",
-                  "user_ids"
-                ]
+                "x-foxxycode-property-order": ["name", "user_ids"]
               },
               "title": "User groups",
               "type": "array"
@@ -657,24 +628,14 @@
                   },
                   "isolation": {
                     "description": "Per-chat session isolation override.",
-                    "enum": [
-                      "individual",
-                      "shared",
-                      "admin"
-                    ],
+                    "enum": ["individual", "shared", "admin"],
                     "title": "Isolation",
                     "type": "string"
                   }
                 },
-                "required": [
-                  "chat_id"
-                ],
+                "required": ["chat_id"],
                 "type": "object",
-                "x-foxxycode-property-order": [
-                  "chat_id",
-                  "isolation",
-                  "access"
-                ]
+                "x-foxxycode-property-order": ["chat_id", "isolation", "access"]
               },
               "title": "Per-chat overrides",
               "type": "array"
@@ -688,11 +649,7 @@
             "default_isolation": {
               "default": "individual",
               "description": "Fallback session isolation for group chats.",
-              "enum": [
-                "individual",
-                "shared",
-                "admin"
-              ],
+              "enum": ["individual", "shared", "admin"],
               "title": "Default isolation",
               "type": "string"
             },
@@ -718,10 +675,7 @@
               },
               "title": "Mini App",
               "type": "object",
-              "x-foxxycode-property-order": [
-                "url",
-                "menu_button"
-              ]
+              "x-foxxycode-property-order": ["url", "menu_button"]
             },
             "proxy": {
               "description": "Optional HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL for Telegram. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly.",
@@ -761,14 +715,9 @@
                     "type": "array"
                   }
                 },
-                "required": [
-                  "name"
-                ],
+                "required": ["name"],
                 "type": "object",
-                "x-foxxycode-property-order": [
-                  "name",
-                  "user_ids"
-                ]
+                "x-foxxycode-property-order": ["name", "user_ids"]
               },
               "title": "User groups",
               "type": "array"
@@ -792,10 +741,7 @@
       },
       "title": "Messenger gateways",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "telegram",
-        "pachca"
-      ]
+      "x-foxxycode-property-order": ["telegram", "pachca"]
     },
     "hooks": {
       "additionalProperties": false,
@@ -836,11 +782,7 @@
         "project_trust": {
           "default": "ask",
           "description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
-          "enum": [
-            "ask",
-            "allow",
-            "deny"
-          ],
+          "enum": ["ask", "allow", "deny"],
           "title": "Project hooks",
           "type": "string"
         },
@@ -878,9 +820,7 @@
       },
       "title": "Instructions",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "files"
-      ]
+      "x-foxxycode-property-order": ["files"]
     },
     "logger": {
       "additionalProperties": false,
@@ -894,37 +834,22 @@
         "format": {
           "default": "text",
           "description": "text for human logs; json for structured logs.",
-          "enum": [
-            "text",
-            "json"
-          ],
+          "enum": ["text", "json"],
           "title": "Format",
           "type": "string"
         },
         "level": {
           "default": "info",
           "description": "Minimum severity written to configured outputs.",
-          "enum": [
-            "debug",
-            "info",
-            "warn",
-            "error",
-            "warning"
-          ],
+          "enum": ["debug", "info", "warn", "error", "warning"],
           "title": "Level",
           "type": "string"
         },
         "outputs": {
-          "default": [
-            "stderr"
-          ],
+          "default": ["stderr"],
           "description": "Where log lines are written.",
           "items": {
-            "enum": [
-              "stdout",
-              "stderr",
-              "file"
-            ],
+            "enum": ["stdout", "stderr", "file"],
             "type": "string"
           },
           "title": "Outputs",
@@ -947,10 +872,7 @@
           },
           "title": "Rotation",
           "type": "object",
-          "x-foxxycode-property-order": [
-            "max_size_mb",
-            "max_files"
-          ]
+          "x-foxxycode-property-order": ["max_size_mb", "max_files"]
         }
       },
       "title": "Logger",
@@ -1092,6 +1014,13 @@
             "title": "Context window (tokens)",
             "type": "integer"
           },
+          "max_screenshots": {
+            "default": null,
+            "description": "User image attachments also count. Zero disables the limit. Leave blank to inherit any legacy browser limit.",
+            "minimum": 0,
+            "title": "Maximum screenshots per request",
+            "type": "integer"
+          },
           "max_tokens": {
             "default": 4096,
             "description": "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
@@ -1135,9 +1064,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "model"
-        ],
+        "required": ["model"],
         "type": "object",
         "x-foxxycode-property-order": [
           "model",
@@ -1145,6 +1072,7 @@
           "temperature",
           "max_context_tokens",
           "multimodal",
+          "max_screenshots",
           "stream",
           "reasoning_levels",
           "reasoning_default",
@@ -1188,9 +1116,7 @@
           },
           "title": "Per-provider prompts",
           "type": "object",
-          "x-foxxycode-property-order": [
-            "enable"
-          ]
+          "x-foxxycode-property-order": ["enable"]
         },
         "plan_prompt": {
           "default": "plan.md",
@@ -1258,13 +1184,7 @@
           "type": {
             "default": "openai",
             "description": "Wire protocol for this provider entry.",
-            "enum": [
-              "openai",
-              "anthropic",
-              "neuraldeep",
-              "codex",
-              "devin"
-            ],
+            "enum": ["openai", "anthropic", "neuraldeep", "codex", "devin"],
             "title": "Provider type",
             "type": "string"
           },
@@ -1277,20 +1197,12 @@
           "user_agent": {
             "default": "",
             "description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.",
-            "enum": [
-              "",
-              "openai",
-              "anthropic",
-              "foxxycode"
-            ],
+            "enum": ["", "openai", "anthropic", "foxxycode"],
             "title": "User-Agent",
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "type"
-        ],
+        "required": ["name", "type"],
         "type": "object",
         "x-foxxycode-property-order": [
           "name",
@@ -1325,11 +1237,7 @@
         "project_trust": {
           "default": "ask",
           "description": "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.",
-          "enum": [
-            "ask",
-            "allow",
-            "deny"
-          ],
+          "enum": ["ask", "allow", "deny"],
           "title": "Project jobs",
           "type": "string"
         },
@@ -1368,9 +1276,7 @@
       },
       "title": "Sessions",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "dir"
-      ]
+      "x-foxxycode-property-order": ["dir"]
     },
     "skills": {
       "additionalProperties": false,
@@ -1394,22 +1300,14 @@
         "project_trust": {
           "default": "ask",
           "description": "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.",
-          "enum": [
-            "ask",
-            "allow",
-            "deny"
-          ],
+          "enum": ["ask", "allow", "deny"],
           "title": "Project marketplaces",
           "type": "string"
         }
       },
       "title": "Skills",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "dirs",
-        "project_trust",
-        "auto_discovery"
-      ]
+      "x-foxxycode-property-order": ["dirs", "project_trust", "auto_discovery"]
     },
     "subagents": {
       "additionalProperties": false,
@@ -1456,11 +1354,7 @@
         "project_trust": {
           "default": "ask",
           "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
-          "enum": [
-            "ask",
-            "allow",
-            "deny"
-          ],
+          "enum": ["ask", "allow", "deny"],
           "title": "Project definitions",
           "type": "string"
         }
@@ -1501,11 +1395,7 @@
       },
       "title": "Automatic session title",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "enable",
-        "model",
-        "max_tokens"
-      ]
+      "x-foxxycode-property-order": ["enable", "model", "max_tokens"]
     },
     "tools": {
       "additionalProperties": false,
@@ -1584,10 +1474,7 @@
           },
           "title": "HTTP requests",
           "type": "object",
-          "x-foxxycode-property-order": [
-            "allowlist",
-            "default_headers"
-          ]
+          "x-foxxycode-property-order": ["allowlist", "default_headers"]
         },
         "output_limits": {
           "additionalProperties": false,
@@ -1656,11 +1543,7 @@
         "permission_mode": {
           "default": "ask",
           "description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
-          "enum": [
-            "ask",
-            "accept_edits",
-            "bypass"
-          ],
+          "enum": ["ask", "accept_edits", "bypass"],
           "title": "Permission mode",
           "type": "string"
         },
@@ -1697,11 +1580,7 @@
           },
           "title": "Preview server",
           "type": "object",
-          "x-foxxycode-property-order": [
-            "enable",
-            "host",
-            "public_host"
-          ]
+          "x-foxxycode-property-order": ["enable", "host", "public_host"]
         },
         "websearch": {
           "additionalProperties": false,
@@ -1726,13 +1605,7 @@
               "default": [],
               "description": "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.",
               "items": {
-                "enum": [
-                  "brave",
-                  "bing",
-                  "ddg",
-                  "google",
-                  "searxng"
-                ],
+                "enum": ["brave", "bing", "ddg", "google", "searxng"],
                 "type": "string"
               },
               "title": "Engines",
@@ -1803,22 +1676,14 @@
         },
         "locale": {
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
-          "enum": [
-            "",
-            "en",
-            "ru"
-          ],
+          "enum": ["", "en", "ru"],
           "title": "UI language",
           "type": "string"
         },
         "send_mode": {
           "default": "enter",
           "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
-          "enum": [
-            "enter",
-            "ctrl_enter",
-            "off"
-          ],
+          "enum": ["enter", "ctrl_enter", "off"],
           "title": "Sending messages",
           "type": "string"
         },
@@ -1882,9 +1747,7 @@
       },
       "title": "Version control",
       "type": "object",
-      "x-foxxycode-property-order": [
-        "svn"
-      ]
+      "x-foxxycode-property-order": ["svn"]
     }
   },
   "title": "FoxxyCode config",

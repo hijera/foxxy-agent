@@ -4590,6 +4590,18 @@ func openAPISpec() map[string]interface{} {
 					"type":        "object",
 					"description": "FoxxyCode configuration as JSON (same logical fields as **config.yaml**). See **GET** `/foxxycode/config/schema` for the machine-readable JSON Schema.",
 					"properties": map[string]interface{}{
+						"models": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"max_screenshots": map[string]interface{}{
+										"type": "integer", "minimum": 0, "nullable": true,
+										"description": "Image budget for browser screenshot delivery per request to this model. User image attachments reserve slots. Zero disables the cap. Omit or send null to inherit the legacy browser-wide limit.",
+									},
+								},
+							},
+						},
 						"revision": map[string]interface{}{
 							"type":        "string",
 							"description": "The configuration a **GET** document was read from; not a setting. Sent back unchanged with a **PUT**, it makes the save measure the values a client left alone against what that client read, so a save does not put back what another save changed in between.",

@@ -29,6 +29,10 @@ type ModelEntry struct {
 	// When true the UI may offer file attachment for messages sent with this model,
 	// and read hands it the picture in an image file instead of refusing it.
 	Multimodal bool `yaml:"multimodal"`
+	// MaxScreenshots is the image budget for browser screenshot delivery. User
+	// attachments reserve slots first. Zero disables the budget; nil inherits
+	// the legacy browser-wide setting if present.
+	MaxScreenshots *int `yaml:"max_screenshots,omitempty"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
 	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
 	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning
@@ -70,8 +74,13 @@ func (m *ModelEntry) Normalize() {
 
 // Validate checks a single model entry after Normalize (provider existence checked separately).
 func (m *ModelEntry) Validate() error {
-	_, _, err := SplitModelRef(m.Model)
-	return err
+	if _, _, err := SplitModelRef(m.Model); err != nil {
+		return err
+	}
+	if m.MaxScreenshots != nil && *m.MaxScreenshots < 0 {
+		return fmt.Errorf("models[%s].max_screenshots must be non-negative", m.Model)
+	}
+	return nil
 }
 
 // ProviderName returns the providers[].name segment from Model.

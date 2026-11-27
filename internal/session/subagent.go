@@ -655,9 +655,15 @@ func (m *Manager) cancelAndAwaitTurns(nodes []SessionTreeNode) error {
 // prompt path (turn lock, activity edges, cross-process cancel, persistence),
 // carrying the internal option that lets it past the read-only guard.
 func (m *Manager) RunSubagentTurn(ctx context.Context, sessionID string, prompt []acp.ContentBlock, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	return m.RunSubagentVisionTurn(ctx, sessionID, prompt, nil, sender)
+}
+
+// RunSubagentVisionTurn attaches images through the regular child prompt path.
+func (m *Manager) RunSubagentVisionTurn(ctx context.Context, sessionID string, prompt []acp.ContentBlock, images []acp.ImagePartRef, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
 	return m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-		SessionID: sessionID,
-		Prompt:    prompt,
+		SessionID:  sessionID,
+		Prompt:     prompt,
+		ImageParts: images,
 	}, sender, &PromptRunOpts{subagentTurn: true})
 }
 

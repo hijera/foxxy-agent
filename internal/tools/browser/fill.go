@@ -40,6 +40,7 @@ func (m *Manager) FillTool() *tooling.Tool {
 }
 
 type fillArgs struct {
+	screenshotOptions
 	Selector string `json:"selector"`
 	Text     string `json:"text"`
 }
@@ -53,7 +54,7 @@ func (m *Manager) executeFill(_ context.Context, argsJSON string, env *tooling.E
 	if sel == "" {
 		return "error: selector is required", nil
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}
@@ -63,5 +64,5 @@ func (m *Manager) executeFill(_ context.Context, argsJSON string, env *tooling.E
 	); err != nil {
 		return fmt.Sprintf("error: fill %q: %v", sel, err), nil
 	}
-	return finishAction(b, env, fmt.Sprintf("filled %s", sel))
+	return finishAction(b, env, fmt.Sprintf("filled %s", sel), args.screenshotOptions)
 }
