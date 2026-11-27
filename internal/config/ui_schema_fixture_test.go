@@ -44,7 +44,12 @@ func TestUISchemaFixtureMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture (regenerate with UPDATE_UI_SCHEMA_FIXTURE=1): %v", err)
 	}
-	if !bytes.Equal(bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n")), got) {
+	// The Go generator and the SPA formatter wrap arrays differently.
+	var formatted bytes.Buffer
+	if err := json.Indent(&formatted, bytes.TrimSpace(want), "", "  "); err != nil {
+		t.Fatalf("parse UI schema fixture: %v", err)
+	}
+	if !bytes.Equal(formatted.Bytes(), bytes.TrimSpace(got)) {
 		t.Fatalf("ui-schema.json is stale; regenerate with UPDATE_UI_SCHEMA_FIXTURE=1 " +
 			"and update messages/schema.ru.ts")
 	}
