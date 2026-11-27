@@ -258,7 +258,8 @@ func builtinCheckoutTracking(dir string, target BranchTarget) error {
 	return repo.SetConfig(cfg)
 }
 
-// builtinFetchRemotes refreshes each remote in-process, pruned and without tags.
+// builtinFetchRemotes is fetchRemotes through go-git: each remote in turn,
+// pruned, without tags, under the same plan the git path follows.
 func builtinFetchRemotes(ctx context.Context, dir string) ([]string, error) {
 	installFileTransport()
 	repo, err := openRepo(dir)

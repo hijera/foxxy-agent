@@ -699,6 +699,9 @@ func TestCheckoutTrackingUsesSourceRefspec(t *testing.T) {
 }
 
 func TestFetchRemotesDoesNotRunGitHooks(t *testing.T) {
+	// The go-git fallback (no git on PATH) is in-process and runs no hooks;
+	// the git path above runs whatever the repository's config puts on its
+	// ref transactions, as git itself does.
 	dir := initRepo(t)
 	origin := mustGit(t, dir, "remote", "get-url", "origin")
 	publishBranch(t, origin, "feature/fresh")
@@ -709,6 +712,7 @@ func TestFetchRemotesDoesNotRunGitHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustGit(t, dir, "config", "core.hooksPath", filepath.ToSlash(hooks))
+	t.Setenv("PATH", "")
 	if _, err := FetchRemotes(context.Background(), dir); err != nil {
 		t.Fatalf("in-process fetch with a configured Git hook: %v", err)
 	}
