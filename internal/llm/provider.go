@@ -50,7 +50,9 @@ type Message struct {
 	// Artifacts are downloadable session-owned files published by a completed
 	// share_file call. They are metadata only and never provider prompt content.
 	Artifacts []Artifact `json:"artifacts,omitempty"`
-	Reasoning string     `json:"reasoning,omitempty"`
+	// BrowserScreenshot marks a synthetic live message for screenshot budgeting.
+	BrowserScreenshot bool   `json:"-"`
+	Reasoning         string `json:"reasoning,omitempty"`
 	// ReasoningSignature is the provider signature for the reasoning block (Anthropic extended
 	// thinking). It is replayed unmodified with the exact Reasoning text on later requests when
 	// thinking is enabled and the turn has tool calls; otherwise the Anthropic API rejects it.

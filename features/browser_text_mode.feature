@@ -37,6 +37,14 @@ Feature: The browser can be driven without screenshots
     And the answer still reports the page URL
     And the answer says screenshots are disabled
 
+  Scenario: The model requests a screenshot only when it needs visual evidence
+    Given the browser is configured to capture on request
+    When I navigate to the page
+    Then no screenshot was taken
+    And no image is handed to the model
+    When I navigate with a screenshot and a visual check
+    Then the model receives the screenshot and its visual check
+
   # What the app has stored decides how it behaves, and none of it is visible in a
   # picture. Long values are cut: seeing that a token is set is the point, pasting
   # a whole JWT into every look is not.

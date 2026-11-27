@@ -473,6 +473,10 @@ Interactive browser automation tool (requires the browser build tag; drives a lo
 | `browser.executable_path` | string | "" | Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser. |
 | `browser.timeout_seconds` | integer | 30 | Per-action timeout for navigation, clicks, and other browser operations. |
 | `browser.screenshots` | boolean | true | Capture a screenshot after each browser action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and foxxycode_browser_read_page plus foxxycode_browser_evaluate read the page as text - which is all a model without vision can use anyway, and it saves the base64 image on every request. |
+| `browser.screenshot_settings` | object |  | Delivery and capture policy for browser screenshots. |
+| `browser.screenshot_settings.mode` | string, one of `keep`, `latest`, `replace_old`, `separate_session` | keep | Keep screenshots in context, replace all but the latest with descriptions, replace old screenshots when the limit is reached, or send each screenshot to a separate child session. |
+| `browser.screenshot_settings.max_screenshots` | integer | 0 | Image budget per model request for browser screenshots. User attachments reserve their slots first. Zero disables the local limit. |
+| `browser.screenshot_settings.model_decides` | boolean | false | Capture only when a browser call sets screenshot to true or uses the dedicated screenshot tool. |
 
 ### `vcs`
 

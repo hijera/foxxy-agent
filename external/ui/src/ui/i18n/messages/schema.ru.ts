@@ -12,35 +12,52 @@
  */
 
 export const schemaTextRu: Record<string, string> = {
-  "Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check.": "Одинаковые вызовы инструментов в последовательных ответах модели, после которых вмешивается защита от зацикливания. Повторы внутри одного ответа считаются один раз; 0 отключает проверку.",
-  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap.": "Максимум итераций ReAct (вызовы модели и инструментов) на один запрос пользователя. По умолчанию 165; явный 0 отключает ограничение.",
-  "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.": "Файлы, добавляемые к системному промпту после обязательных AGENTS.md и DESIGN.md из дома агента, папки сессии и папок, к которым обращаются инструменты.",
-  "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.": "Дополнительные инструкции после AGENTS.md и DESIGN.md, в указанном порядке. По умолчанию список пуст. ${FOXXYCODE_HOME}, ${CWD} и начальная ~ раскрываются. Абсолютный путь используется как есть, относительный считается от папки сессии. Уже включённый файл повторно не читается.",
-  "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).": "Дополнительные каталоги скилов читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/skills (общий для агентов, npx skills и npx skillsbd), .agents/skills проекта, ${FOXXYCODE_HOME}/skills (собственные и установленные скилы FoxxyCode), .foxxycode/skills проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последний скил; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии или папки, выбранной для нового чата.",
-  "The project's .foxxycode/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). \"allow\": treat them like your own ~/.foxxycode/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project's skill folders are not affected.": "Проектный .foxxycode/marketplaces.json приходит вместе с репозиторием. ask: источники и маркетплейсы не синхронизируются до одобрения каждой записи для этого проекта (щит в списке или foxxycode plugin marketplace trust). allow: доверять им как собственному ~/.foxxycode/marketplaces.json. deny: не использовать, показывать отключёнными. Установка всегда идёт в ${FOXXYCODE_HOME}/skills; папки скилов самого проекта не затрагиваются.",
+  "Consecutive identical tool calls across successive ReAct responses before the loop guard steps in. Duplicates within one response count once; 0 disables the check.":
+    "Одинаковые вызовы инструментов в последовательных ответах модели, после которых вмешивается защита от зацикливания. Повторы внутри одного ответа считаются один раз; 0 отключает проверку.",
+  "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. Defaults to 165; explicit 0 disables the cap.":
+    "Максимум итераций ReAct (вызовы модели и инструментов) на один запрос пользователя. По умолчанию 165; явный 0 отключает ограничение.",
+  "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.":
+    "Файлы, добавляемые к системному промпту после обязательных AGENTS.md и DESIGN.md из дома агента, папки сессии и папок, к которым обращаются инструменты.",
+  "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.":
+    "Дополнительные инструкции после AGENTS.md и DESIGN.md, в указанном порядке. По умолчанию список пуст. ${FOXXYCODE_HOME}, ${CWD} и начальная ~ раскрываются. Абсолютный путь используется как есть, относительный считается от папки сессии. Уже включённый файл повторно не читается.",
+  "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${FOXXYCODE_HOME}/skills (FoxxyCode's own and installed skills), the project's .foxxycode/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).":
+    "Дополнительные каталоги скилов читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/skills (общий для агентов, npx skills и npx skillsbd), .agents/skills проекта, ${FOXXYCODE_HOME}/skills (собственные и установленные скилы FoxxyCode), .foxxycode/skills проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последний скил; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии или папки, выбранной для нового чата.",
+  'The project\'s .foxxycode/marketplaces.json travels with the checkout. "ask": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or foxxycode plugin marketplace trust). "allow": treat them like your own ~/.foxxycode/marketplaces.json. "deny": never use them; they are listed as switched off. What they install goes to ${FOXXYCODE_HOME}/skills; the project\'s skill folders are not affected.':
+    "Проектный .foxxycode/marketplaces.json приходит вместе с репозиторием. ask: источники и маркетплейсы не синхронизируются до одобрения каждой записи для этого проекта (щит в списке или foxxycode plugin marketplace trust). allow: доверять им как собственному ~/.foxxycode/marketplaces.json. deny: не использовать, показывать отключёнными. Установка всегда идёт в ${FOXXYCODE_HOME}/skills; папки скилов самого проекта не затрагиваются.",
   "Project marketplaces": "Маркетплейсы проекта",
-  "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.": "Дополнительные каталоги определений читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/agents, .agents/agents проекта, ${FOXXYCODE_HOME}/agents, .foxxycode/agents проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последнее определение; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии. Каталоги внутри проекта подчиняются его политике доверия.",
-  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.": "Определения внутри проекта приходят вместе с репозиторием. ask: читать их, но запускать только после одобрения для этого проекта (щит в списке, foxxycode agents trust на сервере или POST /foxxycode/subagents/{name}/trust). allow: доверять как собственным файлам. deny: не читать.",
+  "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${FOXXYCODE_HOME}/agents, the project's .foxxycode/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${FOXXYCODE_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.":
+    "Дополнительные каталоги определений читаются после четырёх стандартных и имеют больший приоритет. Стандартные каталоги всегда читаются: ${HOME}/.agents/agents, .agents/agents проекта, ${FOXXYCODE_HOME}/agents, .foxxycode/agents проекта. Затем читаются дополнительные каталоги в указанном порядке. При совпадении имён побеждает последнее определение; повторно указанный каталог читается на последнем месте. ${FOXXYCODE_HOME} раскрывается при загрузке, ${HOME} и ~ указывают домашнюю папку, ${CWD} и относительные пути считаются от папки сессии. Каталоги внутри проекта подчиняются его политике доверия.",
+  'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, foxxycode agents trust on the machine running foxxycode, or POST /foxxycode/subagents/{name}/trust). "allow": treat them like your own files. "deny": never read them.':
+    "Определения внутри проекта приходят вместе с репозиторием. ask: читать их, но запускать только после одобрения для этого проекта (щит в списке, foxxycode agents trust на сервере или POST /foxxycode/subagents/{name}/trust). allow: доверять как собственным файлам. deny: не читать.",
   "Automatic compaction": "Автоматическое сжатие",
-  "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.": "Автоматически сжимать контекст по порогу. При отключении ручное сжатие остаётся доступным. По умолчанию включено.",
-  "Master switch for manual and automatic compaction. Defaults to true.": "Общий переключатель ручного и автоматического сжатия. По умолчанию включено.",
+  "Enable the threshold trigger while keeping manual compaction available when off. Defaults to true.":
+    "Автоматически сжимать контекст по порогу. При отключении ручное сжатие остаётся доступным. По умолчанию включено.",
+  "Master switch for manual and automatic compaction. Defaults to true.":
+    "Общий переключатель ручного и автоматического сжатия. По умолчанию включено.",
 
   "Background continuation delays ms": "Паузы фоновых продолжений, мс",
-  "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.": "Паузы для субагентов и заданий планировщика: по умолчанию 5000, 20000, 80000, 120000, 120000 мс. Последняя пауза повторяется.",
+  "Pauses for delegated and scheduled runs; default 5000, 20000, 80000, 120000, 120000 ms. The last entry repeats.":
+    "Паузы для субагентов и заданий планировщика: по умолчанию 5000, 20000, 80000, 120000, 120000 мс. Последняя пауза повторяется.",
   "Background continuation limit": "Лимит фоновых продолжений",
-  "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit.": "Продолжения одного запуска субагента или задания планировщика: по умолчанию 5, 0 отключает. Субагенты памяти используют обычный лимит.",
-  "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).": "Завершённые запуски памяти, сохраняемые в панели задач для каждой сессии вместе с записью задачи и диалогом субагента; 0 сохраняет все (по умолчанию 20).",
-  "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.": "Модель принимает изображения и файлы вместе с текстом. Интерфейс разрешает вложения, а read передаёт модели содержимое PNG, JPEG, GIF и WebP как изображение.",
-  "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.": "Политика инструмента http_request: разрешённые адреса и общие заголовки. В режимах ask и accept_edits запрос требует разрешения, если адрес отсутствует в списке и ещё не одобрен в сессии. В режиме bypass разрешение не запрашивается.",
+  "Continuations per delegated or scheduled run; default 5, zero disables. Memory children use the interactive limit.":
+    "Продолжения одного запуска субагента или задания планировщика: по умолчанию 5, 0 отключает. Субагенты памяти используют обычный лимит.",
+  "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).":
+    "Завершённые запуски памяти, сохраняемые в панели задач для каждой сессии вместе с записью задачи и диалогом субагента; 0 сохраняет все (по умолчанию 20).",
+  "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.":
+    "Модель принимает изображения и файлы вместе с текстом. Интерфейс разрешает вложения, а read передаёт модели содержимое PNG, JPEG, GIF и WebP как изображение.",
+  "Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.":
+    "Политика инструмента http_request: разрешённые адреса и общие заголовки. В режимах ask и accept_edits запрос требует разрешения, если адрес отсутствует в списке и ещё не одобрен в сессии. В режиме bypass разрешение не запрашивается.",
   "Default headers": "Заголовки по умолчанию",
-  "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.": "Общие заголовки всех запросов, например браузерный User-Agent. Заголовки вызова имеют приоритет; пустое значение убирает заголовок. Они отправляются на любой адрес, поэтому добавляйте учётные данные только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization запрещены. webfetch и провайдеры моделей эти заголовки не используют.",
+  "Headers every request sends unless the call names them itself, such as a browser User-Agent for a site that turns tools away. A call's own headers win, and an empty value leaves a header out. They go to every destination, so keep credentials out unless that is the intent; Host, Content-Type, Content-Length, Transfer-Encoding, the hop-by-hop headers and Proxy-Authorization are refused, and webfetch and the model providers never send these.":
+    "Общие заголовки всех запросов, например браузерный User-Agent. Заголовки вызова имеют приоритет; пустое значение убирает заголовок. Они отправляются на любой адрес, поэтому добавляйте учётные данные только намеренно. Host, Content-Type, Content-Length, Transfer-Encoding, hop-by-hop заголовки и Proxy-Authorization запрещены. webfetch и провайдеры моделей эти заголовки не используют.",
 
   "Queue mode": "Режим очереди",
-  "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.": "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
-
+  "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.":
+    "Режим отправки во время работы: steer уточняет текущую задачу на следующем шаге, after_turn запускает новый ход после ответа.",
 
   "User-Agent": "User-Agent",
-  "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.": "Идентификатор клиента для OpenAI-совместимых и Anthropic-совместимых запросов. По умолчанию используется SDK провайдера (OpenAI/Go или Anthropic/Go); Foxxycode передаёт версию запущенного приложения.",
+  "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Foxxycode uses the running application version.":
+    "Идентификатор клиента для OpenAI-совместимых и Anthropic-совместимых запросов. По умолчанию используется SDK провайдера (OpenAI/Go или Anthropic/Go); Foxxycode передаёт версию запущенного приложения.",
   "ReAct loop": "Цикл ReAct",
   "Memory copilot": "Помощник памяти",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.":
@@ -48,13 +65,17 @@ export const schemaTextRu: Record<string, string> = {
   "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.":
     "Общий запас повторов сетевого запроса, пустого ответа и отсутствия первого токена до выполнения инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, хуки Stop, резервные модели и ожидание сброса квоты имеют собственные ограничения.",
 
-  "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.": "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.":
+    "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
   "Bind host": "Адрес привязки",
-  "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.": "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
-  "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.": "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
+  "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.":
+    "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
+  "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.":
+    "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
   "Preview server": "Сервер предпросмотра",
   "Public host": "Публичный хост",
-  "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.": "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
+  "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.":
+    "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
 
   // Root
   "FoxxyCode config": "Конфигурация FoxxyCode",
@@ -119,7 +140,7 @@ export const schemaTextRu: Record<string, string> = {
     "Оставьте включённым, чтобы получать ответ по токенам через SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; тогда транскрипт заполняется разом, а не печатается. Недоступно для моделей codex: их бэкенд работает только потоком.",
 
   // Subagents
-  "Subagents": "Субагенты",
+  Subagents: "Субагенты",
   "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.":
     "Дочерние агенты, которым модель делегирует задачи через spawn_agent. Определения — markdown-файлы с YAML-frontmatter; каждый запуск — фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
   "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).":
@@ -128,7 +149,7 @@ export const schemaTextRu: Record<string, string> = {
   "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.":
     "Сначала наименее приоритетные; более поздние записи переопределяют ранние по имени. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Каталоги внутри рабочей области относятся к проектной области и подчиняются политике доверия.",
   "Project definitions": "Проектные определения",
-  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.":
+  'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). "allow": treat them like your own files. "deny": never read them.':
     "Определения из рабочей области приезжают вместе с чекаутом. «ask»: загружать, но отказывать в запуске, пока файл не одобрен для этой рабочей области на машине, где запущен foxxycode (там: foxxycode agents trust или POST /foxxycode/subagents/{name}/trust). «allow»: считать своими файлами. «deny»: никогда не читать.",
   "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.":
     "Сколько запусков субагентов процесс может вести одновременно (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
@@ -228,7 +249,8 @@ export const schemaTextRu: Record<string, string> = {
   "Continuation limit": "Лимит продолжений",
   "How many times one turn may carry on a cut answer before it ends with a notice (0 ends the turn at the first cut).":
     "Сколько раз за один ход можно продолжить оборванный ответ, прежде чем ход завершится с уведомлением (0 — завершать ход при первом обрыве).",
-  "Continuation delays after an error ms": "Паузы перед продолжением после ошибки (мс)",
+  "Continuation delays after an error ms":
+    "Паузы перед продолжением после ошибки (мс)",
   "Pause before each continuation after a provider failure cut the answer (a 5xx, a dropped stream), in milliseconds. The last entry repeats.":
     "Пауза перед каждым продолжением после того, как сбой провайдера оборвал ответ (5xx, обрыв потока), в миллисекундах. Последнее значение повторяется.",
   "Longest Retry-After ms": "Предел Retry-After (мс)",
@@ -374,7 +396,7 @@ export const schemaTextRu: Record<string, string> = {
     "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего скила в ход. По умолчанию включено.",
 
   // Memory
-  "Memory": "Память",
+  Memory: "Память",
   "Long-term memory": "Долговременная память",
   "Optional memory subagent (requires the memory build tag and a provider).":
     "Необязательный агент памяти (требует сборки с тегом memory и провайдера).",
@@ -407,7 +429,8 @@ export const schemaTextRu: Record<string, string> = {
   "Additional instructions": "Дополнительные инструкции",
   "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.":
     "Ваши инструкции для агента памяти в его системном запросе; основной агент их не видит.",
-  "Additional instructions cap (characters)": "Лимит дополнительных инструкций (символы)",
+  "Additional instructions cap (characters)":
+    "Лимит дополнительных инструкций (символы)",
   "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.":
     "Более длинные инструкции обрезаются до указанного числа символов с предупреждением в журнале; 0 снимает лимит.",
   "Max search hits": "Макс. результатов поиска",
@@ -473,7 +496,7 @@ export const schemaTextRu: Record<string, string> = {
   "When true, this process may run the scheduler daemon and REST.":
     "Если включено, этот процесс может запускать демон планировщика и REST.",
   "Project jobs": "Проектные задания",
-  "Jobs in a workspace's .foxxycode/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.":
+  'Jobs in a workspace\'s .foxxycode/scheduler travel with the checkout. "ask": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). "allow": run them like your own jobs. "deny": never run them.':
     "Задания в .foxxycode/scheduler рабочей папки приходят вместе с репозиторием. ask: показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). allow: запускать как свои. deny: никогда не запускать.",
   "Jobs directory": "Каталог задач",
   "Directory of job markdown definitions.":
@@ -632,8 +655,19 @@ export const schemaTextRu: Record<string, string> = {
     "Показывать визуальные эффекты интерфейса: долгие анимации и полупрозрачные панели с размытием (без них панели становятся непрозрачными своего цвета). Значение пишет переключатель в Настройки → Оформление, оно общее для всех клиентов. Если ключ не задан, действует умолчание клиента: в панели IntelliJ эффекты выключены (она рисуется вне экрана и копирует каждый кадр в IDE, а это тормозит IDE, особенно без GPU), в остальных — включены.",
 
   // Browser tool
+  "Working with screenshots": "Работа со скриншотами",
+  "Screenshot handling mode": "Режим работы со скриншотами",
+  "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.":
+    "Выберите, какие скриншоты увидит модель. Замена старых кадров описаниями может снизить эффективность кэша запросов. В отдельной сессии каждый кадр проверяется отдельно.",
+  "Maximum screenshots per request": "Максимум скриншотов на запрос",
+  "User attachments also count toward this limit. Zero leaves the local limit disabled.":
+    "Изображения из вложений пользователя тоже занимают места. 0 отключает локальный лимит.",
+  "Take screenshots at the model's discretion":
+    "Делать скриншоты по усмотрению модели",
+  "Capture when the model asks for a screenshot. Omit a capture on other browser actions.":
+    "Кадр снимается по запросу модели. Остальные действия браузера выполняются без скриншота.",
   "Browser tool": "Инструмент браузера",
-  "Screenshots": "Скриншоты",
+  Screenshots: "Скриншоты",
   "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.":
     "Снимать экран после каждого действия и показывать модели. По умолчанию включено. Выключите для текстового режима: действия по-прежнему сообщают URL и журнал страницы, а инструменты чтения страницы и evaluate читают её текстом.",
   "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).":
@@ -670,51 +704,43 @@ export const schemaTextRu: Record<string, string> = {
     "Разрешает получать список trunk и branches/ для меню чипа SVN. Требует обращения к серверу; отключите на медленном канале.",
 
   // Hooks
-  "Hooks":
-    "Хуки",
+  Hooks: "Хуки",
   "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.":
     "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
   "Load and run hooks at all (default true).":
     "Загружать и запускать хуки вообще (по умолчанию включено).",
-  "Definition files":
-    "Файлы определений",
+  "Definition files": "Файлы определений",
   "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.":
     "Сначала файлы с низшим приоритетом; выполняется каждый подходящий хук. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Файлы внутри рабочей папки считаются проектными и подчиняются политике доверия; из файла настроек Claude Code читается только ключ hooks.",
-  "Project hooks":
-    "Проектные хуки",
+  "Project hooks": "Проектные хуки",
   'Hook files found inside the workspace travel with the checkout. "ask": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). "allow": treat them like your own file. "deny": never read them.':
     "Файлы хуков внутри рабочей папки приходят вместе с checkout. «ask»: показывать их, но ничего не запускать, пока файл не одобрен для этой папки на машине, где работает foxxycode (foxxycode hooks trust там или POST /foxxycode/hooks/trust). «allow»: считать их своими. «deny»: никогда не читать.",
   "Hard limit for one hook process whose definition gives no timeout (default 60).":
     "Жёсткий лимит для процесса хука, у которого в определении нет своего таймаута (по умолчанию 60).",
-  "Stop loop limit":
-    "Лимит цикла Stop",
+  "Stop loop limit": "Лимит цикла Stop",
   "How many times per turn a Stop hook may send the agent back to work (default 5).":
     "Сколько раз за ход хук Stop может вернуть агента к работе (по умолчанию 5).",
-  "Max output chars":
-    "Максимум символов вывода",
+  "Max output chars": "Максимум символов вывода",
   "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).":
     "Предел для контекста, сообщений и причин, которые один хук передаёт модели или пользователю; более длинные значения обрезаются с пометкой (по умолчанию 10000).",
 
   // agent.wait_for_limit_reset
-  "Wait for limit reset":
-    "Ждать сброса лимита",
+  "Wait for limit reset": "Ждать сброса лимита",
   "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.":
     "Дождаться снятия упёртого лимита и повторить вызов, вместо того чтобы завершить ход ошибкой провайдера; ход и поток клиента всё это время остаются открытыми.",
-  "Wait for limit reset max ms":
-    "Максимум ожидания сброса, мс",
+  "Wait for limit reset max ms": "Максимум ожидания сброса, мс",
   "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.":
     "Самая долгая пауза, которую ход готов ждать, в миллисекундах (по умолчанию четыре часа); более длинная завершает ход сразу, 0 — не ждать никогда.",
 
   // providers[].usage_limits_panel
-  "Usage limits panel":
-    "Панель лимитов аккаунта",
+  "Usage limits panel": "Панель лимитов аккаунта",
   "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
     "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
   "Web search": "Веб-поиск",
-  "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".":
+  'Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as "nothing found".':
     "Какие поисковые движки опрашивает инструмент websearch, в каком порядке сливаются их результаты и сколько на это можно потратить. Каждый движок сообщает свой исход рядом с результатами, поэтому отказавший бэкенд назван по имени, а не посчитан за «ничего не найдено».",
-  "Engines": "Движки",
-  "Search engines to ask, in merge order (default: brave, bing). \"ddg\" and \"google\" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. \"searxng\" needs the address below.":
+  Engines: "Движки",
+  'Search engines to ask, in merge order (default: brave, bing). "ddg" and "google" are not asked by default: from a server DuckDuckGo answers with an anti-bot page and Google renders its results in the browser. "searxng" needs the address below.':
     "Поисковые движки в порядке слияния результатов (по умолчанию: brave, bing). «ddg» и «google» по умолчанию не опрашиваются: с сервера DuckDuckGo отвечает антибот-страницей, а Google отрисовывает результаты в браузере. Для «searxng» нужен адрес ниже.",
   "Engine timeout (s)": "Таймаут движка (с)",
   "Seconds one engine may take before it is reported as unavailable (default 8).":
@@ -740,8 +766,8 @@ export const schemaTextRu: Record<string, string> = {
   "HTTP requests": "HTTP-запросы",
   "Policy of the http_request tool, the agent's curl. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.":
     "Политика инструмента http_request — curl-а агента. В режимах ask и accept_edits запрос спрашивает разрешения, если его назначение не разрешено здесь и не было одобрено в этой сессии; bypass не спрашивает никогда.",
-  "Allowlist": "Список разрешённых",
-  "Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); \"*\" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.":
+  Allowlist: "Список разрешённых",
+  'Destinations reached without asking: a host (api.github.com), *.example.com, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/); "*" allows all. Covers uploads and an unchecked certificate; a proxy needs its own entry, and a saved response follows the write policy.':
     "Назначения, к которым обращаются без вопроса: хост (api.github.com), *.example.com, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/); «*» разрешает всё. Запись покрывает и загрузку файлов, и непроверенный сертификат; для прокси нужна своя запись, а сохранение ответа в файл подчиняется политике записи.",
   "Proxy URL": "URL прокси",
   "Optional per-provider HTTP, HTTPS, SOCKS5 or SOCKS5h proxy URL. A URL overrides an inherited proxy; NO_PROXY and loopback still bypass it. Leave empty to follow the environment or operating system proxy. The Ignore system proxy switch connects directly. The URL editor protects proxy credentials.":
@@ -750,84 +776,139 @@ export const schemaTextRu: Record<string, string> = {
     "Необязательный URL прокси HTTP, HTTPS, SOCKS5 или SOCKS5h для Telegram. Пустое поле использует прокси окружения или системы. Переключатель игнорирования системного прокси подключает напрямую.",
   "Provider id": "ID провайдера",
   "my-provider": "my-provider",
-  "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.": "Префикс идентификаторов моделей этого провайдера, как в provider/model-id. Латинские буквы, цифры, дефис и подчёркивание, первая буква.",
+  "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.":
+    "Префикс идентификаторов моделей этого провайдера, как в provider/model-id. Латинские буквы, цифры, дефис и подчёркивание, первая буква.",
   "https://api.openai.com/v1": "https://api.openai.com/v1",
-  "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.": "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
-  "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.": "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
+  "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.":
+    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
+  "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.":
+    "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
   "pass show foxxycode/api-key": "pass show foxxycode/api-key",
-  "Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead.": "Необязательная команда получения ключа, запускается через шелл хоста, когда API-ключ пуст; её вывод без краевых пробелов становится ключом, как у git или docker credential helpers. При ошибке читается переменная окружения.",
-  "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
-  "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.": "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
-  "medium when offered, else the first level": "medium, если он есть, иначе первый уровень",
-  "How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard).": "Как долго потоковый ответ LLM может ничего не присылать после первых байтов, прежде чем поток будет обрезан как зависший с сохранением уже полученного текста (явный 0 отключает защиту).",
-  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.": "Останавливает ответ, вырождающийся в повторение самого себя, и блокирует инструмент, вызываемый раз за разом с одинаковыми аргументами.",
-  "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts. A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never saved here.": "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим до перезапуска процесса (/permissions, чип в композере, диалог разрешений), сюда эта смена не записывается.",
-  "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.": "Максимум строк, которые результат или ошибка инструмента может вернуть в контекст LLM. Включённые лимиты также накладывают страховочный потолок 64 КиБ на вызов. 0 отключает оба лимита; не задано — встроенное значение по умолчанию.",
-  "Max lines for a read file page or directory listing (default 1000).": "Максимум строк страницы чтения файла или листинга каталога (по умолчанию 1000).",
-  "Max path:line:content records from grep (default 200).": "Максимум записей path:line:content от grep (по умолчанию 200).",
-  "Max lines of a directory tree (default 400).": "Максимум строк дерева каталогов (по умолчанию 400).",
-  "Max stdout+stderr lines of a shell command (default 500).": "Максимум строк stdout+stderr команды шелла (по умолчанию 500).",
-  "Max stdout+stderr lines of a remote SSH command (default 500).": "Максимум строк stdout+stderr удалённой SSH-команды (по умолчанию 500).",
-  "Max lines of fetched page markdown (default 800).": "Максимум строк markdown загруженной страницы (по умолчанию 800).",
-  "Max lines of search results (default 200).": "Максимум строк результатов поиска (по умолчанию 200).",
-  "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).": "Применяется к любому не перечисленному инструменту, включая MCP (по умолчанию 1000; 0 = без лимита).",
+  "Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead.":
+    "Необязательная команда получения ключа, запускается через шелл хоста, когда API-ключ пуст; её вывод без краевых пробелов становится ключом, как у git или docker credential helpers. При ошибке читается переменная окружения.",
+  "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).":
+    "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.":
+    "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
+  "medium when offered, else the first level":
+    "medium, если он есть, иначе первый уровень",
+  "How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard).":
+    "Как долго потоковый ответ LLM может ничего не присылать после первых байтов, прежде чем поток будет обрезан как зависший с сохранением уже полученного текста (явный 0 отключает защиту).",
+  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
+    "Останавливает ответ, вырождающийся в повторение самого себя, и блокирует инструмент, вызываемый раз за разом с одинаковыми аргументами.",
+  'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts. A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never saved here.':
+    "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим до перезапуска процесса (/permissions, чип в композере, диалог разрешений), сюда эта смена не записывается.",
+  "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.":
+    "Максимум строк, которые результат или ошибка инструмента может вернуть в контекст LLM. Включённые лимиты также накладывают страховочный потолок 64 КиБ на вызов. 0 отключает оба лимита; не задано — встроенное значение по умолчанию.",
+  "Max lines for a read file page or directory listing (default 1000).":
+    "Максимум строк страницы чтения файла или листинга каталога (по умолчанию 1000).",
+  "Max path:line:content records from grep (default 200).":
+    "Максимум записей path:line:content от grep (по умолчанию 200).",
+  "Max lines of a directory tree (default 400).":
+    "Максимум строк дерева каталогов (по умолчанию 400).",
+  "Max stdout+stderr lines of a shell command (default 500).":
+    "Максимум строк stdout+stderr команды шелла (по умолчанию 500).",
+  "Max stdout+stderr lines of a remote SSH command (default 500).":
+    "Максимум строк stdout+stderr удалённой SSH-команды (по умолчанию 500).",
+  "Max lines of fetched page markdown (default 800).":
+    "Максимум строк markdown загруженной страницы (по умолчанию 800).",
+  "Max lines of search results (default 200).":
+    "Максимум строк результатов поиска (по умолчанию 200).",
+  "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).":
+    "Применяется к любому не перечисленному инструменту, включая MCP (по умолчанию 1000; 0 = без лимита).",
   "127.0.0.1": "127.0.0.1",
   "The bind host": "Адрес привязки",
   "Read from BRAVE_API_KEY": "Берётся из BRAVE_API_KEY",
   "http://localhost:8888": "http://localhost:8888",
-  "Your own commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.": "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
-  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.": "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобальные, совместно с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (специфичные для foxxycode), ${CWD}/.foxxycode/skills (проектные). ${FOXXYCODE_HOME} и ${CWD} разворачиваются во время выполнения.",
-  "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.": "Разрешить агенту самостоятельно загружать полные инструкции подходящего скила (инструмент load_skill, управляемый моделью), а не только по команде /скил. По умолчанию включено.",
-  "Runs the memory subagent on every user turn (binaries built with the memory tag).": "Запускает субагента памяти на каждом ходе пользователя (сборки с тегом memory).",
-  "Model the memory subagent runs on; empty uses the session's model.": "Модель, на которой работает субагент памяти; пусто - модель сессии.",
-  "Tried in order when the model before them fails before answering; the session's own model is the last resort.": "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
+  "Your own commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.":
+    "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
+  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.":
+    "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобальные, совместно с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (специфичные для foxxycode), ${CWD}/.foxxycode/skills (проектные). ${FOXXYCODE_HOME} и ${CWD} разворачиваются во время выполнения.",
+  "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.":
+    "Разрешить агенту самостоятельно загружать полные инструкции подходящего скила (инструмент load_skill, управляемый моделью), а не только по команде /скил. По умолчанию включено.",
+  "Runs the memory subagent on every user turn (binaries built with the memory tag).":
+    "Запускает субагента памяти на каждом ходе пользователя (сборки с тегом memory).",
+  "Model the memory subagent runs on; empty uses the session's model.":
+    "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "Tried in order when the model before them fails before answering; the session's own model is the last resort.":
+    "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
   "${FOXXYCODE_HOME}/memory": "${FOXXYCODE_HOME}/memory",
-  "Hard limit of one memory run, capped by the background task pool's maximum (default 300).": "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
-  "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.": "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
-  "Bounds the memory subagent's rounds together with recall max turns; the cap is the larger of the two.": "Ограничивает раунды субагента памяти вместе с максимумом раундов выборки; действует большее из двух.",
-  "Save what I decide about this project's architecture": "Сохраняй решения по архитектуре этого проекта",
-  "Master switch for compaction (manual command and automatic trigger). Defaults to true.": "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
+  "Hard limit of one memory run, capped by the background task pool's maximum (default 300).":
+    "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
+  "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.":
+    "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
+  "Bounds the memory subagent's rounds together with recall max turns; the cap is the larger of the two.":
+    "Ограничивает раунды субагента памяти вместе с максимумом раундов выборки; действует большее из двух.",
+  "Save what I decide about this project's architecture":
+    "Сохраняй решения по архитектуре этого проекта",
+  "Master switch for compaction (manual command and automatic trigger). Defaults to true.":
+    "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
   "Auto threshold (%)": "Порог авто-сжатия (%)",
-  "Auto-compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000.": "Авто-сжатие, когда оценка контекста достигает этой доли от окна контекста модели (1..100, по умолчанию 80): её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000.",
-  "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered.": "Сколько последних ходов пользователя остаются дословными после сжатия (по умолчанию 2; 0 — суммируется всё). Если ходов не больше, автоматическое сжатие всё равно сворачивает более ранние, а запрос, на который идёт ответ, оставляет дословным.",
+  "Auto-compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000.":
+    "Авто-сжатие, когда оценка контекста достигает этой доли от окна контекста модели (1..100, по умолчанию 80): её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000.",
+  "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered.":
+    "Сколько последних ходов пользователя остаются дословными после сжатия (по умолчанию 2; 0 — суммируется всё). Если ходов не больше, автоматическое сжатие всё равно сворачивает более ранние, а запрос, на который идёт ответ, оставляет дословным.",
   "Summarizer model": "Модель суммаризации",
-  "Optional models[].model for the summarization call; empty uses the session model.": "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
-  "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.": "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
-  "Master switch for read/grep result eviction. Defaults to true.": "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
-  "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).": "Сколько самых свежих вытесняемых результатов остаются целыми как рабочее окно (по умолчанию 2 — достаточно для одновременных read и grep; 0 — не сохранять ничего).",
-  "Maximum concurrent scheduled agent runs.": "Максимум одновременных запусков агента по расписанию.",
+  "Optional models[].model for the summarization call; empty uses the session model.":
+    "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
+  "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.":
+    "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
+  "Master switch for read/grep result eviction. Defaults to true.":
+    "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
+  "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).":
+    "Сколько самых свежих вытесняемых результатов остаются целыми как рабочее окно (по умолчанию 2 — достаточно для одновременных read и grep; 0 — не сохранять ничего).",
+  "Maximum concurrent scheduled agent runs.":
+    "Максимум одновременных запусков агента по расписанию.",
   "Job timeout": "Таймаут задания",
-  "Per-job wall-clock limit, e.g. 30m or 1h30m.": "Предельное время выполнения задания, например 30m или 1h30m.",
+  "Per-job wall-clock limit, e.g. 30m or 1h30m.":
+    "Предельное время выполнения задания, например 30m или 1h30m.",
   "Retain sessions": "Хранить сессий",
-  "How many completed scheduler session folders to keep per job id.": "Сколько папок завершённых сессий планировщика хранить на каждый идентификатор задания.",
+  "How many completed scheduler session folders to keep per job id.":
+    "Сколько папок завершённых сессий планировщика хранить на каждый идентификатор задания.",
   "Prompt templates": "Шаблоны промптов",
   "Built-in prompts": "Встроенные промпты",
-  "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].": "Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию [\"AGENTS.md\"].",
+  'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].':
+    'Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию ["AGENTS.md"].',
   "Component levels": "Уровни компонентов",
-  "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.": "Повышает или понижает уровень одной подсистемы отдельно от остальных. Родительское имя покрывает вложенные (gateway действует и на gateway.telegram), побеждает самое длинное совпадение.",
-  "${FOXXYCODE_HOME}/logs/foxxycode.log": "${FOXXYCODE_HOME}/logs/foxxycode.log",
+  "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.":
+    "Повышает или понижает уровень одной подсистемы отдельно от остальных. Родительское имя покрывает вложенные (gateway действует и на gateway.telegram), побеждает самое длинное совпадение.",
+  "${FOXXYCODE_HOME}/logs/foxxycode.log":
+    "${FOXXYCODE_HOME}/logs/foxxycode.log",
   "${FOXXYCODE_HOME}/sessions": "${FOXXYCODE_HOME}/sessions",
-  "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).": "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).":
+    "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
 
-  "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).": "Боты Telegram и Пачки (нужен тег gateway или gateway.telegram / gateway.pachca для одного из них).",
-  "Pachca": "Пачка",
+  "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).":
+    "Боты Telegram и Пачки (нужен тег gateway или gateway.telegram / gateway.pachca для одного из них).",
+  Pachca: "Пачка",
   "Pachca integration bot settings.": "Настройки бота интеграции Пачки.",
-  "Pachca user IDs with elevated rights; admins always pass access checks.": "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
-  "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.": "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
-  "Run the Pachca bot (requires the gateway or gateway.pachca build tag).": "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
+  "Pachca user IDs with elevated rights; admins always pass access checks.":
+    "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
+  "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.":
+    "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
+  "Run the Pachca bot (requires the gateway or gateway.pachca build tag).":
+    "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
   "Poll interval, seconds": "Интервал опроса, секунды",
-  "How often the bot reads its events history, 1 to 60 seconds (default 2).": "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
-  "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.": "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none отключает его.",
-  "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.": "Токен доступа бота интеграции Пачки. Необязателен: если оставить пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
-  "Pachca user IDs that belong to this group.": "Идентификаторы пользователей Пачки, входящие в эту группу.",
+  "How often the bot reads its events history, 1 to 60 seconds (default 2).":
+    "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
+  "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.":
+    "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none отключает его.",
+  "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.":
+    "Токен доступа бота интеграции Пачки. Необязателен: если оставить пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
+  "Pachca user IDs that belong to this group.":
+    "Идентификаторы пользователей Пачки, входящие в эту группу.",
   "Mini App": "Mini App",
-  "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.": "Открыть этот веб-интерфейс как Mini App бота в Telegram: кнопка меню и /app открывают его на текущем разговоре. Telegram открывает Mini App только по https: опубликуйте веб-интерфейс через TLS-прокси и оставьте вход включённым.",
+  "Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.":
+    "Открыть этот веб-интерфейс как Mini App бота в Telegram: кнопка меню и /app открывают его на текущем разговоре. Telegram открывает Mini App только по https: опубликуйте веб-интерфейс через TLS-прокси и оставьте вход включённым.",
   "Menu button": "Кнопка меню",
-  "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.": "Открывать веб-интерфейс кнопкой меню бота. Если выключить её, очистить адрес или оставить веб-интерфейс без входа, бот вернёт прежнюю кнопку, если она всё ещё открывает назначенный им адрес.",
+  "Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set.":
+    "Открывать веб-интерфейс кнопкой меню бота. Если выключить её, очистить адрес или оставить веб-интерфейс без входа, бот вернёт прежнюю кнопку, если она всё ещё открывает назначенный им адрес.",
   "Web UI address": "Адрес веб-интерфейса",
-  "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.": "Публичный https-адрес веб-интерфейса, например https://foxxycode.example.com/. Без фрагмента. Пусто: бот не предлагает Mini App и не меняет кнопку, заданную в @BotFather.",
+  "The public https address the web UI is served at, for example https://foxxycode.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.":
+    "Публичный https-адрес веб-интерфейса, например https://foxxycode.example.com/. Без фрагмента. Пусто: бот не предлагает Mini App и не меняет кнопку, заданную в @BotFather.",
   "Allow disabling reasoning": "Разрешить отключение рассуждения",
-  "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.": "Показывает Off в селекторе рассуждения этой модели. Включайте только если это развёртывание провайдера и модели выполняет запрос FoxxyCode на отключение рассуждения; FoxxyCode не может проверить это автоматически.",
+  "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours FoxxyCode's provider-specific request that disables reasoning; FoxxyCode cannot verify that capability automatically.":
+    "Показывает Off в селекторе рассуждения этой модели. Включайте только если это развёртывание провайдера и модели выполняет запрос FoxxyCode на отключение рассуждения; FoxxyCode не может проверить это автоматически.",
 };
 
 /**
@@ -838,6 +919,11 @@ export const schemaTextRu: Record<string, string> = {
 export const schemaEnumLabelRu: Record<string, string> = {
   steer: "Уточнить текущую задачу",
   after_turn: "После ответа",
+
+  keep: "Сохранять скриншоты в контексте",
+  latest: "Удалять промежуточные скриншоты",
+  replace_old: "Заменять старые скриншоты описаниями",
+  separate_session: "Обрабатывать скриншоты в отдельной сессии",
 
   // provider.type
   openai: "OpenAI",

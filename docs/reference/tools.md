@@ -69,15 +69,33 @@ The `background_*` tools are registered only while `tools.background` is enabled
 
 The interactive browser drives a real Chrome or Chromium through chromedp and hands screenshots back to the model ([Browser tool](../features/browser-tool.md)). The tools exist only in a binary built with the `browser` tag and are registered while `browser.enable` is on (`internal/tools/browser`); a session gets its own browser process, closed with the session or by `foxxycode_browser_close`.
 
+Actions that can capture a screenshot accept optional `screenshot` and
+`screenshot_prompt` arguments. See [Working with screenshots](../features/browser-tool.md#working-with-screenshots)
+for capture defaults, visual checks and how the request budget is applied.
+
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
 | `foxxycode_browser_navigate` | Open a URL; returns the resolved URL, console output and a screenshot | `url` | always | agent, debug |
-| `foxxycode_browser_click` | Click the first element matching a CSS selector | `selector` | always | agent, debug |
+| `foxxycode_browser_click` | Click an element or a viewport point | `selector` or `x`, `y` | always | agent, debug |
+| `foxxycode_browser_navigate_back` | Move through the current tab's history | `direction` | always | agent, debug |
+| `foxxycode_browser_fill_form` | Fill inputs, textareas, selects and checkboxes in one action | `fields` | always | agent, debug |
+| `foxxycode_browser_press_key` | Send real key events, including modifiers | `key`, `selector` | always | agent, debug |
+| `foxxycode_browser_select_option` | List options or select one by value or visible label | `selector`, `value`, `label` | always | agent, debug |
+| `foxxycode_browser_drag` | Drag with mouse events between elements or coordinates | `from_selector` or `from_x`, `from_y`; `to_selector` or `to_x`, `to_y` | always | agent, debug |
+| `foxxycode_browser_upload_file` | Attach local files to a file input | `selector`, `path` or `paths` | always | agent, debug |
+| `foxxycode_browser_wait_for` | Wait for text, its disappearance, a selector or a delay | `text`, `gone_text`, `selector`, `seconds` | none | agent, debug |
+| `foxxycode_browser_handle_dialog` | Arm a one-shot response before triggering a dialog | `accept`, `prompt_text` | always | agent, debug |
+| `foxxycode_browser_tabs` | List, open, select or close tabs | `action`, `tab`, `url` | always | agent, debug |
+| `foxxycode_browser_resize` | Change the viewport size or reset it with zero dimensions | `width`, `height` | always | agent, debug |
+| `foxxycode_browser_find` | Find matching lines in the text page outline | `query` | none | agent, debug |
+| `foxxycode_browser_network` | List requests or read a response body | `what`, `filter`, `id` | none | agent, debug |
+| `foxxycode_browser_route` | Mock responses, remove or list mocks, toggle offline mode | `action`, `url_substring`, `status`, `content_type`, `body` | always | agent, debug |
+| `foxxycode_browser_storage_set` | Set, delete or clear localStorage, sessionStorage or cookies | `scope`, `action`, `key`, `value` | always | agent, debug |
 | `foxxycode_browser_fill` | Replace the value of an input or textarea matching a selector | `selector`, `text` | always | agent, debug |
 | `foxxycode_browser_hover` | Move the mouse over an element, revealing hover menus and tooltips | `selector` | always | agent, debug |
 | `foxxycode_browser_scroll` | Scroll an element into view or the window by pixel offsets | `selector`, `x`, `y` | always | agent, debug |
 | `foxxycode_browser_evaluate` | Evaluate a JavaScript expression in the page and return its JSON result | `expression` | always | agent, debug |
-| `foxxycode_browser_screenshot` | Capture the current page | none | none | agent, debug |
+| `foxxycode_browser_screenshot` | Capture the current page | `screenshot_prompt` | none | agent, debug |
 | `foxxycode_browser_read_page` | Outline the page as one line per element with a selector to act on it, no screenshot | `interactive_only` | none | agent, debug |
 | `foxxycode_browser_inspect` | Report storage and cookies, load timing or memory without touching the page | `what` | none | agent, debug |
 | `foxxycode_browser_page_log` | Console output, uncaught exceptions and failed network responses since the last report | none | none | agent, debug |

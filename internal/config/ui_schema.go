@@ -74,15 +74,26 @@ func boolPropDefault(title, description string, value bool) map[string]interface
 // the tag is a runtime fact and is added when the schema is served — keeping it out
 // of here is what lets the committed fixture match under every tag combination.
 func browserSchema() map[string]interface{} {
+	mode := strProp("Screenshot handling mode", "Choose which screenshots reach the model. Replacing older screenshots can reduce prompt cache reuse. A separate session runs one visual check per screenshot.")
+	mode["enum"] = []string{BrowserScreenshotKeep, BrowserScreenshotLatest, BrowserScreenshotReplace, BrowserScreenshotSubagent}
+	mode["default"] = BrowserScreenshotKeep
+	limit := intProp("Maximum screenshots per request", "User attachments also count toward this limit. Zero leaves the local limit disabled.")
+	limit["minimum"] = 0
+	screenshotSettings := objectSchema("Working with screenshots", "",
+		map[string]interface{}{
+			"mode": mode, "max_screenshots": limit,
+			"model_decides": boolProp("Take screenshots at the model's discretion", "Capture when the model asks for a screenshot. Omit a capture on other browser actions."),
+		}, []string{"mode", "max_screenshots", "model_decides"}, nil)
 	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
 		map[string]interface{}{
-			"enable":          boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
-			"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
-			"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
-			"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
-			"screenshots":     boolPropDefault("Screenshots", "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.", true),
+			"enable":              boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+			"headless":            boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
+			"executable_path":     strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
+			"timeout_seconds":     intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
+			"screenshots":         boolPropDefault("Screenshots", "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.", true),
+			"screenshot_settings": screenshotSettings,
 		},
-		[]string{"enable", "headless", "screenshots", "executable_path", "timeout_seconds"},
+		[]string{"enable", "headless", "screenshots", "executable_path", "timeout_seconds", "screenshot_settings"},
 		nil)
 	out[SchemaRequiresBuildTag] = BrowserBuildTag
 	return out

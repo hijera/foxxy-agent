@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"os"
@@ -116,7 +117,7 @@ type Agent struct {
 	titleOnce sync.Once
 
 	imgMu             sync.Mutex
-	pendingToolImages []llm.ImagePart
+	pendingToolImages []browserScreenshot
 
 	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
 	subagentRuntime SubagentRuntime
@@ -176,14 +177,14 @@ type Agent struct {
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
 // ReAct loop can inject it as a user-role vision block for the next model turn.
-func (a *Agent) addToolImage(part llm.ImagePart) {
+func (a *Agent) addToolImage(part llm.ImagePart, prompt string) {
 	a.imgMu.Lock()
 	defer a.imgMu.Unlock()
-	a.pendingToolImages = append(a.pendingToolImages, part)
+	a.pendingToolImages = append(a.pendingToolImages, browserScreenshot{part: part, prompt: prompt})
 }
 
 // takeToolImages returns and clears the buffered tool images.
-func (a *Agent) takeToolImages() []llm.ImagePart {
+func (a *Agent) takeToolImages() []browserScreenshot {
 	a.imgMu.Lock()
 	defer a.imgMu.Unlock()
 	if len(a.pendingToolImages) == 0 {
@@ -489,6 +490,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageRefusal:      a.toolImageRefusal,
 	}
 	httpRequestEnv(toolEnv, a.cfg)
+	if owner, ok := a.state.(interface {
+		SessionBrowser(func() io.Closer) io.Closer
+	}); ok {
+		toolEnv.SessionBrowser = owner.SessionBrowser
+	}
 	a.wireWorkspaceTool(toolEnv)
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
@@ -513,7 +519,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
 	toolEnv.AddToolImage = func(dataURL, filePath, name string) {
-		a.addToolImage(llm.ImagePart{DataURL: dataURL, FilePath: filePath, Name: name})
+		a.addToolImage(llm.ImagePart{DataURL: dataURL, FilePath: filePath, Name: name}, "")
+	}
+	toolEnv.AddBrowserScreenshot = func(dataURL, filePath, name, prompt string) {
+		a.addToolImage(llm.ImagePart{DataURL: dataURL, FilePath: filePath, Name: name}, prompt)
 	}
 	a.wireFileEditHook(toolEnv)
 
@@ -1061,6 +1070,7 @@ func (a *Agent) runReActLoop(
 		// too. firstTokenTimedOut records that this timer, and not the user or the loop
 		// guard, did the cancelling, which the error paths below cannot otherwise tell
 		// apart.
+		a.fitBrowserScreenshots(ctx, transport.provider, messages)
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		if retryAllowance == nil {
 			retryAllowance = llm.NewRetryAllowance(a.cfg.Agent.EffectiveLLMRetryMax())
@@ -1584,6 +1594,13 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			if !hasAnyOutput && ctx.Err() == nil && !a.state.IsUserCancelledTurn() &&
+				browserImageLimitError(streamErr) && reduceBrowserImagesAfterRejection(messages) {
+				a.log.Info("retrying model request with fewer browser screenshots after image limit", "session", sessionID)
+				turn--
+				replaying = true
+				continue
+			}
 			// The provider named the moment its limit lifts and the operator
 			// asked the turn to wait for it: the countdown reaches the client,
 			// then the same call runs again (nothing was persisted for the
@@ -2189,13 +2206,8 @@ func (a *Agent) runReActLoop(
 		// UI renders the screenshot from the tool-call result's saved path, and keeping
 		// it out of history avoids a spurious user bubble in the transcript and re-sending
 		// every screenshot on later turns.
-		if imgs := a.takeToolImages(); len(imgs) > 0 {
-			messages = append(messages, llm.Message{
-				Role:       llm.RoleUser,
-				Content:    browserVisionNote,
-				ImageParts: imgs,
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-			})
+		if screenshots := a.takeToolImages(); len(screenshots) > 0 {
+			messages = a.addBrowserScreenshots(ctx, transport.provider, messages, screenshots)
 		}
 	}
 

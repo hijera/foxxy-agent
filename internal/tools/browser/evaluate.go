@@ -49,7 +49,7 @@ func (m *Manager) executeEvaluate(_ context.Context, argsJSON string, env *tooli
 	if expr == "" {
 		return "error: expression is required", nil
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}

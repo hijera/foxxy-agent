@@ -2001,6 +2001,30 @@
           "type": "boolean",
           "description": "Capture a screenshot after each browser action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and foxxycode_browser_read_page plus foxxycode_browser_evaluate read the page as text - which is all a model without vision can use anyway, and it saves the base64 image on every request.",
           "default": true
+        },
+        "screenshot_settings": {
+          "type": "object",
+          "description": "Delivery and capture policy for browser screenshots.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["keep", "latest", "replace_old", "separate_session"],
+              "description": "Keep screenshots in context, replace all but the latest with descriptions, replace old screenshots when the limit is reached, or send each screenshot to a separate child session.",
+              "default": "keep"
+            },
+            "max_screenshots": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Image budget per model request for browser screenshots. User attachments reserve their slots first. Zero disables the local limit.",
+              "default": 0
+            },
+            "model_decides": {
+              "type": "boolean",
+              "description": "Capture only when a browser call sets screenshot to true or uses the dedicated screenshot tool.",
+              "default": false
+            }
+          }
         }
       }
     },

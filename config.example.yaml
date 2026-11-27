@@ -762,6 +762,10 @@ logger:
 #   enable: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
 #   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
+#   screenshot_settings:
+#     mode: keep             # keep | latest | replace_old | separate_session
+#     max_screenshots: 0     # 0 = unlimited locally; attachments also occupy slots
+#     model_decides: false   # true = capture only on request
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
 

@@ -38,6 +38,9 @@ func TestBrowserJSONRoundTrip(t *testing.T) {
 		Headless:       &on,
 		ExecutablePath: "/usr/bin/chromium",
 		TimeoutSeconds: 45,
+		ScreenshotSettings: &config.BrowserScreenshotSettings{
+			Mode: config.BrowserScreenshotReplace, MaxScreenshots: 4, ModelDecides: true,
+		},
 	}
 	cfg := &config.Config{Browser: src}
 	dto := config.ConfigToJSONDTO(cfg)
@@ -61,6 +64,9 @@ func TestBrowserJSONRoundTrip(t *testing.T) {
 	}
 	if back.Browser.TimeoutSeconds != 45 {
 		t.Errorf("TimeoutSeconds = %d, want 45", back.Browser.TimeoutSeconds)
+	}
+	if got := back.Browser.ScreenshotPolicy(); got != src.ScreenshotPolicy() {
+		t.Errorf("screenshot settings = %#v, want %#v", got, src.ScreenshotPolicy())
 	}
 }
 

@@ -44,6 +44,7 @@ func (m *Manager) ScrollTool() *tooling.Tool {
 }
 
 type scrollArgs struct {
+	screenshotOptions
 	Selector string `json:"selector"`
 	X        int    `json:"x"`
 	Y        int    `json:"y"`
@@ -54,7 +55,7 @@ func (m *Manager) executeScroll(_ context.Context, argsJSON string, env *tooling
 	if err != nil {
 		return "", err
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}
@@ -77,5 +78,5 @@ func (m *Manager) executeScroll(_ context.Context, argsJSON string, env *tooling
 	if sel != "" && !ok {
 		return fmt.Sprintf("error: scroll %q: element not found", sel), nil
 	}
-	return finishAction(b, env, desc)
+	return finishAction(b, env, desc, args.screenshotOptions)
 }

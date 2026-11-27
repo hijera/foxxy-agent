@@ -80,7 +80,7 @@ logged as needing a restart where it cannot (the HTTP and relay listeners).
 
 
 - `ui` - embedded web UI preferences: `enable` (serve the SPA at all), `locale` (`""` auto, `en`, `ru`), `send_mode` (`enter`, `ctrl_enter`, `off`), `status_line` (the live label next to the typing dots), and `effects` (animations and the translucent frosted-glass panels, which turn opaque in their own colour when off; shared by every client; unset keeps each client's default, which is off in the IntelliJ panel because it copies every frame into the IDE and on elsewhere). The web UI writes these from Settings, so a change staged here shows up there after `config_commit`;
-- `browser` - interactive browser tools (tag `browser`): `enabled`, `headless`, `executable_path`, `timeout_seconds`, and `screenshots` - set `screenshots: false` to drive the browser text-only, which suits a model without vision and drops the base64 image from every request.
+- `browser` - interactive browser tools (tag `browser`): `enable`, `headless`, `executable_path`, `timeout_seconds`, `screenshots`, and `screenshot_settings`. Set `screenshots: false` for text-only operation. Under `screenshot_settings`, use `mode: keep|latest|replace_old|separate_session`, `max_screenshots: 4` for a four-image request budget (0 disables it), and `model_decides: true` for capture on request.
 
 Switches are spelled `enable`. A config written before 0.3.x spells them `enabled`: that key is still read, so address the switch as `<section>.enable` in `config_get` and `config_set` whatever the file says, and the commit writes it back under that name - never stage an `enabled` path, it is not a schema path.
 

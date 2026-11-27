@@ -1,5 +1,21 @@
 package config
 
+import "fmt"
+
+const (
+	BrowserScreenshotKeep     = "keep"
+	BrowserScreenshotLatest   = "latest"
+	BrowserScreenshotReplace  = "replace_old"
+	BrowserScreenshotSubagent = "separate_session"
+)
+
+// BrowserScreenshotSettings controls capture decisions and delivery to the model.
+type BrowserScreenshotSettings struct {
+	Mode           string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	MaxScreenshots int    `yaml:"max_screenshots,omitempty" json:"max_screenshots,omitempty"`
+	ModelDecides   bool   `yaml:"model_decides,omitempty" json:"model_decides,omitempty"`
+}
+
 // BrowserDefaultTimeoutSeconds is the default per-action timeout for the interactive
 // browser tool (navigate/click/...) when browser.timeout_seconds is unset.
 const BrowserDefaultTimeoutSeconds = 30
@@ -24,7 +40,23 @@ type BrowserConfig struct {
 	// the tools still report the URL, the page log and evaluate results, which is
 	// what a model without vision can use anyway - and it saves the ~40 KB of
 	// base64 every action would otherwise add to the request.
-	Screenshots *bool `yaml:"screenshots"`
+	Screenshots        *bool                      `yaml:"screenshots"`
+	ScreenshotSettings *BrowserScreenshotSettings `yaml:"screenshot_settings,omitempty"`
+}
+
+func (c *BrowserConfig) ScreenshotPolicy() BrowserScreenshotSettings {
+	if c == nil || c.ScreenshotSettings == nil {
+		return BrowserScreenshotSettings{}
+	}
+	return *c.ScreenshotSettings
+}
+
+func cloneBrowserScreenshotSettings(settings *BrowserScreenshotSettings) *BrowserScreenshotSettings {
+	if settings == nil {
+		return nil
+	}
+	copy := *settings
+	return &copy
 }
 
 // ScreenshotsEnabled reports whether actions capture a screenshot (default true).
@@ -52,7 +84,16 @@ func (c *BrowserConfig) ApplyDefaults() {
 	}
 }
 
-// Validate checks the browser section (currently a no-op; timeouts are normalised in ApplyDefaults).
+// Validate checks screenshot settings. Timeouts are normalised in ApplyDefaults.
 func (c *BrowserConfig) Validate() error {
+	settings := c.ScreenshotPolicy()
+	if settings.MaxScreenshots < 0 {
+		return fmt.Errorf("browser.screenshot_settings.max_screenshots must be non-negative")
+	}
+	switch settings.Mode {
+	case "", BrowserScreenshotKeep, BrowserScreenshotLatest, BrowserScreenshotReplace, BrowserScreenshotSubagent:
+	default:
+		return fmt.Errorf("browser.screenshot_settings.mode %q must be keep, latest, replace_old or separate_session", settings.Mode)
+	}
 	return nil
 }

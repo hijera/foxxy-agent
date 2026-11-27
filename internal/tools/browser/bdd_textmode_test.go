@@ -312,6 +312,36 @@ func initializeTextModeScenario(t *testing.T) func(*godog.ScenarioContext) {
 		})
 		sc.Step(`^a browser session on a page that logs an error, throws, requests a URL that fails, and writes to every store$`, s.sessionOnDiagnosticPage)
 		sc.Step(`^the browser is configured with screenshots off$`, s.configuredWithScreenshotsOff)
+		var visualCheck string
+		sc.Step(`^the browser is configured to capture on request$`, func() error {
+			if err := s.reset(true); err != nil {
+				return err
+			}
+			s.m.cfg.ScreenshotSettings = &config.BrowserScreenshotSettings{ModelDecides: true}
+			visualCheck = ""
+			s.env.AddBrowserScreenshot = func(_, _, _, prompt string) {
+				s.handedImages++
+				visualCheck = prompt
+			}
+			return nil
+		})
+		sc.Step(`^I navigate with a screenshot and a visual check$`, func() error {
+			out, err := s.m.executeNavigate(context.Background(), fmt.Sprintf(
+				`{"url":%q,"screenshot":true,"screenshot_prompt":"Is the search field visible?"}`, s.srv.URL), s.env)
+			if err != nil {
+				return err
+			}
+			if !strings.Contains(out, "screenshot: ") {
+				return fmt.Errorf("navigate did not report a captured screenshot: %s", out)
+			}
+			return nil
+		})
+		sc.Step(`^the model receives the screenshot and its visual check$`, func() error {
+			if s.handedImages != 1 || visualCheck != "Is the search field visible?" {
+				return fmt.Errorf("received %d images with visual check %q", s.handedImages, visualCheck)
+			}
+			return nil
+		})
 		sc.Step(`^I navigate to the page$`, s.navigate)
 		sc.Step(`^I read the page as text$`, s.readPage)
 		sc.Step(`^I read the page log until it reports everything$`, s.readPageLogUntilComplete)

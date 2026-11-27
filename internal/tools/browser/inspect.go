@@ -148,7 +148,7 @@ func (m *Manager) executeInspect(_ context.Context, argsJSON string, env *toolin
 	default:
 		return fmt.Sprintf("error: what must be one of storage, timing, memory (got %q)", args.What), nil
 	}
-	b, err := m.get(sessionKey(env), profileDirFor(sessionDir(env)))
+	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}

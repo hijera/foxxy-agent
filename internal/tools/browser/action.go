@@ -31,17 +31,35 @@ func (b *Browser) currentURL() string {
 	return u
 }
 
+type screenshotOptions struct {
+	Screenshot       *bool  `json:"screenshot"`
+	ScreenshotPrompt string `json:"screenshot_prompt"`
+}
+
+func (b *Browser) capturePolicy(options screenshotOptions) (capture, enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.captureScreens {
+		return false, false
+	}
+	if options.Screenshot != nil {
+		return *options.Screenshot, true
+	}
+	return !b.screenshotByRequest, true
+}
+
 // finishAction captures a screenshot after an action, persists it to the session
 // assets directory, hands it to the agent for vision injection, and returns a
 // concise text result describing the outcome (URL, action, console output, and the
 // saved screenshot path). The base64 image never goes into the text result — it is
 // delivered to the model as a user-role vision block via env.AddToolImage.
-func finishAction(b *Browser, env *tooling.Env, action string) (string, error) {
+func finishAction(b *Browser, env *tooling.Env, action string, options screenshotOptions) (string, error) {
 	url := b.currentURL()
 
 	var shot []byte
 	var shotErr error
-	if b.captureScreens {
+	capture, enabled := b.capturePolicy(options)
+	if capture {
 		shot, shotErr = b.capture()
 	}
 	var savedPath string
@@ -54,7 +72,9 @@ func finishAction(b *Browser, env *tooling.Env, action string) (string, error) {
 				savedPath = parts[0].FilePath
 			}
 		}
-		if env != nil && env.AddToolImage != nil {
+		if env != nil && env.AddBrowserScreenshot != nil {
+			env.AddBrowserScreenshot(dataURL, savedPath, name, strings.TrimSpace(options.ScreenshotPrompt))
+		} else if env != nil && env.AddToolImage != nil {
 			env.AddToolImage(dataURL, savedPath, name)
 		}
 	}
@@ -64,12 +84,15 @@ func finishAction(b *Browser, env *tooling.Env, action string) (string, error) {
 	if url != "" {
 		fmt.Fprintf(&sb, "url: %s\n", url)
 	}
+	if b.recoveryProfile != "" {
+		sb.WriteString("browser notice: using a temporary profile because Chrome could not open the original session profile; its cookies and storage are unavailable in this browser.\n")
+	}
 	switch {
 	case savedPath != "":
 		fmt.Fprintf(&sb, "screenshot: %s\n", savedPath)
 	case shotErr != nil:
 		fmt.Fprintf(&sb, "screenshot: unavailable (%v)\n", shotErr)
-	case !b.captureScreens:
+	case !enabled:
 		// Say so once per action rather than leaving the model to wonder why it
 		// never sees the page; evaluate and the page log are how it reads state here.
 		sb.WriteString("screenshot: disabled (browser.screenshots is false)\n")

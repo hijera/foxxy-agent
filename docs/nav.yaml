@@ -120,7 +120,7 @@ groups:
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
       - path: features/browser-tool.md
         title: Browser tool
-        summary: The interactive browser the agent drives through Chrome, screenshots handed back to the model, the browser switch and the build tag.
+        summary: Chrome interactions, network mocks and storage, screenshot capture modes and model request budgets, the browser switch and the build tag.
       - path: features/devin.md
         title: Devin
         summary: Browser or Devin CLI login, model families, reasoning variants, credentials and usage limits.

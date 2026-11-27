@@ -245,6 +245,12 @@ Clear the field to use the session model for summarization.
 - Besides the manual **API key** field, the NeuralDeep preset renders the same **Sign In with NeuralDeep** device-flow widget the settings row uses (**`NeuralDeepAuthField`**), read for the unsaved conventional **`neuraldeep`** provider name. After a completed sign-in the dialog saves the provider row **without any key** — the stored login is the credential, and writing the env reference would shadow it — and auto-probes the tier catalog through the server-side login (**`provider_name`** in the probe body, no key). A key typed afterwards still wins over the login, as in Settings.
 - The provider row is always named the lowercase conventional **`neuraldeep`**, matching the **`neuraldeep/<id>`** model refs the dialog writes, so the first chat works right after Save with no extra setup.
 
+## Settings: browser screenshots
+
+Use **Settings → Browser → Working with screenshots** to choose what the model
+sees, set the request budget and capture only when the model asks. See the
+[browser screenshot settings](../features/browser-tool.md#working-with-screenshots).
+
 ## Settings: Codex OAuth
 
 - The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.
@@ -253,7 +259,6 @@ Clear the field to use the session model for summarization.
 - The button starts **`POST /foxxycode/providers/{name}/codex-auth/device`**, opens the returned official verification page, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure. The displayed link remains available if the browser blocks the automatic tab.
 - Connected state comes from **`GET /foxxycode/providers/{name}/codex-auth`**. A row the server's Codex CLI login does not serve (several codex rows: that login stands in for the row named **`codex`** only) is not connected until it signs in, and the field names the row the login serves (**`cli_login_row`** of the status). **Sign Out** cancels pending sign-in attempts and deletes only the FoxxyCode-managed credential; a server-side Codex CLI login may still appear as a compatibility connection.
 - OAuth tokens never enter the settings document or browser. The server stores them under **`$FOXXYCODE_HOME/providers/<name>/codex-auth.json`**.
-
 
 ## Settings: NeuralDeep sign-in
 

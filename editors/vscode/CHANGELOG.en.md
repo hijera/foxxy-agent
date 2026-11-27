@@ -10,6 +10,8 @@
 
 ## Unreleased — 2026-11-27
 
+**Browser actions and screenshots.** The agent can work with tabs, the keyboard, forms and dialogs. Screenshot settings let it keep the newest frame, replace older frames with descriptions, review a frame in a separate session or capture on demand.
+
 **Composer caret at any zoom.** The caret and the input mirror no longer drift apart at fractional page zoom and high display density: the text under the cursor stays put through zooming and scrolling.
 
 **Remote branches in the branch menu.** Opening the branch menu fetches every configured remote and lists branches that exist only there — picking one creates a local branch tracking the remote one. When the refresh fails, the list stays as it was with a warning that it may be out of date.

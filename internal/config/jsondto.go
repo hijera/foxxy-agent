@@ -59,11 +59,12 @@ type SVNJSON struct {
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
 // value round-trips as "use default" (true) rather than an explicit false.
 type BrowserJSON struct {
-	Screenshots    *bool  `json:"screenshots,omitempty"`
-	Enabled        bool   `json:"enable,omitempty"`
-	Headless       *bool  `json:"headless,omitempty"`
-	ExecutablePath string `json:"executable_path,omitempty"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	ScreenshotSettings *BrowserScreenshotSettings `json:"screenshot_settings,omitempty"`
+	Screenshots        *bool                      `json:"screenshots,omitempty"`
+	Enabled            bool                       `json:"enable,omitempty"`
+	Headless           *bool                      `json:"headless,omitempty"`
+	ExecutablePath     string                     `json:"executable_path,omitempty"`
+	TimeoutSeconds     int                        `json:"timeout_seconds,omitempty"`
 }
 
 // UIJSON mirrors UIConfig for JSON APIs.
@@ -808,8 +809,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Effects: c.UI.Effects,
 	}
 	out.Browser = BrowserJSON{
-		Screenshots: cloneBoolPtr(c.Browser.Screenshots),
-		Enabled:     c.Browser.Enabled, Headless: c.Browser.Headless,
+		ScreenshotSettings: cloneBrowserScreenshotSettings(c.Browser.ScreenshotSettings),
+		Screenshots:        cloneBoolPtr(c.Browser.Screenshots),
+		Enabled:            c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
 	}
 	out.VCS = VCSJSON{SVN: SVNJSON{
@@ -1108,8 +1110,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Effects: j.UI.Effects,
 	}
 	cfg.Browser = BrowserConfig{
-		Screenshots: cloneBoolPtr(j.Browser.Screenshots),
-		Enabled:     j.Browser.Enabled, Headless: j.Browser.Headless,
+		ScreenshotSettings: cloneBrowserScreenshotSettings(j.Browser.ScreenshotSettings),
+		Screenshots:        cloneBoolPtr(j.Browser.Screenshots),
+		Enabled:            j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
 	}
 	cfg.VCS = VCSConfig{SVN: SVNConfig{
