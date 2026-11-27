@@ -53,7 +53,7 @@ func (m *Manager) WaitForTool() *tooling.Tool {
 					},
 					"seconds": map[string]interface{}{
 						"type":        "integer",
-						"description": "Maximum seconds to wait (default 15, max 120). With no condition given, sleep this long.",
+						"description": "Maximum seconds to wait for the conditions (default 15, max 120). With no condition given, sleeps at most 30 seconds.",
 					},
 				},
 			},

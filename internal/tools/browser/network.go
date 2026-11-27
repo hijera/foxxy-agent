@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/chromedp/cdproto/network"
 
@@ -167,7 +168,9 @@ func fetchBody(b *Browser, id string) string {
 	}
 
 	var body []byte
-	err := b.forEachTab(func(ctx context.Context) error {
+	// The closure never fails (a miss on one tab is expected; the aggregate
+	// outcome is checked below), so forEachTab has no error to report here.
+	_ = b.forEachTab(func(ctx context.Context) error {
 		if body != nil {
 			return nil
 		}
@@ -175,17 +178,27 @@ func fetchBody(b *Browser, id string) string {
 		if err == nil {
 			body = got
 		}
-		// A miss on one tab is expected; the aggregate outcome is checked below.
 		return nil
 	})
-	_ = err
 	if body == nil {
 		return fmt.Sprintf("error: response body for %s is not available (the browser may have evicted it)", entry.url)
+	}
+	if !isTextMIME(entry.mime) {
+		return fmt.Sprintf("body of %s %s (%s): binary body, %d bytes (not shown; read it in the page or serve a mock instead)",
+			entry.method, entry.url, entry.mime, len(body))
 	}
 
 	truncated := false
 	if len(body) > networkBodyLimit {
 		body = body[:networkBodyLimit]
+		// Trim the continuation bytes of a rune the limit split in half: the
+		// fragment goes straight into a model request. At most three bytes.
+		for len(body) > 0 {
+			if r, size := utf8.DecodeLastRune(body); r != utf8.RuneError || size != 1 {
+				break
+			}
+			body = body[:len(body)-1]
+		}
 		truncated = true
 	}
 	var sb strings.Builder
@@ -195,4 +208,19 @@ func fetchBody(b *Browser, id string) string {
 		fmt.Fprintf(&sb, "\n[truncated at %d bytes]", networkBodyLimit)
 	}
 	return sb.String()
+}
+
+// isTextMIME reports whether a response body belongs in the model's context as
+// text. Images, fonts and compressed streams are reported by size instead: raw
+// bytes only burn context and can dump garbage into the request.
+func isTextMIME(mime string) bool {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if mime == "" || strings.HasPrefix(mime, "text/") {
+		return true
+	}
+	return strings.Contains(mime, "json") ||
+		strings.Contains(mime, "xml") ||
+		strings.Contains(mime, "javascript") ||
+		strings.Contains(mime, "csv") ||
+		strings.Contains(mime, "x-www-form-urlencoded")
 }

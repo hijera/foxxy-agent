@@ -12,6 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/target"
+	"github.com/chromedp/chromedp"
 
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
@@ -433,4 +438,64 @@ func tabNumberFor(t *testing.T, list, url string) int {
 	}
 	t.Fatalf("no tab line has URL %q:\n%s", url, list)
 	return 0
+}
+
+// TestPageClosedTabHealsToALiveTab covers the tab a page closes on its own:
+// Chrome destroys the target and emits the browser-level destroyed event (the
+// same path window.close() takes), and the tracked entry must be dropped so
+// the next action lands on a surviving tab instead of a dead context.
+func TestPageClosedTabHealsToALiveTab(t *testing.T) {
+	m := newTestManager(t)
+	env := testEnv(t, "tab-heal")
+	defer m.closeSession("tab-heal")
+	b, err := m.open(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := interactionsServer(t)
+	navigateTo(t, m, env, srv.URL)
+
+	second, err := b.newTab()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.selectTab(second); err != nil {
+		t.Fatal(err)
+	}
+
+	// Destroy the target the way Chrome does when the page itself closes it:
+	// straight over the browser executor, leaving b.tabs untouched.
+	c := chromedp.FromContext(b.rootCtx)
+	dctx, dcancel := context.WithTimeout(b.rootCtx, b.timeout)
+	destroyErr := target.CloseTarget(second).Do(cdp.WithExecutor(dctx, c.Browser))
+	dcancel()
+	if destroyErr != nil {
+		t.Fatalf("destroy target %s: %v", second, destroyErr)
+	}
+
+	// The destroyed event travels asynchronously; wait for the tracked entry
+	// to be dropped before relying on the fallback.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b.mu.Lock()
+		_, tracked := b.tabs[second]
+		b.mu.Unlock()
+		if !tracked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the tab Chrome destroyed is still tracked; the next action would run on a dead context")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The next action must run on the surviving first tab without an error.
+	// Chrome normalizes the bare server URL to a trailing slash.
+	var url string
+	if err := b.run(chromedp.Location(&url)); err != nil {
+		t.Fatalf("action after the page closed its own tab: %v", err)
+	}
+	if strings.TrimRight(url, "/") != srv.URL {
+		t.Fatalf("after healing, actions ran on %q, want the first page %q", url, srv.URL)
+	}
 }

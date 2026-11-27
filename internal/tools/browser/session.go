@@ -53,7 +53,9 @@ func (m *Manager) sessionManager(env *tooling.Env) *Manager {
 	if env == nil || env.SessionBrowser == nil {
 		return m
 	}
-	owner, _ := env.SessionBrowser(func() io.Closer { return NewManager(nil) }).(*Manager)
+	// The owner is created with the same config, so a caller that forgets the
+	// cfg argument to get cannot launch a browser off a nil config.
+	owner, _ := env.SessionBrowser(func() io.Closer { return NewManager(m.cfg) }).(*Manager)
 	return owner
 }
 
@@ -72,26 +74,42 @@ func (m *Manager) get(sessionID, profileDir string, cfg *config.BrowserConfig) (
 		key = "_default"
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("browser session is closed")
 	}
+	var stale *Browser
 	if b, ok := m.browsers[key]; ok && b != nil {
 		if b.connected() {
 			b.mu.Lock()
 			b.captureScreens = cfg.ScreenshotsEnabled()
 			b.screenshotByRequest = cfg.ScreenshotPolicy().ModelDecides
 			b.mu.Unlock()
+			m.mu.Unlock()
 			return b, nil
 		}
 		delete(m.browsers, key)
-		b.close()
+		stale = b
 	}
 	b, err := launchSessionBrowser(cfg, profileDir)
 	if err != nil {
+		m.mu.Unlock()
+		if stale != nil {
+			stale.close()
+		}
 		return nil, err
 	}
+	if stale != nil {
+		b.adoptBrowserWideState(stale)
+	}
 	m.browsers[key] = b
+	m.mu.Unlock()
+	// Torn down outside the lock: close waits for Chrome's process tree to
+	// exit, and holding the manager through it would stall every other
+	// session behind this one.
+	if stale != nil {
+		stale.close()
+	}
 	return b, nil
 }
 
@@ -102,9 +120,11 @@ func (m *Manager) closeSession(sessionID string) {
 		key = "_default"
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	b := m.browsers[key]
 	delete(m.browsers, key)
+	m.mu.Unlock()
+	// Outside the lock, for the same reason get tears its stale browser down
+	// there: close waits for Chrome's process tree.
 	if b != nil {
 		b.close()
 	}
@@ -113,11 +133,12 @@ func (m *Manager) closeSession(sessionID string) {
 // Close releases the live session's runtime and prevents further launches.
 func (m *Manager) Close() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.closed = true
-	for key, b := range m.browsers {
+	browsers := m.browsers
+	m.browsers = make(map[string]*Browser)
+	m.mu.Unlock()
+	for _, b := range browsers {
 		b.close()
-		delete(m.browsers, key)
 	}
 	return nil
 }
@@ -200,8 +221,14 @@ func (b *Browser) connected() bool {
 	if b.rootCtx.Err() != nil {
 		return false
 	}
+	c := chromedp.FromContext(b.rootCtx)
+	if c == nil || c.Browser == nil {
+		// The browser is allocated by the first Run; a Browser never runs
+		// there is no connection to keep alive.
+		return false
+	}
 	select {
-	case <-chromedp.FromContext(b.rootCtx).Browser.LostConnection:
+	case <-c.Browser.LostConnection:
 		return false
 	default:
 		return true
@@ -228,6 +255,12 @@ func launch(cfg *config.BrowserConfig, profileDir string) (*Browser, error) {
 	if profileDir != "" {
 		if err := os.MkdirAll(profileDir, 0o755); err == nil {
 			opts = append(opts, chromedp.UserDataDir(profileDir))
+		} else {
+			// Without the user-data directory Chrome falls back to its own
+			// temporary profile: cookies and storage will not survive the
+			// session. Recorded, because that loss otherwise looks like the
+			// recovery-profile path and nobody looks for its cause here.
+			cdpLogf("create browser profile directory %s: %v", profileDir, err)
 		}
 	}
 	if execPath != "" {
@@ -264,6 +297,15 @@ func launch(cfg *config.BrowserConfig, profileDir string) (*Browser, error) {
 	// Capture page events before the first Run so nothing emitted during startup
 	// is lost. See attachListeners for what is collected and why.
 	b.attachListeners(ctx)
+	// Browser-level events carry no session id, so they reach the browser
+	// listener instead of the per-tab ones: this is how a tab the page closed
+	// on its own (window.close) is dropped before its dead context breaks a
+	// later action. Registered before the first Run for the same reason.
+	chromedp.ListenBrowser(ctx, func(ev interface{}) {
+		if e, ok := ev.(*target.EventTargetDestroyed); ok {
+			b.dropTab(e.TargetID)
+		}
+	})
 
 	// Force the browser process to start now so failures surface immediately. This
 	// first Run MUST use the long-lived ctx: chromedp binds the browser/tab lifetime
@@ -355,6 +397,35 @@ func (b *Browser) currentCtx() context.Context {
 	return b.rootCtx
 }
 
+// dropTab forgets a tab whose target no longer exists. The page can close its
+// own tabs (window.close, a dismissed popup) without going through the tabs
+// tool, which would leave a dead entry in b.tabs: currentCtx would keep
+// handing it out and every later action would fail on it. Runs on the CDP
+// message-loop goroutine, so it must not block on Chrome.
+func (b *Browser) dropTab(id target.ID) {
+	b.mu.Lock()
+	t, ok := b.tabs[id]
+	if ok {
+		delete(b.tabs, id)
+		if b.currentID == id {
+			b.currentID = ""
+			for _, rest := range b.tabs {
+				b.currentID = rest.id
+				break
+			}
+		}
+	}
+	b.mu.Unlock()
+	if ok && t != nil && !t.root {
+		// The chromedp cancel waits for the DetachFromTarget send to finish,
+		// and that send needs the browser's listener mutex - the one this
+		// event callback is running under. The map entry is already gone, so
+		// the context cleanup moves aside and never runs on this goroutine.
+		go t.cancel()
+		b.addPageLog("[browser] the page closed its tab; later actions continue on another open tab")
+	}
+}
+
 // forEachTab runs f against every attached tab's context (snapshot; f runs
 // outside the lock). Used to apply browser-wide switches: fetch interception,
 // offline emulation.
@@ -375,6 +446,63 @@ func (b *Browser) forEachTab(f func(ctx context.Context) error) error {
 		}
 	}
 	return firstErr
+}
+
+// adoptBrowserWideState carries the browser-wide setup a relaunched browser
+// would otherwise lose: route mocks, offline emulation and an armed dialog
+// answer. A crashed Chrome takes its mocks with it; without this the mocked
+// endpoints start answering for real and the model reads the app as broken.
+// Per-tab re-application for tabs opened later happens through initTab; the
+// tabs that already exist are re-armed here.
+func (b *Browser) adoptBrowserWideState(stale *Browser) {
+	stale.mu.Lock()
+	mocks := stale.mocks
+	fetchOn := stale.fetchOn
+	offline := stale.offline
+	dialog := stale.dialogNext
+	stale.mu.Unlock()
+
+	b.mu.Lock()
+	b.mocks = mocks
+	b.fetchOn = fetchOn
+	b.offline = offline
+	b.dialogNext = dialog
+	b.mu.Unlock()
+
+	if fetchOn {
+		if err := b.forEachTab(func(ctx context.Context) error { return fetch.Enable().Do(ctx) }); err != nil {
+			b.mu.Lock()
+			b.fetchOn = false
+			b.mu.Unlock()
+			b.addPageLog(fmt.Sprintf("[browser] relaunch could not re-arm request interception: %v", err))
+		}
+	}
+	if offline {
+		if err := b.forEachTab(func(ctx context.Context) error {
+			return network.EmulateNetworkConditions(true, 0, -1, -1).Do(ctx)
+		}); err != nil {
+			b.mu.Lock()
+			b.offline = false
+			b.mu.Unlock()
+			b.addPageLog(fmt.Sprintf("[browser] relaunch could not re-apply offline emulation: %v", err))
+		}
+	}
+
+	carried := make([]string, 0, 3)
+	if len(mocks) > 0 {
+		carried = append(carried, fmt.Sprintf("%d route mock(s)", len(mocks)))
+	}
+	if offline {
+		carried = append(carried, "offline emulation")
+	}
+	if dialog != nil {
+		carried = append(carried, "the armed dialog answer")
+	}
+	if len(carried) == 0 {
+		b.addPageLog("[browser] relaunched after the previous browser process exited")
+		return
+	}
+	b.addPageLog("[browser] relaunched after the previous browser process exited; re-applied " + strings.Join(carried, ", "))
 }
 
 // browserExitGrace bounds how long close waits for Chrome's children to follow
@@ -613,7 +741,12 @@ func (b *Browser) resolvePaused(ctx context.Context, e *fetch.EventRequestPaused
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if mock == nil {
-		_ = chromedp.Run(rctx, fetch.ContinueRequest(e.RequestID))
+		// A continue that fails never settles the request: the page stalls and
+		// a later action on it times out with no visible cause unless this is
+		// recorded. The fulfil path below reports its failures the same way.
+		if err := chromedp.Run(rctx, fetch.ContinueRequest(e.RequestID)); err != nil {
+			b.addPageLog(fmt.Sprintf("[route] failed to continue %s: %v", e.Request.URL, err))
+		}
 		return
 	}
 	p := fetch.FulfillRequest(e.RequestID, int64(mock.status)).

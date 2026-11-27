@@ -23,7 +23,9 @@ func (m *Manager) UploadFileTool() *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: "foxxycode_browser_upload_file",
 			Description: "Attach one or more local files to a file input (<input type=\"file\">) in the interactive browser. " +
-				"Relative paths resolve against the session working directory. Returns the resulting page state and a screenshot.",
+				"Relative paths resolve against the session working directory. Absolute paths anywhere on the machine are " +
+				"accepted on purpose: a browser upload reaches the host, so every call is permission-gated and names the " +
+				"files it attaches. Returns the resulting page state and a screenshot.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
