@@ -16,6 +16,7 @@ import (
 // desktop shell owns no console, so any console child it starts blinks a window
 // and a taskbar button at the operator.
 var spawnSiteExceptions = map[string]string{
+	"internal/gitws/remotes.go:runGitContext":             "DetachFromTerminal already starts git with DETACHED_PROCESS and HideWindow, so fetching cannot open a console window",
 	"internal/platform/reveal_other.go:revealFile":        "opens a desktop file manager intentionally; Windows uses the Shell API instead, and GUI reveal must never inherit SW_HIDE",
 	"internal/serve/daemon.go:StartDetached":              "DetachFromTerminal already starts the dispatcher with DETACHED_PROCESS and HideWindow, so it has no console to show a window for",
 	"cmd/foxxycode/providers.go:openBrowser":              "hands the URL to the browser the operator is about to log in with; SW_HIDE can travel to a window that must be seen",
