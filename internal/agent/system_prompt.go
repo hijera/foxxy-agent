@@ -194,7 +194,10 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Content:  full,
 		SkillsMD: skillsMD,
 		ToolsMD:  toolsMD,
-		RulesMD:  rulesMD,
+		// The context estimate counts the files of instructions.files with
+		// the rules: they are instructions the operator wrote, and a rules
+		// share that leaves them out reads as rules that were not loaded.
+		RulesMD:  joinNonEmptyPromptBlocks(rulesMD, standing.User),
 		ToolDefs: toolDefs,
 		Clock:    clock,
 		// The variant list is the one this render resolved, so the verdict

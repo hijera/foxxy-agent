@@ -457,9 +457,18 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/foxxycode/sessions/{id}/rewind", "/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
+	for _, must := range []string{"/foxxycode/sessions/{id}/rewind", "/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/fetch", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+	// The branch list reads the remote branches and the refresh outcome off
+	// the context shape; a client generated from the spec has to see both.
+	ctxSchema, _ := doc["components"].(map[string]interface{})["schemas"].(map[string]interface{})["FoxxyCodeWorkspaceContext"].(map[string]interface{})
+	ctxProps, _ := ctxSchema["properties"].(map[string]interface{})
+	for _, must := range []string{"remote_branches", "fetch"} {
+		if _, ok := ctxProps[must]; !ok {
+			t.Fatalf("FoxxyCodeWorkspaceContext misses %s", must)
 		}
 	}
 	// The cookie a browser signs in with is a security scheme of its own, or a
@@ -469,6 +478,23 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	for _, must := range []string{"bearerAuth", "cookieAuth"} {
 		if _, ok := schemes[must]; !ok {
 			t.Fatalf("securitySchemes missing %s", must)
+		}
+	}
+	// A registered route with no operation in the spec is the same drift as a
+	// missing path: generated clients never learn the endpoint exists.
+	for path, ops := range map[string][]string{
+		"/foxxycode/sessions/{id}":        {"patch", "delete"},
+		"/foxxycode/sessions/{id}/rewind": {"post"},
+		"/foxxycode/workspace/fetch":      {"post"},
+	} {
+		entry, ok := paths[path].(map[string]interface{})
+		if !ok {
+			t.Fatalf("paths missing key %s", path)
+		}
+		for _, method := range ops {
+			if _, ok := entry[method]; !ok {
+				t.Fatalf("%s has no %s operation", path, method)
+			}
 		}
 	}
 }

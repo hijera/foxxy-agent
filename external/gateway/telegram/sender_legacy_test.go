@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/internal/acp"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
 )
 
 func chunk(text string) acp.MessageChunkUpdate {

@@ -6,6 +6,7 @@ import {
   folderChipLabel,
   middleTruncate,
   svnBranchLabel,
+  type WorkspaceBranchFetch,
   type WorkspaceContext,
 } from "./workspaceContext";
 import { BranchIcon, FolderIcon } from "./workspaceIcons";
@@ -17,8 +18,10 @@ export { middleTruncate } from "./workspaceContext";
 export type WorkspacePick = {
   worktreePref: boolean;
   onPickFolder: (path: string) => void;
-  onPickBranch: (branch: string, worktree: boolean) => void;
+  onPickBranch: (branch: string, worktree: boolean, remoteRef?: string) => void;
   onWorktreeToggle: () => void;
+  /** Fetches the remotes before the branch list shows (see WorkspaceChips). */
+  onRefreshBranches?: (() => Promise<WorkspaceBranchFetch | null>) | undefined;
   /** The menus open upward from a docked composer, downward on the start screen. */
   opensUp: boolean;
   svnFolderPref?: boolean;
@@ -44,7 +47,8 @@ export function WorkspaceBar(props: {
   const ctx = props.context;
   const branch = ctx.branch || t("workspace.detached");
   const copy = props.workingCopy;
-  const showEdits = !props.pick && !!copy && !!props.onOpenEdits && hasEdits(copy);
+  const showEdits =
+    !props.pick && !!copy && !!props.onOpenEdits && hasEdits(copy);
   const totals = copy?.changes.totals;
   const number = new Intl.NumberFormat(getLocale());
 
@@ -62,6 +66,9 @@ export function WorkspaceBar(props: {
           onPickFolder={props.pick.onPickFolder}
           onPickBranch={props.pick.onPickBranch}
           onWorktreeToggle={props.pick.onWorktreeToggle}
+          {...(props.pick.onRefreshBranches
+            ? { onRefreshBranches: props.pick.onRefreshBranches }
+            : {})}
           opensUp={props.pick.opensUp}
           locked={false}
           svnFolderPref={props.pick.svnFolderPref ?? false}
@@ -95,10 +102,16 @@ export function WorkspaceBar(props: {
             </span>
           ) : null}
           {ctx.is_svn_repo ? (
-            <span className="workspace-bar-item" title={ctx.svn?.url || ctx.path}>
+            <span
+              className="workspace-bar-item"
+              title={ctx.svn?.url || ctx.path}
+            >
               <BranchIcon />
               <span className="workspace-bar-text">
-                {middleTruncate(svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy")), BRANCH_CHARS)}
+                {middleTruncate(
+                  svnBranchLabel(ctx, t("composer.workspace.svnWorkingCopy")),
+                  BRANCH_CHARS,
+                )}
               </span>
             </span>
           ) : null}
@@ -113,8 +126,12 @@ export function WorkspaceBar(props: {
           data-testid="workspace-bar-edits"
           onClick={() => props.onOpenEdits?.()}
         >
-          <span className="changes-add">{"+" + number.format(totals.additions)}</span>
-          <span className="changes-del">{"−" + number.format(totals.deletions)}</span>
+          <span className="changes-add">
+            {"+" + number.format(totals.additions)}
+          </span>
+          <span className="changes-del">
+            {"−" + number.format(totals.deletions)}
+          </span>
         </button>
       ) : null}
     </div>

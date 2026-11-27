@@ -261,7 +261,7 @@ contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](
 it cannot drift from the Makefile. Locally, reach for a single combination instead:
 **`go test -tags=<set> ./...`**. Two of those jobs also start the built binary: `cli` drives the
 console through a real pty (`examples/cli/cli_e2e_startup.py`), `gateway` runs the Telegram bot
-against the offline stand of `cmd/tgfake` (`examples/gateway/tg_e2e_offline.sh`).
+against the pinned release of tgfake (`examples/gateway/tg_e2e_offline.sh`; see [Integration tests with tgfake](tgfake.md)).
 
 **`make test-race`** runs the race detector over every non-UI Go tag in one pass. CI runs it on pull requests; the UI tag only embeds the already built SPA.
 

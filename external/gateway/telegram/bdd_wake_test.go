@@ -21,14 +21,14 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
-	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
 )
 
 const (
@@ -114,7 +114,7 @@ func (w *wakeWorld) chatWithScriptedModel() error {
 		"notify_on_finish": true,
 		"expected_seconds": 1,
 	})
-	stub := &llmstub.Server{Rules: []llmstub.Rule{
+	stub := &llmstub.Server{Model: "foxxycode-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "start the tests", Tool: &llmstub.ToolCall{Name: "run_command", Arguments: start}, Answer: "Started the tests in the background."},
 		{Match: "background task you started has finished", Answer: "The tests failed with exit 2."},
 	}}

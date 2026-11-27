@@ -3,7 +3,7 @@
 package telegram
 
 // Godog harness for features/gateway_telegram_mini_app.feature: Bot.Start
-// against the fake Bot API of internal/tgfake with mini_app.url set, a
+// against the fake Bot API of tgfake with mini_app.url set, a
 // scripted agent behind the session runner, and the gateway's session file on
 // disk so the second start of the last scenario reads what the first wrote.
 
@@ -19,10 +19,10 @@ import (
 
 	"github.com/cucumber/godog"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
 )
 
 const miniAppChat = int64(4242)

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   branchChipVisible,
+  branchRows,
   cleanPathInput,
+  firstLine,
   folderChipLabel,
   isSvnFolderCheckoutActive,
   isWorktreeBadgeActive,
@@ -81,6 +83,34 @@ describe("workspaceContext helpers", () => {
     ]);
   });
 
+  it("lists remote-only branches among the local ones, current first", () => {
+    expect(
+      branchRows({
+        ...gitCtx,
+        remote_branches: ["alpha", "feature/login", "main/x"],
+      }),
+    ).toEqual([
+      { name: "main", remoteOnly: false },
+      { name: "alpha", remoteOnly: true },
+      { name: "feature/login", remoteOnly: false },
+      { name: "main/x", remoteOnly: true },
+      { name: "zeta", remoteOnly: false },
+    ]);
+    // A detached checkout has no current row to lift.
+    expect(
+      branchRows({ ...gitCtx, branch: "", remote_branches: ["beta"] }).map(
+        (row) => row.name,
+      ),
+    ).toEqual(["beta", "feature/login", "main", "zeta"]);
+  });
+
+  it("keeps the first meaningful line of a reason", () => {
+    expect(firstLine("\n  fatal: no such remote\nsecond")).toBe(
+      "fatal: no such remote",
+    );
+    expect(firstLine(undefined)).toBe("");
+  });
+
   it("finds a non-main worktree for a branch", () => {
     expect(worktreeForBranch(gitCtx, "feature/login")?.path).toBe(
       "/home/.foxxycode/worktrees/foxxycode-agent/feature-login",
@@ -108,15 +138,18 @@ describe("workspaceContext helpers", () => {
     // The same folder is a git repository and an svn branch folder.
     expect(branchChipVisible(svnCtx)).toBe(true);
     expect(svnChipVisible(svnCtx)).toBe(true);
-    expect(svnChipVisible({ ...gitCtx, is_git_repo: false, is_svn_repo: true })).toBe(
-      true,
-    );
+    expect(
+      svnChipVisible({ ...gitCtx, is_git_repo: false, is_svn_repo: true }),
+    ).toBe(true);
   });
 
   it("labels the svn chip from the branch, falling back when the layout is unknown", () => {
     expect(svnBranchLabel(svnCtx, "svn")).toBe("branches/feature-x");
     expect(
-      svnBranchLabel({ ...svnCtx, svn: { available: true, branch: "" } }, "svn"),
+      svnBranchLabel(
+        { ...svnCtx, svn: { available: true, branch: "" } },
+        "svn",
+      ),
     ).toBe("svn");
     expect(svnBranchLabel(null, "svn")).toBe("svn");
   });

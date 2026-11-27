@@ -8,7 +8,15 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-11-25
+## Unreleased — 2026-11-27
+
+**Composer caret at any zoom.** The caret and the input mirror no longer drift apart at fractional page zoom and high display density: the text under the cursor stays put through zooming and scrolling.
+
+**Remote branches in the branch menu.** Opening the branch menu fetches every configured remote and lists branches that exist only there — picking one creates a local branch tracking the remote one. When the refresh fails, the list stays as it was with a warning that it may be out of date.
+
+**Instruction files in the prompt.** Files from `instructions.files` are now named in the prompt and counted with the rules. A file a session cannot read is reported in the log, the console header and `--dry-run`.
+
+## 0.3.56 — 2026-11-25
 
 **Subagent token counts.** The subagent task row and the console footer no longer over-report spend on multi-call turns: the turn's cumulative totals are counted once.
 

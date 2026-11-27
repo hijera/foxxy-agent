@@ -27,13 +27,13 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake/llmstub"
 )
 
 const wakeWebFailCommand = "echo 'tests failed'; exit 2"
@@ -128,7 +128,7 @@ func (s *wakeWebState) startServer(fixes bool) error {
 	}
 	// A pause between streamed words keeps the woken turn running long enough
 	// for a browser to attach to it, as a real model does.
-	stub := &llmstub.Server{Delay: 150 * time.Millisecond, Rules: []llmstub.Rule{
+	stub := &llmstub.Server{Model: "foxxycode-demo", StripTags: []string{"turn_context"}, Delay: 150 * time.Millisecond, Rules: []llmstub.Rule{
 		{Match: "start the tests", Tool: &llmstub.ToolCall{Name: "run_command", Arguments: start}, Answer: "Started the tests in the background."},
 		woken,
 	}}

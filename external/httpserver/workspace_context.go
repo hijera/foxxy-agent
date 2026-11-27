@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/platform"
@@ -46,6 +47,16 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 		}
 		payload["branch"] = info.Branch
 		payload["branches"] = info.Branches
+		// As the last fetch left them: POST /foxxycode/workspace/fetch refreshes
+		// them before the branch list opens.
+		remoteRefs := gitws.RemoteBranchRefs(info.Path)
+		remoteBranches := make([]string, 0, len(remoteRefs))
+		for name := range remoteRefs {
+			remoteBranches = append(remoteBranches, name)
+		}
+		sort.Strings(remoteBranches)
+		payload["remote_branches"] = remoteBranches
+		payload["remote_branch_refs"] = remoteRefs
 		wts := make([]map[string]interface{}, 0, len(info.Worktrees))
 		for _, wt := range info.Worktrees {
 			wts = append(wts, map[string]interface{}{
@@ -96,23 +107,23 @@ func (s *Server) describeSVN(ctx context.Context, cwd string) svnws.Info {
 // (pre-session preview), otherwise for the session in X-FoxxyCode-Session-ID
 // (or the server default cwd without the header).
 func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.workspaceContextCWD(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.workspaceContextPayload(r.Context(), cwd))
+}
+
+// workspaceContextCWD resolves the folder a workspace context call is about:
+// ?path= when given, else the session's cwd. It answers 400 itself for a
+// path that is not an existing folder.
+func (s *Server) workspaceContextCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
 	cwd := strings.TrimSpace(r.URL.Query().Get("path"))
-	if cwd != "" {
-		abs, err := filepath.Abs(cwd)
-		if err != nil {
-			http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
-			return
-		}
-		fi, err := os.Stat(abs)
-		if err != nil || !fi.IsDir() {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
-			return
-		}
-		cwd = abs
-	} else {
+	if cwd == "" {
 		resolved, ok := s.resolveSessionCWD(w, r)
 		if !ok {
-			return
+			return "", false
 		}
 		cwd = resolved
 		if id := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); id != "" {
@@ -122,9 +133,76 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 				cwd = st.GetCWD()
 			}
 		}
+		return cwd, true
 	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
+		return "", false
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.IsDir() {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
+		return "", false
+	}
+	return abs, true
+}
+
+// workspaceFetchTimeout bounds the refresh the branch list waits for: a
+// remote that does not answer leaves the cached list on screen with a warning
+// instead of an open menu that never fills.
+var workspaceFetchTimeout = 20 * time.Second
+
+// foxxycodeWorkspaceFetchPost refreshes the remote branches of a workspace before
+// its branch list opens: every configured remote is fetched (pruned, no tags,
+// nothing local touched; see gitws.FetchRemotes) and the answer is the
+// workspace context read afterwards plus a "fetch" block saying whether the
+// refresh happened. A failed refresh still answers 200 with the context as
+// it stands, so the list stays usable, and says it is not fresh. The folder is
+// chosen like the context GET: ?path=, else the session in
+// X-FoxxyCode-Session-ID, else the server default cwd.
+func (s *Server) foxxycodeWorkspaceFetchPost(w http.ResponseWriter, r *http.Request) {
+	cwd, ok := s.workspaceContextCWD(w, r)
+	if !ok {
+		return
+	}
+	fetch := workspaceFetch(r.Context(), cwd)
+	payload := s.workspaceContextPayload(r.Context(), cwd)
+	payload["fetch"] = fetch
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.workspaceContextPayload(r.Context(), cwd))
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// workspaceFetch runs the refresh for cwd and describes its outcome:
+// "ok" with the remotes fetched and the time, "failed" with the remotes asked
+// and the reason, or "skipped" with why there was nothing to fetch.
+func workspaceFetch(ctx context.Context, cwd string) map[string]interface{} {
+	if !gitws.Describe(cwd).IsGitRepo {
+		return map[string]interface{}{"status": "skipped", "reason": "not a git repository"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, workspaceFetchTimeout)
+	defer cancel()
+	remotes, err := gitws.FetchRemotes(ctx, cwd)
+	if remotes == nil {
+		remotes = []string{}
+	}
+	switch {
+	case err != nil:
+		msg := err.Error()
+		if errors.Is(err, context.DeadlineExceeded) {
+			msg = fmt.Sprintf("the remotes did not answer within %s", workspaceFetchTimeout)
+		}
+		return map[string]interface{}{"status": "failed", "remotes": remotes, "error": msg}
+	case len(remotes) == 0:
+		// No remote at all, or only ones marked skipFetchAll.
+		return map[string]interface{}{"status": "skipped", "reason": "no remotes to fetch"}
+	default:
+		return map[string]interface{}{
+			"status":     "ok",
+			"remotes":    remotes,
+			"fetched_at": time.Now().UTC().Format(time.RFC3339),
+		}
+	}
 }
 
 // workspaceDrivesPath is the pseudo-path of the volume level that sits above
@@ -452,18 +530,25 @@ func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branc
 		}
 		return 0, nil
 	}
-	if branch == info.Branch {
+	// A branch of a remote picked by its remote-tracking name
+	// (upstream/fix/x) means the local branch of that name, created tracking
+	// it when there is none yet.
+	target, err := gitws.ResolveBranch(cwd, branch)
+	if err != nil {
+		return http.StatusConflict, err
+	}
+	if target.Branch == info.Branch {
 		return 0, nil
 	}
 	for _, wt := range info.Worktrees {
-		if wt.Branch == branch {
+		if wt.Branch == target.Branch {
 			if err := s.mgr.SetSessionWorkspace(ctx, st, wt.Path); err != nil {
 				return http.StatusBadRequest, err
 			}
 			return 0, nil
 		}
 	}
-	if err := gitws.Checkout(cwd, branch); err != nil {
+	if err := gitws.CheckoutTracking(cwd, target); err != nil {
 		return http.StatusConflict, err
 	}
 	// The checkout rewrote this workspace's files under the session: project

@@ -4,7 +4,7 @@ package telegram
 
 // Godog harness for features/gateway_telegram_resume.feature: drives /resume,
 // the keyboard tap and the message that follows through the real handlers
-// against the fake Bot API (internal/tgfake) and a server that keeps a fixed
+// against the fake Bot API (tgfake) and a server that keeps a fixed
 // set of sessions, and asserts on which session the next prompt reached and on
 // what the chat shows. What the user types lands in the fake's chat first, so
 // the bot replies to a message Telegram holds, and a tap presses the keyboard
@@ -25,11 +25,12 @@ import (
 	"github.com/cucumber/godog"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/EvilFreelancer/tgfake/pkg/botapi"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tgfake"
 )
 
 const (
@@ -297,7 +298,7 @@ func buttonTitle(label string) string {
 
 // menuButtons splits the keyboard of a message into the buttons that name a
 // session, in keyboard order, and the labels of the navigation row.
-func menuButtons(m tgfake.MessageView) (sessions []tgfake.InlineKeyboardButton, nav []string) {
+func menuButtons(m tgfake.MessageView) (sessions []botapi.InlineKeyboardButton, nav []string) {
 	for _, row := range m.Keyboard {
 		for _, btn := range row {
 			if strings.HasPrefix(btn.CallbackData, "resume:s:") {
@@ -312,7 +313,7 @@ func menuButtons(m tgfake.MessageView) (sessions []tgfake.InlineKeyboardButton, 
 
 // sessionButtons returns the buttons of the menu that name a session, in
 // keyboard order, leaving the navigation row out.
-func (w *resumeWorld) sessionButtons() ([]tgfake.InlineKeyboardButton, error) {
+func (w *resumeWorld) sessionButtons() ([]botapi.InlineKeyboardButton, error) {
 	m, err := w.menu()
 	if err != nil {
 		return nil, err
