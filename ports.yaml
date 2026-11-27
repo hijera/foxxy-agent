@@ -14559,56 +14559,78 @@ ports:
   remaining: []
 - upstream_sha: d79cead76e64aed257703015c40209823acc3563
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: fix(web): keep the composer caret on the text at every zoom and density'
   remaining: []
 - upstream_sha: df0433c4a2484f7cee6fd659c8dc190d83f28d81
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Formatting policy adapted in the upstream 1.2.80-1.2.83 worktree port: touched SPA files are Prettier-formatted individually; the fork''s staged-file gate and intentional whole-sweep exclusions are preserved.'
   remaining: []
 - upstream_sha: 872f8106b07acc1e04b0a6f3aaec41f2ba51d414
   status: skipped
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Redundant integration/release merge; every constituent net change is included in the upstream 1.2.80-1.2.83 worktree port.'
   remaining: []
 - upstream_sha: 0eccaa22c6a46e253cca5341cf3f81df0b68a8cd
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: fix(rules): name instruction files in the prompt and report the ones a session cannot read'
   remaining: []
 - upstream_sha: 36576613bd5887f1878e02293370db226d85bd71
   status: skipped
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Redundant integration/release merge; every constituent net change is included in the upstream 1.2.80-1.2.83 worktree port.'
   remaining: []
 - upstream_sha: 9aa12d7e78f4ca90437f17ffeb410213eac86f53
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: refactor: test the Telegram bot against tgfake, now a project of its own'
   remaining: []
 - upstream_sha: 7a61267a4f5c65a03f453aebec398c407007b549
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: feat(web): fetch every remote before the branch list opens'
   remaining: []
 - upstream_sha: 7efc00c408e4875c1489b5fd49008ddf5c492995
   status: skipped
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Redundant integration/release merge; every constituent net change is included in the upstream 1.2.80-1.2.83 worktree port.'
   remaining: []
 - upstream_sha: 79c7bfb3dd302f00fb6ee16aa247f95d0100a074
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: fix: a CI tgfake that must be the release binary, the pinned install script'
   remaining: []
 - upstream_sha: 51dced3175577538f433cd83fd4af357e0d40ea9
   status: adapted
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Adapted in the upstream 1.2.80-1.2.83 worktree port with FoxxyCode branding and registered divergences preserved: build: pin tgfake v1.0.0'
   remaining: []
 - upstream_sha: 22f03f281f34b30f8713701d4c2a620e505d78cb
   status: skipped
-  fork_commits: []
+  fork_commits:
+  - 8103429b90ca35ad679175316875487696b1e3e8
+  - 9892090d17dfe5887c2990fd40ea9b8ab26eb9ea
   reason: 'Redundant integration/release merge; every constituent net change is included in the upstream 1.2.80-1.2.83 worktree port.'
   remaining: []

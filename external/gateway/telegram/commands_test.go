@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/tgfake/pkg/botapi"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/EvilFreelancer/tgfake/pkg/botapi"
-	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 // An id that fills callback_data exactly travels as itself; one byte more and

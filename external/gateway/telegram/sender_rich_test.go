@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxycode-agent/internal/acp"
 	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {

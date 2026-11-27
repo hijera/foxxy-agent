@@ -14,10 +14,10 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/mcp"
-	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 func TestMCPMenuTogglesTrustedServerThroughFakeBotAPI(t *testing.T) {

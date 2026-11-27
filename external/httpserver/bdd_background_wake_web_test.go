@@ -27,13 +27,13 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 )
 
 const wakeWebFailCommand = "echo 'tests failed'; exit 2"

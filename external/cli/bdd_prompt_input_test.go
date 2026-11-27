@@ -24,10 +24,10 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/mention"
 	"github.com/hijera/foxxycode-agent/internal/serve"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 )
 
 const promptInputAnswer = "stub answer for the one-shot run"

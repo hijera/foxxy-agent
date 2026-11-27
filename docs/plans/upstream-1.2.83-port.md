@@ -40,7 +40,7 @@ Upstream's whole-SPA Prettier sweep is not copied: this fork deliberately keeps
 change. The existing staged-file Prettier gate remains. New and changed SPA
 files in this port are formatted individually.
 
-Upstream-branded screenshots are not copied. The two branch-menu captures in
+Upstream-branded screenshots are not copied. The three branch-menu captures in
 `docs/assets/ui-branch-menu/` come from the real FoxxyCode `WorkspaceChips`
 component on an isolated Vite stand at 1280×800 in the dark theme.
 

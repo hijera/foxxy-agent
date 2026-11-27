@@ -23,11 +23,11 @@ import (
 
 	"github.com/cucumber/godog"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 const (

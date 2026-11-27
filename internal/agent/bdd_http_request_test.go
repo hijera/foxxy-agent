@@ -26,12 +26,12 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 

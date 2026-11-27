@@ -25,12 +25,12 @@ import (
 	"github.com/cucumber/godog"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/EvilFreelancer/tgfake/pkg/botapi"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/EvilFreelancer/tgfake/pkg/botapi"
-	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 const (

@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 type fixedSession struct{ id, dir string }
