@@ -50,9 +50,9 @@ func (m *Manager) SelectOptionTool() *tooling.Tool {
 
 type selectOptionArgs struct {
 	screenshotOptions
-	Selector string `json:"selector"`
-	Value    string `json:"value"`
-	Label    string `json:"label"`
+	Selector string  `json:"selector"`
+	Value    *string `json:"value"`
+	Label    *string `json:"label"`
 }
 
 // selectOptionScript lists or picks an option. Selection goes through
@@ -67,12 +67,14 @@ const selectOptionScript = `(function(spec){
     var o = el.options[i];
     opts.push({value: o.value, label: (o.label || o.textContent || "").trim(), selected: o.selected});
   }
-  if (!spec.value && !spec.label) return {options: opts};
+  var hasValue = Object.prototype.hasOwnProperty.call(spec, "value");
+  var hasLabel = Object.prototype.hasOwnProperty.call(spec, "label");
+  if (!hasValue && !hasLabel) return {options: opts};
   var idx = -1;
   for (var j = 0; j < el.options.length; j++) {
     var c = el.options[j];
-    if (spec.value !== "" && c.value === spec.value) { idx = j; break; }
-    if (spec.value === "" && (c.label || c.textContent || "").trim() === spec.label) { idx = j; break; }
+    if (hasValue && c.value === spec.value) { idx = j; break; }
+    if (!hasValue && hasLabel && (c.label || c.textContent || "").trim() === spec.label) { idx = j; break; }
   }
   if (idx < 0) return {error: "no option matches", options: opts};
   el.selectedIndex = idx;
@@ -109,7 +111,14 @@ func (m *Manager) executeSelectOption(_ context.Context, argsJSON string, env *t
 		return fmt.Sprintf("error: %v", err), nil
 	}
 
-	spec, _ := json.Marshal(map[string]string{"selector": sel, "value": args.Value, "label": args.Label})
+	specArgs := map[string]string{"selector": sel}
+	if args.Value != nil {
+		specArgs["value"] = *args.Value
+	}
+	if args.Label != nil {
+		specArgs["label"] = *args.Label
+	}
+	spec, _ := json.Marshal(specArgs)
 	var res selectOptionResult
 	if err := b.run(chromedp.Evaluate(fmt.Sprintf(selectOptionScript, string(spec)), &res)); err != nil {
 		return fmt.Sprintf("error: select option: %v", err), nil

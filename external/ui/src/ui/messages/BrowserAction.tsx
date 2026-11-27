@@ -174,6 +174,32 @@ export function BrowserAction(props: {
   }
   const selector = arg("selector").trim();
   const hasArgs = Object.keys(args).length > 0;
+  const extraArgs = { ...args };
+  delete extraArgs.selector;
+  delete extraArgs.screenshot;
+  delete extraArgs.screenshot_prompt;
+  if (operation === "navigate") delete extraArgs.url;
+  if (operation === "evaluate") delete extraArgs.expression;
+  if (operation === "fill") delete extraArgs.text;
+  if (operation === "upload_file") {
+    delete extraArgs.path;
+    delete extraArgs.paths;
+  }
+  if (operation === "scroll") {
+    delete extraArgs.x;
+    delete extraArgs.y;
+  }
+  const extraArgsText = Object.keys(extraArgs).length
+    ? JSON.stringify(extraArgs, null, 2)
+    : "";
+  const uploadPath = arg("path");
+  const uploadPaths = [
+    ...(uploadPath ? [uploadPath] : []),
+    ...(Array.isArray(args.paths)
+      ? args.paths.filter((p): p is string => typeof p === "string")
+      : []),
+  ];
+  const uploadText = uploadPaths.join("\n");
   return (
     <div
       className={`browser-action${failed ? " browser-action--failed" : ""}`}
@@ -189,6 +215,11 @@ export function BrowserAction(props: {
           </span>
           <BrowserHighlight text={selector} language="css" />
         </div>
+      )}
+      {operation === "upload_file" && uploadText && (
+        <BrowserContent label={t("messages.browser.files")} text={uploadText}>
+          <pre>{uploadText}</pre>
+        </BrowserContent>
       )}
       {operation === "evaluate" && arg("expression") && (
         <BrowserCode expression={arg("expression")} />
@@ -206,6 +237,14 @@ export function BrowserAction(props: {
         (hasArgs || props.argsText?.trim() === "{}") && (
           <ScrollDiagram x={scrollOffset(args.x)} y={scrollOffset(args.y)} />
         )}
+      {extraArgsText && (
+        <BrowserContent
+          label={t("messages.browser.arguments")}
+          text={extraArgsText}
+        >
+          <pre>{extraArgsText}</pre>
+        </BrowserContent>
+      )}
       {!hasArgs && props.argsText && props.argsText.trim() !== "{}" && (
         <BrowserContent
           label={t("messages.browser.arguments")}

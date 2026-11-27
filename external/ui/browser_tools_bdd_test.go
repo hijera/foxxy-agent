@@ -96,6 +96,15 @@ func TestBrowserToolPresentationFeature(t *testing.T) {
 			sc.Step(`^text results and page log errors remain visible$`, func() error {
 				return check(`document.body.textContent.includes('button "Submit"') && !!document.querySelector('.browser-log-line--error')`)
 			})
+			sc.Step(`^an upload permission request$`, func() error {
+				return chromedp.Run(tab, chromedp.EmulateViewport(1280, 900), chromedp.Navigate(server.baseURL+"/browser-tools-check.html?permission=upload&lang=en"), chromedp.WaitReady(".permission-prompt-card"))
+			})
+			sc.Step(`^the permission preview lists every selected file$`, func() error {
+				return check(`document.querySelector('.permission-prompt-card').textContent.includes('fixtures/report.pdf') && document.querySelector('.permission-prompt-card').textContent.includes('fixtures/screenshot.png')`)
+			})
+			sc.Step(`^the upload action heading is localized$`, func() error {
+				return check(`document.querySelector('.permission-preview-bar').textContent === 'Attach file'`)
+			})
 		},
 	}
 	status := suite.Run()
@@ -144,6 +153,22 @@ func TestBrowserToolPresentationFeature(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("compact-%s-%d.png", theme, width)), png, 0o600); err != nil {
 					t.Fatal(err)
 				}
+			}
+		}
+		for _, width := range []int64{390, 1280} {
+			var png []byte
+			selector := `[data-testid="permission-prompt-card"]`
+			if err := chromedp.Run(tab,
+				chromedp.EmulateViewport(width, 900),
+				chromedp.Navigate(server.baseURL+"/browser-tools-check.html?permission=upload&lang=en&theme=dark"),
+				chromedp.WaitReady(selector),
+				chromedp.Evaluate(`document.activeElement?.blur()`, nil),
+				chromedp.Screenshot(selector, &png, chromedp.NodeVisible),
+			); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("upload-permission-dark-%d.png", width)), png, 0o600); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}

@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { setLocale, t } from "../i18n/i18n";
 import {
+  browserActionLabel,
   isBrowserToolName,
   parseBrowserActionResult,
   sessionAssetUrl,
 } from "./browserActionDisplay";
+
+afterEach(() => setLocale("en"));
 
 describe("isBrowserToolName", () => {
   it("matches foxxycode_browser_* tools", () => {
@@ -65,6 +69,46 @@ describe("parseBrowserActionResult", () => {
     const info = parseBrowserActionResult("error: navigate https://x: boom");
     expect(info!.action).toBe("error: navigate https://x: boom");
     expect(info!.screenshotName).toBeUndefined();
+  });
+});
+
+describe("browserActionLabel", () => {
+  const cases = [
+    ["navigate_back", "Go back", "Перейти назад"],
+    ["fill_form", "Fill form", "Заполнить форму"],
+    ["press_key", "Press key", "Нажать клавишу"],
+    ["select_option", "Select option", "Выбрать вариант"],
+    ["drag", "Drag element", "Перетащить элемент"],
+    ["upload_file", "Attach file", "Прикрепить файл"],
+    ["wait_for", "Wait for page state", "Дождаться состояния страницы"],
+    ["handle_dialog", "Handle dialog", "Обработать диалог"],
+    ["tabs", "Manage tabs", "Управлять вкладками"],
+    ["resize", "Resize viewport", "Изменить размер области просмотра"],
+    ["find", "Find elements", "Найти элементы"],
+    ["network", "Inspect network", "Проверить сеть"],
+    ["route", "Control network", "Управлять сетью"],
+    ["storage_set", "Write storage", "Изменить хранилище"],
+  ];
+
+  it("localizes every added browser operation", () => {
+    for (const [operation, en, ru] of cases) {
+      const name = `foxxycode_browser_${operation}`;
+      setLocale("en");
+      expect(browserActionLabel(name, "{}", "pending", t)).toBe(en);
+      setLocale("ru");
+      expect(browserActionLabel(name, "{}", "pending", t)).toBe(ru);
+    }
+  });
+
+  it("distinguishes forward history navigation", () => {
+    expect(
+      browserActionLabel(
+        "foxxycode_browser_navigate_back",
+        '{"direction":"forward"}',
+        "pending",
+        t,
+      ),
+    ).toBe("Go forward");
   });
 });
 

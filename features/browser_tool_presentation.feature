@@ -8,3 +8,8 @@ Feature: Browser tool presentation in the transcript
     And long code can be expanded and collapsed
     And scroll offsets appear inside a screen diagram
     And text results and page log errors remain visible
+
+  Scenario: Review local files before an upload
+    Given an upload permission request
+    Then the permission preview lists every selected file
+    And the upload action heading is localized

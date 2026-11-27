@@ -5,7 +5,11 @@ package browser
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/network"
 )
 
 func TestNetworkJournalListsRequestsAndServesBodies(t *testing.T) {
@@ -76,6 +80,24 @@ func TestRouteMockServesACannedResponse(t *testing.T) {
 	if !strings.Contains(logRes, "500") {
 		t.Errorf("after unroute the real 500 was not observed:\n%s", logRes)
 	}
+}
+
+func TestRouteMockConcurrentPausedRequests(t *testing.T) {
+	b := &Browser{mocks: []routeMock{{substr: "/api/", status: 200, contentType: "application/json"}}}
+	event := &fetch.EventRequestPaused{Request: &network.Request{URL: "http://example.test/api/data"}}
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			b.resolvePaused(context.Background(), event)
+		}()
+		go func(i int) {
+			defer wg.Done()
+			_, _ = routeMockAdd(b, routeArgs{URLSubstring: "/api/", Status: 200 + i%2, Body: strings.Repeat("x", i)})
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestRouteOfflineTogglesTheNetwork(t *testing.T) {

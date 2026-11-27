@@ -83,7 +83,18 @@ const waitConditionScript = `(function(spec){
   return true;
 })(%s)`
 
-func (m *Manager) executeWaitFor(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
+func waitForContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *Manager) executeWaitFor(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[waitForArgs](argsJSON)
 	if err != nil {
 		return "", err
@@ -99,6 +110,9 @@ func (m *Manager) executeWaitFor(_ context.Context, argsJSON string, env *toolin
 	if seconds > waitMaxSeconds {
 		seconds = waitMaxSeconds
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Sprintf("error: wait_for: %v", err), nil
+	}
 	b, err := m.open(env)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
@@ -106,11 +120,13 @@ func (m *Manager) executeWaitFor(_ context.Context, argsJSON string, env *toolin
 
 	hasCondition := args.Text != "" || args.GoneText != "" || args.Selector != ""
 	if !hasCondition {
-		// A plain sleep: bounded tighter, because nothing can cut it short.
+		// A plain sleep has a tighter bound because no condition can cut it short.
 		if seconds > 30 {
 			seconds = 30
 		}
-		time.Sleep(time.Duration(seconds) * time.Second)
+		if err := waitForContext(ctx, time.Duration(seconds)*time.Second); err != nil {
+			return fmt.Sprintf("error: wait_for: %v", err), nil
+		}
 		return finishAction(b, env, fmt.Sprintf("waited %ds", seconds), args.screenshotOptions)
 	}
 
@@ -125,7 +141,7 @@ func (m *Manager) executeWaitFor(_ context.Context, argsJSON string, env *toolin
 	deadline := start.Add(time.Duration(seconds) * time.Second)
 	for {
 		var ok bool
-		if err := b.run(chromedp.Evaluate(script, &ok)); err != nil {
+		if err := b.runContext(ctx, chromedp.Evaluate(script, &ok)); err != nil {
 			return fmt.Sprintf("error: wait_for: %v", err), nil
 		}
 		if ok {
@@ -135,6 +151,8 @@ func (m *Manager) executeWaitFor(_ context.Context, argsJSON string, env *toolin
 			return fmt.Sprintf("error: wait_for: condition not met within %ds (text=%q gone_text=%q selector=%q)",
 				seconds, args.Text, args.GoneText, args.Selector), nil
 		}
-		time.Sleep(waitPollInterval)
+		if err := waitForContext(ctx, waitPollInterval); err != nil {
+			return fmt.Sprintf("error: wait_for: %v", err), nil
+		}
 	}
 }

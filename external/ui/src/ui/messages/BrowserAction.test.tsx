@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { BrowserAction } from "./BrowserAction";
 import { setLocale } from "../i18n/i18n";
 
 afterEach(() => {
@@ -61,6 +62,25 @@ test("uses localized screenshot completion and handles unavailable assets", () =
   );
   fireEvent.error(img);
   expect(screen.getByText("Скриншот недоступен")).toBeTruthy();
+});
+
+test("a pending upload names every local file it will attach", () => {
+  const { container } = render(
+    <BrowserAction
+      name="foxxycode_browser_upload_file"
+      argsText={JSON.stringify({
+        selector: "#attachment",
+        path: "docs/report.pdf",
+        paths: ["C:\\fixtures\\credentials.txt", "/tmp/picture.png"],
+      })}
+      resultText=""
+      status="pending"
+      sessionId=""
+    />,
+  );
+  expect(container.textContent).toContain("docs/report.pdf");
+  expect(container.textContent).toContain("C:\\fixtures\\credentials.txt");
+  expect(container.textContent).toContain("/tmp/picture.png");
 });
 
 test("loads the full browser result instead of re-rendering the truncated preview", async () => {
@@ -167,7 +187,9 @@ test("a browser call that returned an error is marked failed on its row", () => 
       resultText="error: net::ERR_NAME_NOT_RESOLVED"
     />,
   );
-  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(failed)");
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent(
+    "(failed)",
+  );
 });
 
 test("formats and highlights JavaScript and preserves the complete result", async () => {

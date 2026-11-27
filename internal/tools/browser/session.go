@@ -382,6 +382,14 @@ func (b *Browser) run(actions ...chromedp.Action) error {
 	return chromedp.Run(ctx, actions...)
 }
 
+func (b *Browser) runContext(ctx context.Context, actions ...chromedp.Action) error {
+	actionCtx, cancel := context.WithTimeout(b.currentCtx(), b.timeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+	return chromedp.Run(actionCtx, actions...)
+}
+
 // currentCtx returns the current tab's context, falling back to any live tab
 // (the current one may have been closed from inside the page).
 func (b *Browser) currentCtx() context.Context {
@@ -732,7 +740,8 @@ func (b *Browser) resolvePaused(ctx context.Context, e *fetch.EventRequestPaused
 	var mock *routeMock
 	for i := range b.mocks {
 		if strings.Contains(e.Request.URL, b.mocks[i].substr) {
-			mock = &b.mocks[i]
+			matched := b.mocks[i]
+			mock = &matched
 			break
 		}
 	}

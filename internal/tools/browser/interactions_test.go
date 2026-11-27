@@ -151,6 +151,30 @@ func TestPressKeySubmitsAndWaitForSeesLateContent(t *testing.T) {
 	}
 }
 
+func TestWaitForHonorsCancellation(t *testing.T) {
+	for _, argsJSON := range []string{
+		`{"seconds":1}`,
+		`{"text":"never appears","seconds":1}`,
+	} {
+		m := newTestManager(t)
+		env := testEnv(t, "wait-cancel")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		started := time.Now()
+		res, err := m.executeWaitFor(ctx, argsJSON, env)
+		m.closeSession("wait-cancel")
+		if err != nil {
+			t.Fatalf("wait_for cancellation: %v", err)
+		}
+		if !strings.Contains(res, context.Canceled.Error()) {
+			t.Errorf("wait_for after cancellation = %q, want context cancellation", res)
+		}
+		if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+			t.Errorf("cancelled wait_for took %v", elapsed)
+		}
+	}
+}
+
 func TestParseKeySpec(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -190,6 +214,14 @@ func TestSelectOptionListsAndPicks(t *testing.T) {
 	runTool(t, "pick by label", m.executeSelectOption, `{"selector":"#pet","label":"Dog"}`, env)
 	if got := evalString(t, m, env, `document.getElementById('petout').textContent`); got != "dog" {
 		t.Errorf("after picking Dog, change handler saw %q, want \"dog\"", got)
+	}
+
+	runTool(t, "pick an explicitly empty value", m.executeSelectOption, `{"selector":"#pet","value":""}`, env)
+	if got := evalString(t, m, env, `document.getElementById('pet').value`); got != "" {
+		t.Errorf("after picking the empty value, select value = %q, want empty", got)
+	}
+	if got := evalString(t, m, env, `document.getElementById('petout').textContent`); got != "" {
+		t.Errorf("empty-value change handler saw %q, want empty", got)
 	}
 
 	res, _ := m.executeSelectOption(context.Background(), `{"selector":"#pet","value":"fish"}`, env)

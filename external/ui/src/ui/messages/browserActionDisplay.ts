@@ -111,6 +111,13 @@ export function browserActionLabel(
 ): string {
   let operation = browserOperation(name);
   const args = browserArgs(argsText);
+  if (
+    operation === "navigate_back" &&
+    typeof args.direction === "string" &&
+    args.direction.trim().toLowerCase() === "forward"
+  ) {
+    operation = "navigate_forward";
+  }
   if (operation === "inspect") {
     const what =
       typeof args.what === "string" ? args.what.trim().toLowerCase() : "";
@@ -128,16 +135,31 @@ export function browserActionLabel(
     operation = "screenshot_done";
   const known = [
     "navigate",
+    "navigate_back",
+    "navigate_forward",
     "evaluate",
     "screenshot",
     "screenshot_done",
     "click",
     "fill",
+    "fill_form",
+    "press_key",
+    "select_option",
     "hover",
+    "drag",
+    "upload_file",
+    "wait_for",
+    "handle_dialog",
+    "tabs",
+    "resize",
     "scroll",
     "scroll_to",
     "read_page",
+    "find",
     "page_log",
+    "network",
+    "route",
+    "storage_set",
     "inspect",
     "inspect_storage",
     "inspect_timing",
