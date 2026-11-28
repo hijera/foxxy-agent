@@ -1701,6 +1701,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	stopReason, _, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts, goalCmd)
 	if err != nil {
 		state.TakeTurnStopNotice()
+		state.takeGoalCommandNotice()
 		if errors.Is(err, context.Canceled) {
 			outcome = ActivityOutcomeCanceled
 		} else {
@@ -1713,6 +1714,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		return nil, err
 	}
+
+	// A /goal command answers like a settings command: its notice is the
+	// reply of a surface that shows no session update (the HTTP JSON answer).
+	// Take it per run - the first turn here, then every drained batch - so a
+	// later batch cannot answer with an earlier command's notice and an
+	// erroring batch cannot leave one for the next prompt.
+	goalNotice := state.takeGoalCommandNotice()
 
 	// The ReAct loop reads the queue between its own steps, which is where a
 	// follow-up is meant to land. What it cannot catch is the last moment of
@@ -1829,6 +1837,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		if err != nil {
 			state.TakeTurnStopNotice()
+			state.takeGoalCommandNotice()
 			if errors.Is(err, context.Canceled) {
 				outcome = ActivityOutcomeCanceled
 			} else {
@@ -1841,6 +1850,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			}
 			return nil, err
 		}
+		if notice := state.takeGoalCommandNotice(); notice != "" {
+			goalNotice = notice
+		}
 		if unread {
 			// A run that recorded nothing answered nothing. Continuing would take
 			// the very messages just put back and hand them to the same refusal.
@@ -1849,10 +1861,8 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 
 	res := &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}
-	// A /goal command answers like a settings command: its notice is the
-	// reply of a surface that shows no session update (the HTTP JSON answer).
-	if notice := state.takeGoalCommandNotice(); notice != "" {
-		res.SettingsNotice = notice
+	if goalNotice != "" {
+		res.SettingsNotice = goalNotice
 	}
 	if turnCtx.Err() != nil && outcome == ActivityOutcomeSuccess {
 		outcome = ActivityOutcomeCanceled

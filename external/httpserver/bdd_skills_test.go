@@ -59,9 +59,10 @@ type skFeatureState struct {
 	prevPATH    string
 	hadPATH     bool
 	pathChanged bool
-	prevTMP     string
-	hadTMP      bool
-	tmpChanged  bool
+	// prevTemp holds what the temp-dir scenario changed, keyed by variable:
+	// TMPDIR is what os.TempDir reads on Unix, TMP and TEMP on Windows.
+	prevTemp    map[string]string
+	tempChanged bool
 }
 
 func (s *skFeatureState) reset() error {
@@ -100,15 +101,15 @@ func (s *skFeatureState) close() {
 			_ = os.Unsetenv("PATH")
 		}
 	}
-	if s.tmpChanged {
-		if s.hadTMP {
-			_ = os.Setenv("TMPDIR", s.prevTMP)
-		} else {
-			_ = os.Unsetenv("TMPDIR")
+	for name, prev := range s.prevTemp {
+		if prev == "" {
+			_ = os.Unsetenv(name)
+			continue
 		}
+		_ = os.Setenv(name, prev)
 	}
+	s.prevTemp = nil
 	s.prevPATH, s.hadPATH, s.pathChanged = "", false, false
-	s.prevTMP, s.hadTMP, s.tmpChanged = "", false, false
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -262,9 +263,18 @@ func (s *skFeatureState) gitUnavailableToFoxxyCode() error {
 }
 
 func (s *skFeatureState) systemTemporaryDirectoryUnavailable() error {
-	s.prevTMP, s.hadTMP = os.LookupEnv("TMPDIR")
-	s.tmpChanged = true
-	return os.Setenv("TMPDIR", filepath.Join(s.root, "missing-tmp"))
+	s.prevTemp = map[string]string{}
+	missing := filepath.Join(s.root, "missing-tmp")
+	// TMPDIR is what os.TempDir reads on Unix; TMP and TEMP on Windows, where
+	// Go ignores TMPDIR. Point all three at a path that does not exist.
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		s.prevTemp[name], _ = os.LookupEnv(name)
+		if err := os.Setenv(name, missing); err != nil {
+			return err
+		}
+	}
+	s.tempChanged = true
+	return nil
 }
 
 func (s *skFeatureState) addSourceAndSync(market string) error {

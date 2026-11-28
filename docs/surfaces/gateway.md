@@ -618,7 +618,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/app` | admins (`admins`) | Only with `gateways.telegram.mini_app.url` set: answers with **Open in FoxxyCode**, a button that opens the chat's conversation in the web UI - as a Mini App in a private chat, as a link in a group ([Mini App](#mini-app)). |
 | `/clear` | all permitted users (admins only in a group) | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk); `/resume` brings it back. |
 
-When the supervisor starts a continuation in the chat, the bot posts a separate `🔁` note with the remaining work before the next answer. The same prompt is saved as its own transcript row, so `/resume` on another surface sees it too.
+When the supervisor starts a continuation in the chat, the bot posts a separate `🎯` note with the remaining work before the next answer. The same prompt is saved as its own transcript row, so `/resume` on another surface sees it too.
 
 The settings commands `/agent`, `/plan`, `/ask` and `/debug` take `--once` or `--count=N` to change a setting for the next messages only, and a message may follow them: `/plan --once how would you split this package?` plans one answer and leaves the chat in its mode. A command alone runs no turn and is answered with a line saying what changed. `/mode` still opens all five modes, including `docs`. `/permissions` is not a bot command: the bot approves its chat agent's tools itself, so the session's permission mode would only change what other surfaces watching the session ask ([Session settings](../features/session-settings.md)).
 

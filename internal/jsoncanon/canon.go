@@ -1,9 +1,11 @@
 // Package jsoncanon writes a JSON document in one canonical form: no
 // insignificant whitespace and the keys of every object sorted, so the same
-// value written two ways compares equal. Objects and arrays are read into
-// typed containers of raw members and canonicalized member by member, and a
-// scalar is compacted as it was written, so nothing is decoded into an
-// arbitrary interface value.
+// document written with the keys in two orders compares equal. Objects and
+// arrays are read into typed containers of raw members and canonicalized
+// member by member; a scalar is compacted as it was written, so nothing is
+// decoded into an arbitrary interface value - which also means two spellings
+// of one string or number ("A" and "\u0041", 1.0 and 1e0) stay different,
+// close enough for the fingerprints this package feeds.
 package jsoncanon
 
 import (

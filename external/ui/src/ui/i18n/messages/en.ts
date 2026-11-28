@@ -1,5 +1,6 @@
 /** English UI strings for the FoxxyCode SPA. Keys use dot notation grouped by area. */
 export const messagesEn: Record<string, string> = {
+  "common.cancel": "Cancel",
   "settings.userAgent.anthropic": "Anthropic/Go (default)",
   "settings.userAgent.openai": "OpenAI/Go (default)",
   "settings.userAgent.foxxycode": "Foxxycode/version",
@@ -2373,7 +2374,7 @@ export const messagesEn: Record<string, string> = {
     "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met.",
   "settings.schema.supervisor.max_continuations.label": "Max continuations",
   "settings.schema.supervisor.max_continuations.desc":
-    "Automatic follow-up turns one goal may use before a wrap-up turn and the stop.",
+    "Automatic follow-up turns one goal may use before it stops as limited.",
   "settings.schema.supervisor.token_budget.label": "Token budget",
   "settings.schema.supervisor.token_budget.desc":
     "Uncached input plus output tokens one goal may spend. 0 means no cap.",

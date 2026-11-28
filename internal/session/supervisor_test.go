@@ -984,3 +984,26 @@ func TestRestrictedTurnLeavesActiveGoalForTheOperator(t *testing.T) {
 		t.Fatalf("status=%s checks=%d runs=%d; want an ordinary restricted chat turn", g.Status, len(h.checks), len(h.prompts))
 	}
 }
+
+func TestFatalTurnErrorPausesTheGoalEvenWithAQueuedMessage(t *testing.T) {
+	h := newGoalHarness(t)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		if _, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, "meanwhile, check the logs", session.QueueModeAfterTurn, nil); err != nil {
+			t.Fatal(err)
+		}
+		return "", errors.New("provider exploded")
+	}
+	_, err := h.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sid, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "/goal finish the review"}},
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "provider exploded") {
+		t.Fatalf("err = %v; want the fatal provider error back", err)
+	}
+	g := h.st().GetGoal()
+	if g.Status != session.GoalPaused || !strings.Contains(g.StatusReason, "provider exploded") {
+		t.Fatalf("goal=%+v turns=%v; a fatal error must pause the goal even with a queued message", g, h.kinds())
+	}
+	if q := h.st().QueuedMessages(); len(q) != 1 {
+		t.Fatalf("queue = %+v; the after_turn message waits for the next turn", q)
+	}
+}

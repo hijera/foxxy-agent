@@ -1,5 +1,6 @@
 /** Russian UI strings for the FoxxyCode SPA. */
 export const messagesRu: Record<string, string> = {
+  "common.cancel": "Отмена",
   "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
   "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
   "settings.userAgent.foxxycode": "Foxxycode/версия",
@@ -2461,11 +2462,11 @@ export const messagesRu: Record<string, string> = {
     "Прежде чем закрыть цель, субагент с инструментами только на чтение открывает рабочую папку и подтверждает каждое требование, которое проверка сочла выполненным.",
   "settings.schema.supervisor.max_continuations.label": "Максимум продолжений",
   "settings.schema.supervisor.max_continuations.desc":
-    "Сколько автоматических ходов может занять одна цель, после них идёт завершающий ход и остановка.",
+    "Сколько автоматических ходов может занять одна цель, прежде чем она остановится по лимиту.",
   "settings.schema.supervisor.token_budget.label": "Бюджет токенов",
   "settings.schema.supervisor.token_budget.desc":
     "Некэшированные входные и выходные токены на одну цель. 0 снимает ограничение.",
-  "settings.schema.supervisor.stall_seconds.label": "Простой, с",
+  "settings.schema.supervisor.stall_seconds.label": "Простой, сек",
   "settings.schema.supervisor.stall_seconds.desc":
     "Тишина, после которой ход цели прерывается; ожидание разрешения, работающий инструмент и фоновые задачи не учитываются. 0 отключает сторож простоя.",
   "settings.schema.supervisor.max_nudges.label": "Максимум восстановлений",

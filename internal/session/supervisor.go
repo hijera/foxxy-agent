@@ -279,20 +279,23 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 			r.finish(GoalLimited, limitReason(goal, sup), "Goal stopped: "+limitReason(goal, sup))
 			return string(acp.StopReasonEndTurn), nil
 		}
+		// A turn that did not finish is classified before the queue is looked
+		// at: a fatal error pauses the goal whatever the queue holds, and a
+		// stuck turn - cut by the watchdog, stopped by the agent's loop guard
+		// or refused - is checked first, since a worker that loops is often
+		// one that needs the operator.
+		reason, kind, fatal := r.unfinished(stop, err, watch)
+		if kind == turnFatal {
+			return stop, fatal
+		}
 		// What the operator wrote meanwhile goes first; the supervisor picks
 		// the goal up again after it, since that prompt runs supervised too.
+		// A transient failure waits with it: the queued prompt runs
+		// supervised, and its own turn ends with the check.
 		if len(st.QueuedMessages()) > 0 {
 			return stop, err
 		}
-
-		// A turn that did not finish. A provider that failed on the way gets a
-		// recovery turn; a stuck turn - cut by the watchdog, stopped by the
-		// agent's loop guard or refused - is checked first, since a worker
-		// that loops is often one that needs the operator.
-		reason, kind, fatal := r.unfinished(stop, err, watch)
 		switch kind {
-		case turnFatal:
-			return stop, fatal
 		case turnTransient, turnStuck:
 			var remaining []string
 			if kind == turnStuck {
