@@ -191,6 +191,10 @@ type heldPrompt struct {
 
 // promptAfterTurn sends text as a prompt of its own once no turn runs here:
 // now, or when the turn the console still counts as running is seen to end.
+// The direct submit trusts the console's view of activity: if the server is
+// in fact busy (remote state stale for a moment), the refusal comes back
+// through the ordinary prompt-failure path and the text lands in the editor
+// like a typed one - accepted, the window is narrow.
 func (a *App) promptAfterTurn(text string) {
 	if !a.turnActive && !a.remoteTurnActive {
 		a.submitPrompt(text)

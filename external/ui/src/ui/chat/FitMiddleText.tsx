@@ -50,6 +50,10 @@ export function FitMiddleText(props: { text: string; className?: string }) {
   useLayoutEffect(() => {
     const host = ref.current?.parentElement;
     if (!host) return;
+    // fit rewrites the observed node's own text, so a delivery can re-trigger
+    // the observer a few times before the size converges. Nothing here sets
+    // React state - the churn is a handful of layout passes, not a render
+    // loop - and fit() without deps below catches the renders effects miss.
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(host);

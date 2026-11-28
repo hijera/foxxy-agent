@@ -252,6 +252,10 @@ export function GoalPopover(props: {
       setFloatRect(null);
       return;
     }
+    // The panel re-measures on open and on window resize/scroll only. A
+    // layout shift without a window event (a banner appearing over the
+    // composer) leaves it misplaced until the next interaction - accepted,
+    // the app shell rarely moves the composer on its own.
     measure();
     if (props.useSheet) return;
     window.addEventListener("resize", measure);

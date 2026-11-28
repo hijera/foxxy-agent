@@ -15,7 +15,10 @@ import (
 // read it, pause it or set its objective without starting a turn, clear it.
 // Setting a goal and starting to work on it in one step is a prompt, /goal
 // <objective>, sent like any other through POST /v1/responses; so is /goal
-// resume.
+// resume. Two accepted edges: a child session is admitted (compact and the
+// queue refuse one, but a goal on a read-only child is inert - the
+// supervisor never drives a child), and a session deleted between admission
+// and the change answers 400/409 like the no-goal paths instead of 404.
 func (s *Server) registerGoalRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/goal", s.foxxycodeGoalGet)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}/goal", s.foxxycodeGoalPatch)

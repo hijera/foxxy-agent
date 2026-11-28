@@ -141,7 +141,10 @@ func goalEchoPrefix(text string) string {
 }
 
 // expectGoalEcho remembers that a goal command sent from here will answer
-// for the change it makes.
+// for the change it makes. An expectation is consumed by its notice or by
+// the turn's end; a command dropped from the queue in between leaves a
+// stale one, which swallows the next same-prefix notice - from any surface
+// - exactly once.
 func (a *App) expectGoalEcho(text string) {
 	if p := goalEchoPrefix(text); p != "" {
 		a.goalEchoes = append(a.goalEchoes, p)

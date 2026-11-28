@@ -29,6 +29,9 @@ func (m *Manager) EnqueueTurnMessageWithMode(sessionID, text string, mode QueueM
 	// A /goal command is the operator's, like a settings command: read into
 	// the running step it would reach the model as text. It waits for the
 	// turn boundary, where the supervisor runs it before any continuation.
+	// The rule covers a bare command only: with image parts the message is
+	// an ordinary prompt on purpose, since goalCommandOf takes one text
+	// block and no surface sends a command with pictures.
 	if len(parts) == 0 && ParseGoalCommand(text).Kind != GoalCommandNone {
 		mode = QueueModeAfterTurn
 	}

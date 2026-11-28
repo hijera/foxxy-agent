@@ -88,6 +88,10 @@ func safeClone(url, ref, dest string) error {
 // pluginCloneURLAllowed permits non-HTTP transports only when the operator
 // explicitly selected a local or SSH marketplace. A remote marketplace must
 // not use its manifest to reach local repositories or arbitrary SSH hosts.
+// The SSH branches are defense in depth: checkManifestCloneURL refuses the
+// ssh plugin URLs of a manifest before this runs, so the install path only
+// ever reaches here with https, or file:// under a file:// marketplace. The
+// unit test pins the policy, not a path that grants it.
 func pluginCloneURLAllowed(parentSource, pluginURL string) bool {
 	pluginURL = strings.ToLower(strings.TrimSpace(pluginURL))
 	if strings.HasPrefix(pluginURL, "http://") || strings.HasPrefix(pluginURL, "https://") {

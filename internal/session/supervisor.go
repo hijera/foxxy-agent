@@ -304,6 +304,12 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 					return string(acp.StopReasonCancelled), nil
 				}
 				if len(st.QueuedMessages()) > 0 || !r.stillOurs() {
+					// The verdict is dropped, not wasted: the queued prompt
+					// runs supervised and its own turn ends with the check.
+					// This branch answers a clean end turn whatever cut the
+					// previous one - the queue drain needs a stop reason it
+					// can continue on, and the interrupt itself is already in
+					// the transcript's notices.
 					return string(acp.StopReasonEndTurn), nil
 				}
 				if checkErr == nil {
@@ -690,7 +696,11 @@ func firstNonEmpty(values ...string) string {
 
 // runningBackgroundWork reports whether the session has a command or a
 // subagent run in flight: the stall timer waits for it. A preview server runs
-// until stopped and is no result anybody waits for.
+// until stopped and is no result anybody waits for. This is deliberately
+// wider than awaitedBackgroundWork: every in-flight task counts as activity,
+// so a task that never exits keeps the watchdog quiet even though the check
+// would not have waited for it - such a turn is still bounded by the model's
+// call timeout and the stream idle guard.
 func runningBackgroundWork(sessionID string) bool {
 	for _, task := range bgtask.Default().List(sessionID) {
 		if task.Kind != bgtask.KindServer && (task.Status == bgtask.StatusRunning || task.Status == bgtask.StatusQueued) {
