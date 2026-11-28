@@ -291,6 +291,16 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	case acp.BackgroundWakeUpdate:
 		// The first frame of a turn nobody typed: what woke the agent.
 		return s.writeNamedEventJSON("background_wake", u)
+	case acp.SessionGoalUpdate:
+		// The goal changed during this turn: set, checked, continued. The
+		// turn's stream carries the acp shape as-is, while GET .../events and
+		// the REST goal route nest the same fields under "goal"; the remote
+		// client and the SPA both read the two shapes.
+		return s.writeNamedEventJSON("session_goal", u)
+	case acp.GoalTurnUpdate:
+		// The first frame of a turn the supervisor started: a row, not the
+		// instruction text the model reads.
+		return s.writeNamedEventJSON("goal_turn", u)
 	default:
 		return nil
 	}

@@ -76,6 +76,7 @@ const SECTION_DESC_IDS = new Set([
   "providers",
   "models",
   "agent",
+  "supervisor",
   "compaction",
   "autocomplete",
   "tools",
@@ -108,6 +109,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   providers: "settings.section.providers.label",
   models: "settings.section.models.label",
   agent: "settings.section.agent.label",
+  supervisor: "settings.section.supervisor.label",
   compaction: "settings.section.compaction.label",
   autocomplete: "settings.section.autocomplete.label",
   tools: "settings.section.tools.label",
@@ -195,7 +197,8 @@ export function deriveSettingsSections(
 
   const props = schema.properties;
   const order =
-    schema["x-foxxycode-property-order"] && schema["x-foxxycode-property-order"].length
+    schema["x-foxxycode-property-order"] &&
+    schema["x-foxxycode-property-order"].length
       ? schema["x-foxxycode-property-order"]
       : Object.keys(props).sort();
 

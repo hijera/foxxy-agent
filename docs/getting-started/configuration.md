@@ -320,6 +320,22 @@ sessions:
   # Empty = default $FOXXYCODE_HOME/sessions. Supports ${FOXXYCODE_HOME} and ~ in path.
   dir: ""
 
+# Context compaction (Go: config.Compaction, internal/config/compaction.go).
+# Summarizes history older than the keep-recent boundary into one transcript row;
+# later LLM prompts replay only the summary plus the kept tail. Trigger manually
+# with the built-in /compact command (optional -m/--model <id> and -r/--reasoning <level>
+# for that one summary, then optional trailing summarizer instructions)
+# or automatically at threshold_percent of the model's context window
+# (models[].max_context_tokens, else the window the provider reports, else 128000).
+compaction:
+  enable: true             # master switch (manual command and automation)
+  auto_enable: true        # false disables only automatic compaction
+  threshold_percent: 80    # auto-compact trigger, 1..100, a percent of the context window
+  keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+  model: ""                # models[].model for the summarizer; empty = session model
+  fallback_models: []      # tried in order when the summarizer above them fails; the session
+                           # model is the last resort whether or not it is listed
+
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enable.
 memory:

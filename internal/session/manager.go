@@ -59,7 +59,11 @@ type Manager struct {
 	// (context_window.go).
 	windows contextWindowState
 	runner  AgentRunner
-	log     *slog.Logger
+	// goalJudge and goalVerifier check a goal turn's result
+	// (supervisor.go); nil judge means the model-based default.
+	goalJudge    GoalJudge
+	goalVerifier GoalVerifier
+	log          *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -136,6 +140,8 @@ type Manager struct {
 	// settingsObs fans every change of a session's settings out the same way
 	// (settings.go).
 	settingsObs settingsObservers
+	// goalObs fans every goal change out to the surfaces (goal.go).
+	goalObs goalObservers
 
 	// deleting counts the DeleteSessionTree calls currently covering a
 	// session, so a turn racing the delete is refused instead of recreating
@@ -770,6 +776,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		return nil, err
 	}
 
+	m.attachGoalNotifier(state)
 	m.mu.Lock()
 	prev := m.sessions[id]
 	m.sessions[id] = state
@@ -908,6 +915,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	if snap.Meta.Goal != nil {
+		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
+	}
 	jobSession := false
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
@@ -1626,6 +1636,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// plan mention below stays material to read (HydrateSessionPlanMentions
 	// inlines the document) instead of turning into a run request.
 	askMode := state.GetMode() == string(ModeAsk)
+	var goalCmd GoalCommand
+	if operatorTurn {
+		goalCmd = goalCommandOf(params.Prompt)
+	}
 
 	// A restricted turn (a messenger user who is not the bot's admin) does not
 	// run a plan: running one switches the session's mode, which is the
@@ -1657,7 +1671,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode && !restricted && goalCmd.Kind == GoalCommandNone {
 		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
@@ -1684,9 +1698,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	ranRunner = true
 	m.log.DebugContext(ctx, "session.prompt.prepared", "session", params.SessionID, "elapsed_ms", time.Since(started).Milliseconds())
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
+	stopReason, _, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts, goalCmd)
 	if err != nil {
 		state.TakeTurnStopNotice()
+		state.takeGoalCommandNotice()
 		if errors.Is(err, context.Canceled) {
 			outcome = ActivityOutcomeCanceled
 		} else {
@@ -1699,6 +1714,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		return nil, err
 	}
+
+	// A /goal command answers like a settings command: its notice is the
+	// reply of a surface that shows no session update (the HTTP JSON answer).
+	// Take it per run - the first turn here, then every drained batch - so a
+	// later batch cannot answer with an earlier command's notice and an
+	// erroring batch cannot leave one for the next prompt.
+	goalNotice := state.takeGoalCommandNotice()
 
 	// The ReAct loop reads the queue between its own steps, which is where a
 	// follow-up is meant to land. What it cannot catch is the last moment of
@@ -1783,17 +1805,23 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// The capped answer and its notice are already in the transcript. A
 		// queued answer has its own ending and must not return the old notice.
 		state.TakeTurnStopNotice()
-		prompt := state.ResolveQueuedMentions(QueuedPromptBlocks(queued))
+		prompt := QueuedPromptBlocks(queued)
+		var queuedGoalCmd GoalCommand
+		if len(queued) == 1 {
+			queuedGoalCmd = goalCommandOf(prompt)
+		}
+		prompt = state.ResolveQueuedMentions(prompt)
 		if droppedNote != "" {
 			prompt = append(prompt, acp.ContentBlock{Type: acp.ContentTypeText, Text: droppedNote})
 		}
-		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, prompt, sender)
+		var goalHandled bool
+		stopReason, goalHandled, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, prompt, sender, opts, queuedGoalCmd)
 		state.ClearNextPromptQueued()
 		// The run ended before its prompt entered the conversation - a Stop that
 		// landed first, a hook that refused the text - and the check is the
 		// conversation rather than the context: a refusal returns without
 		// cancelling anything, and its message is as unread as one a Stop took.
-		unread := state.MessagesRev() == rev
+		unread := !goalHandled && state.MessagesRev() == rev
 		if unread {
 			// Nothing read the batch. An after_turn message waits again, as Stop
 			// promises, and the images it was to carry are not left for the next
@@ -1809,6 +1837,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		if err != nil {
 			state.TakeTurnStopNotice()
+			state.takeGoalCommandNotice()
 			if errors.Is(err, context.Canceled) {
 				outcome = ActivityOutcomeCanceled
 			} else {
@@ -1821,6 +1850,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			}
 			return nil, err
 		}
+		if notice := state.takeGoalCommandNotice(); notice != "" {
+			goalNotice = notice
+		}
 		if unread {
 			// A run that recorded nothing answered nothing. Continuing would take
 			// the very messages just put back and hand them to the same refusal.
@@ -1828,6 +1860,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
+	res := &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}
+	if goalNotice != "" {
+		res.SettingsNotice = goalNotice
+	}
 	if turnCtx.Err() != nil && outcome == ActivityOutcomeSuccess {
 		outcome = ActivityOutcomeCanceled
 	}
@@ -1838,7 +1874,8 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// streamed the notice into the answer and stored it in the transcript
 	// (fork(stop-notice-transcript)), so it is handed to the caller only, not
 	// written to the UI log a second time.
-	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason), StopNotice: state.TakeTurnStopNotice()}, nil
+	res.StopNotice = state.TakeTurnStopNotice()
+	return res, nil
 }
 
 // maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by
@@ -1942,6 +1979,7 @@ func (m *Manager) registerSession(id string, st *State) (winner *State, register
 		return existing, false
 	}
 	m.sessions[id] = st
+	m.attachGoalNotifier(st)
 	// What a surface let go of is the live state's again (loadSessionFromDisk
 	// restored it). Taken under the lock ForgetLiveSession sets it aside under,
 	// so a let-go right after this registration keeps what it reads.
@@ -1982,6 +2020,11 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
+	// A goal the session carries is on screen from the start: a client that
+	// opens or loads it learns where the supervisor stands.
+	if st != nil && st.GetGoal().Set() && m.server != nil {
+		_ = m.server.SendSessionUpdate(sessionID, m.goalUpdate(st, ""))
+	}
 	// The footer is populated before the first prompt: an automatic read,
 	// served from the cache when it is warm.
 	m.publishProviderUsageOnReady(sessionID, st)

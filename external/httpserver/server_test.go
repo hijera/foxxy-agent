@@ -457,7 +457,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/foxxycode/sessions/{id}/rewind", "/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/fetch", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
+	for _, must := range []string{"/foxxycode/sessions/{id}/rewind", "/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/fetch", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout", "/foxxycode/sessions/{id}/queue", "/foxxycode/sessions/{id}/queue/{message_id}", "/foxxycode/sessions/{id}/goal", "/foxxycode/docs", "/foxxycode/docs/page", "/foxxycode/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -485,6 +485,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	for path, ops := range map[string][]string{
 		"/foxxycode/sessions/{id}":        {"patch", "delete"},
 		"/foxxycode/sessions/{id}/rewind": {"post"},
+		"/foxxycode/sessions/{id}/goal":   {"get", "patch", "delete"},
 		"/foxxycode/workspace/fetch":      {"post"},
 	} {
 		entry, ok := paths[path].(map[string]interface{})
@@ -2826,7 +2827,7 @@ func TestFoxxyCodeCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask debug permissions compact export plugin"
+	want := "model reasoning think nothink agent plan ask debug permissions compact goal export plugin"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}
@@ -2835,6 +2836,9 @@ func TestFoxxyCodeCommandsEndpoint(t *testing.T) {
 	}
 	if items[0]["hint"] != "<model id> [--once|--count=N]" {
 		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	if items[10]["name"] != "goal" || items[10]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [<objective>|pause|resume|clear]" {
+		t.Fatalf("goal command = %v", items[10])
 	}
 	for _, it := range items {
 		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {

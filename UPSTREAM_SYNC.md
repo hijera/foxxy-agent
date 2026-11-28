@@ -8,6 +8,15 @@
 - **Порядок обновления:** `git fetch upstream --prune`, затем сравнить
   `git log --oneline <last-synced>..upstream/main` и портировать непортированное.
 
+## Sync through upstream 1.2.85 — 2026-11-27
+
+Checkpoint: `f573a2bbb5ee15fa4f06361aa8232b500c2c289e` (tag `1.2.85`), following `22f03f281f34b30f8713701d4c2a620e505d78cb` (`1.2.83`). Implementation: `8316e10ed8d244f4c2c49820a08c84a376e975fd` on branch `codex/upstream-1-2-85`, based on current `main` `b6665daf3caaf7c63f5069bd298458872b1045cf`. All 34 commits are accounted for: 27 adapted constituent changes and seven redundant integration/release merges. No remaining work in this range.
+
+- Ported the session goal, evidence-based supervisor, bounded continuations and recovery, read-only verifier and watchdog across the console, remote console, web UI, ACP, HTTP, Telegram and Pachca; `/compact` model/reasoning options and picker; skill installation without system git or a system temp directory; the late-folder Files fix, fitted branch names and the Windows Resume/code-scanning fixes.
+- Preserved every registered divergence, both compaction engines, SVN and editor integrations, localization, session persistence and the Chromium 104 baseline. The existing larger app.js budget and newer KaTeX/Commander versions are retained.
+- Adapted standalone `foxxycode http` to install the same verifier as the other surfaces; the live scenario ends with `verified: true`. The Windows loop test uses unique atomic tool-call IDs. Goal badges avoid runtime-dependent color-mix evaluation, and the phone sheet has a `vh` fallback before `dvh`. The marketplace fixture uses valid Windows file URLs, and go-git's drive-host form is normalized by the built-in loader.
+- Validation: the final sequential `make test`, `make check-windows` and `make lint-windows` gate passes on native Windows, including all full-tag Go packages and 387 SPA files / 3,874 tests; `make lint` passes on the resulting tree. Focused Go/HTTP/console suites, fork guards, documentation/schema checks, embedded builds, Chromium 104 and the agent-rule adapters also pass. The real standalone UI and the WSL console scenario produced all six documentation captures from FoxxyCode. Scope and adaptations: `docs/plans/upstream-1.2.85-port.md`.
+
 ## Sync through upstream 1.2.83 — 2026-11-26
 
 Checkpoint: `22f03f281f34b30f8713701d4c2a620e505d78cb` (tag `1.2.83`), following `cd42d7df06fb3c64c1b482e7c4463f3fc239ebb4` (`1.2.79`). Implementation: branch `codex/upstream-1.2.83`, based on current `origin/main` `5bc8593ba`. All 11 commits are accounted for: seven adapted constituent changes and four redundant integration/release merges. No remaining work in this range.

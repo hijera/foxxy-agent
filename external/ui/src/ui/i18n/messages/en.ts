@@ -1,5 +1,6 @@
 /** English UI strings for the FoxxyCode SPA. Keys use dot notation grouped by area. */
 export const messagesEn: Record<string, string> = {
+  "common.cancel": "Cancel",
   "settings.userAgent.anthropic": "Anthropic/Go (default)",
   "settings.userAgent.openai": "OpenAI/Go (default)",
   "settings.userAgent.foxxycode": "Foxxycode/version",
@@ -2357,4 +2358,103 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.description":
     'Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (foxxycode plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.foxxycode/marketplaces.json, the project\'s in its .foxxycode/marketplaces.json, which travels with the checkout: under "ask" a project entry is synced only once you approve it with the shield. Everything installs into ~/.foxxycode/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
+
+  "settings.section.supervisor.label": "Session goal",
+  "settings.section.supervisor.desc": "Goal checks, budgets, watchdog",
+  "settings.group.supervisor.checks": "Goal checks",
+  "settings.group.supervisor.watchdog": "Watchdog",
+  "settings.schema.supervisor.enable.label": "Check every turn",
+  "settings.schema.supervisor.enable.desc":
+    "Check ordinary turns against the latest request even when no /goal is set. A session goal is checked regardless of this switch.",
+  "settings.schema.supervisor.model.label": "Supervisor model",
+  "settings.schema.supervisor.model.desc":
+    "Configured model that checks the work. Empty uses the session model, which then grades its own work; a model of another family is the better judge.",
+  "settings.schema.supervisor.verify.label": "Verify before closing",
+  "settings.schema.supervisor.verify.desc":
+    "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met.",
+  "settings.schema.supervisor.max_continuations.label": "Max continuations",
+  "settings.schema.supervisor.max_continuations.desc":
+    "Automatic follow-up turns one goal may use before it stops as limited.",
+  "settings.schema.supervisor.token_budget.label": "Token budget",
+  "settings.schema.supervisor.token_budget.desc":
+    "Uncached input plus output tokens one goal may spend. 0 means no cap.",
+  "settings.schema.supervisor.stall_seconds.label": "Stall seconds",
+  "settings.schema.supervisor.stall_seconds.desc":
+    "Silence before a goal turn is cut, excluding permission prompts, running tools and background tasks. 0 disables stall detection.",
+  "settings.schema.supervisor.max_nudges.label": "Max recoveries",
+  "settings.schema.supervisor.max_nudges.desc":
+    "Recovery turns after a stall, a tool loop or a failed turn.",
+  "settings.schema.supervisor.loop_repeat.label": "Loop repeat",
+  "settings.schema.supervisor.loop_repeat.desc":
+    "How many times a repeating cycle of identical tool operations with identical results may come round. 0 disables loop detection.",
+  "composer.commandArgSummaryReasoningTitle": "Reasoning level of the summary",
+  "composer.commandArgSummaryReasoningFlagDesc":
+    "The reasoning level the summary is written at",
+  "composer.commandArgReasoningTitle": "Reasoning level of the check",
+  "composer.commandArgGoalModelsTitle": "Model that checks the goal",
+  "composer.commandArgReasoningFlagDesc":
+    "The reasoning level the goal is checked at",
+  "composer.commandArgGoalModelFlagDesc": "The model that checks this goal",
+  "goal.title": "Goal",
+  "goal.close": "Close the goal",
+  "goal.chipLabel": "Goal: {status}",
+  "goal.status.active": "active",
+  "goal.status.paused": "paused",
+  "goal.status.blocked": "needs you",
+  "goal.status.complete": "complete",
+  "goal.status.limited": "out of budget",
+  "goal.verdict.met": "Met",
+  "goal.verdict.notMet": "Not met yet",
+  "goal.verdict.needsUser": "Needs your decision",
+  "goal.verdict.impossible": "Cannot be done",
+  "goal.verified": "verified",
+  "goal.lastCheck": "Last check",
+  "goal.remainingTitle": "Remaining",
+  "goal.checklist": "Checklist",
+  "goal.item.met": "Met",
+  "goal.item.notMet": "Not met",
+  "goal.item.unverified": "Not verified",
+  "goal.item.evidenceHint": "Show the evidence",
+  "goal.continuations": "Continuations",
+  "goal.checks": "Checks",
+  "goal.checkedBy": "Checked by",
+  "goal.checkerDefault": "the session model",
+  "goal.reasoning": "Reasoning",
+  "goal.reasoningDefault": "default",
+  "goal.activeTime": "Time worked",
+  "goal.tokens": "Tokens",
+  "goal.ofLimit": "{value} of {limit}",
+  "goal.tokensUsed.one": "{shown} token",
+  "goal.tokensUsed.other": "{shown} tokens",
+  "goal.pause": "Pause",
+  "goal.resume": "Resume",
+  "goal.edit": "Edit",
+  "goal.clear": "Clear",
+  "goal.clearConfirm.title": "Clear the goal?",
+  "goal.clearConfirm.message":
+    "The supervisor stops checking and continuing the work in this chat. What is already done stays.",
+  "goal.error.pause": "Could not pause the goal",
+  "goal.error.clear": "Could not clear the goal",
+  "goal.empty":
+    "No goal is set. With a goal the agent keeps working until a check finds it met.",
+  "goal.objective": "What should be done",
+  "goal.objectivePlaceholder":
+    "Describe the result and how to tell that it is reached",
+  "goal.objectiveCount": "{count} / {max}",
+  "goal.objectiveTooLong": "The goal is longer than {max} characters",
+  "goal.save": "Save and start",
+  "goal.set": "Set goal",
+  "goal.saveHint":
+    "Saving replaces the goal, and the work on it starts at once.",
+  "goal.setHint": "The agent starts working on it at once.",
+  "goal.waitsForTurn":
+    "Resuming or setting a goal waits until the running turn ends.",
+  "goal.turn.kickoff": "Goal set: {objective}",
+  "goal.turn.resume": "Goal resumed: {objective}",
+  "goal.turn.continue": "Goal continuation {index} of {limit}",
+  "goal.turn.recover": "Goal recovery {index} of {limit}",
+  "goal.turn.wrapup": "Goal budget used up, wrapping up",
+  "goal.turn.withReason": "{head}: {reason}",
+  "goal.turn.remaining.one": "{count} item left",
+  "goal.turn.remaining.other": "{count} items left",
 };

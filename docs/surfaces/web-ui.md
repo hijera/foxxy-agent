@@ -51,6 +51,10 @@ The chat places the environment menu in the rail, **Background tasks** in the ch
 
 *The line counts on the workspace bar open Edits.*
 
+## Session goal
+
+When the session has a goal, a target mark sits on the plate over the composer, left of the working copy's `+A −D` count, in the colour of the goal's status. It opens the goal menu: the objective, status and reason, the supervisor's last check with a **verified** mark when the read-only verifier confirmed it, the requirement checklist, continuations, checks, active time and tokens, the checking model and its reasoning level, and **Pause**, **Resume**, **Edit** and **Clear**. A bare `/goal` opens the same menu without sending a turn; with no goal it offers a field to set one. Supervisor-started turns appear as one-line goal rows, live and after a reload. **Settings → Session goal** edits the `supervisor` keys. See [Session goal and supervisor](../features/session-supervisor.md).
+
 ## Workspace files
 
 In the browser, open **Files** in the chat header. Press **Ctrl+Shift+F** (**Cmd+Shift+F** on macOS). The workspace tree opens alongside the preview. Files open in tabs and the filter searches across the workspace. The preview supports source, Markdown, images and media. Remote previews use the selected session's server, and media streams can use a short-lived URL scoped to the file.
@@ -118,6 +122,7 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **`?theme=<id>` query parameter** (IDE embeddings): accepted values are all 7 theme ids; precedence **query > cookie > default**. Applied by the inline bootstrap script in **`index.html`** before first paint and persisted to the cookie. Contract-tested in **`themeCssContract.test.ts`** (the inline **`VALID`** map must stay in sync with **`UI_THEME_IDS`**).
 - **`window.foxxycodeUi`** global API (**`external/ui/src/ui/theme/foxxycodeUiApi.ts`**, installed in **`main.tsx`**): **`setTheme`** / **`getTheme`** / **`getThemes`** / **`onThemeChange`** — lets a host (IntelliJ plugin via JCEF `executeJavaScript`) switch themes live. See [`docs/contributing/intellij-embedding.md`](../contributing/intellij-embedding.md).
 - **Toggle:** **Settings** (**`#/settings`**) → **Appearance** → **Dark** / **Light** (**`data-testid="theme-toggle-dark"`**, **`theme-toggle-light`**).
+- **Schema field localization:** schema-driven settings sections (providers, models, agent, supervisor, tools, subagents, hooks, memory, compaction, scheduler, logger, gateways, sessions and the Prompts tab) localize field labels and descriptions through **`settings.schema.<section>.<path>.label`** / **`.desc`**. A key no dictionary defines falls back to the server's English text.
 - **Settings shows one tab at a time**: Appearance and Skills are tabs of the same list as the configuration sections.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
@@ -970,14 +975,20 @@ Verification use cases
 
 ## Composer command options
 
-Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the option **`--model`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the options **`--model`** and **`--reasoning`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** (or the short **`-m`**) the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+
+After **`--reasoning `** (or **`-r`**) the list holds **`default`** and the levels of the model the draft's **`--model`** names. **`/goal`** takes the same two options: **`--model`**, completed from the configured models, and **`--reasoning`**, completed from **`default`** and the levels of the model the draft's **`--model`** names (resolved like the server does: the exact id, else the one id that contains it), or of the session's model when the draft names none (**`commandReasoningChoices`**). The levels come from **`GET /v1/models`** (**`reasoning_levels`** of every row, **`llmReasoningLevelsByModel`**). See [Session goal and supervisor](../features/session-supervisor.md#commands).
 
 ![The model list under the composer after /compact --model](../assets/upstream-port/compact-model-picker-open-dark-1280.png)
 
 *The composer completing the value of `--model` (Dark, 1280 px).*
 
+![The reasoning levels under the composer after /compact -m luna -r](../assets/compact-reasoning-picker-open-dark-1280.png)
+
+*The composer completing `-r` with the levels of the model `-m` names (Dark, 1280 px).*
+
 - The list is the third face of the picker shell (**`.slash-menu`**, the bottom sheet on the stacked shell), **`data-testid="command-arg-menu"`**, rows **`command-arg-row-<id>`**; it needs no request.
-- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions, where nothing is completed. A bare **`/compact `** opens nothing, so **Enter** still sends the command.
+- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**) and **`ParseGoalCommand`** (**`internal/session/goal_command.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions or the objective, where nothing is completed. A bare **`/compact `** or **`/goal `** opens nothing, so **Enter** still sends the command.
 - Tests: **`draftCommandArg.test.ts`**, **`Composer.commandArg.test.tsx`**.
 
 

@@ -20,6 +20,9 @@ services:
     ports:
       - "${FOXXYCODE_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
+    # The image runs as uid/gid 1000; set FOXXYCODE_UID / FOXXYCODE_GID to the owner of
+    # the mounted folders when that is someone else (`id -u`, `id -g`).
+    user: "${FOXXYCODE_UID:-1000}:${FOXXYCODE_GID:-1000}"
     environment:
       FOXXYCODE_HOME: /home/user/.foxxycode
       FOXXYCODE_CWD: /workspace

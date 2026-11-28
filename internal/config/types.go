@@ -8,6 +8,7 @@ type Config struct {
 	Providers    []ProviderConfig   `yaml:"providers"`
 	Models       []ModelEntry       `yaml:"models"`
 	Agent        Agent              `yaml:"agent"`
+	Supervisor   Supervisor         `yaml:"supervisor"`
 	Autocomplete AutocompleteConfig `yaml:"autocomplete"`
 	Prompts      Prompts            `yaml:"prompts"`
 	Instructions Instructions       `yaml:"instructions"`

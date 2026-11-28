@@ -47,6 +47,12 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				_ = sender.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
 				continue
 			}
+			// A goal turn's first message is the supervisor's, not the
+			// operator's: replayed as the row it was live.
+			if msg.GoalTurn != nil {
+				_ = m.server.SendSessionUpdate(sessionID, GoalTurnUpdate(msg.GoalTurn))
+				continue
+			}
 			// The attachments a message was sent with ride in its content;
 			// a client shows the mentions that brought them, not their bodies
 			// (mention.ForDisplay, the web UI's stripFoxxyCodeAttachments twin).

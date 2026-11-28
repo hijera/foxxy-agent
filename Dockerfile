@@ -77,11 +77,25 @@ RUN mkdir -p /out \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
 
+# The folders the unprivileged user of the runtime image writes: the home
+# (FOXXYCODE_HOME and the default config file), the workspace and /tmp, which
+# scratch does not have.
+RUN mkdir -p /out/rootfs/home/user/.foxxycode /out/rootfs/workspace /out/rootfs/tmp \
+	&& chmod 1777 /out/rootfs/tmp
+
 
 FROM scratch
 
 COPY --from=build /out/foxxycode /bin/foxxycode
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=1000:1000 /out/rootfs/ /
+
+# FoxxyCode runs as an unprivileged user, uid and gid 1000, the usual first user of
+# a Linux desktop, so the bind mounts of docker-compose.yml stay writable for
+# the operator. Another owner is `--user UID:GID` (FOXXYCODE_UID / FOXXYCODE_GID in
+# Compose); a home written by an earlier image that ran as root is chowned once
+# (docs/getting-started/docker.md, The container user).
+USER 1000:1000
 
 WORKDIR /workspace
 
@@ -90,6 +104,10 @@ ENV FOXXYCODE_CWD=/workspace
 ENV FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml
 
 EXPOSE 12345
+
+# The same check docker-compose.yml runs: the binary starts. A scratch image has
+# no shell or HTTP client to ask the server itself.
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD ["/bin/foxxycode", "--version"]
 
 ENTRYPOINT ["/bin/foxxycode"]
 # Default subcommand. `serve` starts every subsystem the mounted config.yaml enables -

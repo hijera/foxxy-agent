@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -63,6 +65,10 @@ const neuralDeepBDDKey = "sk-bdd-tier-key"
 // default hub's key so the Then-steps can tell the two deployments apart.
 const neuralDeepBDDMirrorKey = "sk-bdd-mirror-key"
 
+// bddHubCallbackPage is the hub page the stand serves: html/template escapes
+// the link in the attribute and quotes it in the script, as a real page must.
+var bddHubCallbackPage = template.Must(template.New("hub").Parse(`<!doctype html><body><h2>ok</h2><a href="{{.}}">continue</a><script>location.replace({{.}})</script></body>`))
+
 func (s *neuralDeepBDDState) reset() error {
 	s.home, _ = os.MkdirTemp("", "foxxycode-nd-bdd-*")
 	s.provider = "neuraldeep"
@@ -116,7 +122,7 @@ func standInHub(key string) *httptest.Server {
 			// Production answers with an HTML page whose script (and fallback
 			// link) navigate to the loopback callback; the test browser follows
 			// the link exactly like a user agent executing location.replace.
-			_, _ = fmt.Fprintf(w, `<!doctype html><body><h2>ok</h2><a href="%s">continue</a><script>location.replace(%q)</script></body>`, cb, cb)
+			_ = bddHubCallbackPage.Execute(w, cb)
 		case "/api/cli/device/start":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code": "dev-bdd", "user_code": "BDDX-CODE",
@@ -214,7 +220,8 @@ func (s *neuralDeepBDDState) signInWithBrowserCallback() error {
 		if m == nil {
 			return fmt.Errorf("no callback link in the hub page: %s", body)
 		}
-		cb, err := http.Get(string(m[1]))
+		// The page escapes the link for HTML; a browser reads it back unescaped.
+		cb, err := http.Get(html.UnescapeString(string(m[1])))
 		if err != nil {
 			return err
 		}

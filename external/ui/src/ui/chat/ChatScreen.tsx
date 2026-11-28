@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
   useCallback,
@@ -12,6 +12,8 @@ import {
 import type { HeroAccentVerb } from "./heroTitleWords";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { TurnOverride } from "./sessionSettings";
+import type { SessionGoal } from "./goal";
+import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -106,6 +108,7 @@ export function ChatScreen(props: {
   llmModelMultimodal?: boolean;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
@@ -115,6 +118,10 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
+  /** The session goal and what the composer's goal mark and popover can do
+   *  with it (chat/goal.ts); passed through to the composer. */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onDraftChange: (v: string) => void;
   onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
@@ -625,17 +632,25 @@ export function ChatScreen(props: {
   ) : null;
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
+  // The plate of a running chat carries the goal mark (left of the count),
+  // even outside a repository; SVN keeps its branch plate as before.
+  const hasGoal = !!props.goalActions && !!props.goal;
+  const workspaceCtx = props.workspaceCtx;
   const workspaceBar =
     !readOnlyNotice &&
     props.sessionId &&
     props.workspaceLocked &&
-    (props.workspaceCtx?.is_git_repo || props.workspaceCtx?.is_svn_repo) ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        workingCopy={useCard ? undefined : workingCopy}
-        onOpenEdits={useCard ? undefined : props.onOpenEdits}
-      />
-    ) : undefined;
+    workspaceCtx &&
+    (workspaceCtx.is_git_repo || workspaceCtx.is_svn_repo || hasGoal)
+      ? (goalMark: ReactNode) => (
+          <WorkspaceBar
+            context={workspaceCtx}
+            workingCopy={useCard ? undefined : workingCopy}
+            onOpenEdits={useCard ? undefined : props.onOpenEdits}
+            goal={goalMark}
+          />
+        )
+      : undefined;
   const embedId = editorEmbedId();
   const openFiles =
     props.sessionId && embedId !== "vscode" && embedId !== "intellij"
@@ -861,6 +876,12 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevelsByModel !== undefined
+                        ? {
+                            llmReasoningLevelsByModel:
+                              props.llmReasoningLevelsByModel,
+                          }
+                        : {}),
                       ...(props.llmReasoningLevels !== undefined &&
                       props.llmReasoningLevels.length > 0 &&
                       props.onLlmReasoningChange !== undefined
@@ -884,6 +905,9 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.settingsOverrides
                   ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
+                {...(props.goalActions
+                  ? { goal: props.goal ?? null, goalActions: props.goalActions }
                   : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
@@ -1089,6 +1113,12 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevelsByModel !== undefined
+                          ? {
+                              llmReasoningLevelsByModel:
+                                props.llmReasoningLevelsByModel,
+                            }
+                          : {}),
                         ...(props.llmReasoningLevels !== undefined &&
                         props.llmReasoningLevels.length > 0 &&
                         props.onLlmReasoningChange !== undefined
@@ -1115,6 +1145,12 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.settingsOverrides
                     ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
+                  {...(props.goalActions
+                    ? {
+                        goal: props.goal ?? null,
+                        goalActions: props.goalActions,
+                      }
                     : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}

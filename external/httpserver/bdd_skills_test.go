@@ -45,17 +45,24 @@ func offlineSystemSources(t *testing.T) {
 }
 
 type skFeatureState struct {
-	root     string
-	home     string
-	ts       *httptest.Server
-	mgr      *session.Manager
-	srv      *Server
-	markets  map[string]string // marketplace name -> repo path
-	updates  map[string]map[string]interface{}
-	sources  []string
-	status   int
-	body     map[string]interface{}
-	prevHOME string
+	root        string
+	home        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	markets     map[string]string // marketplace name -> repo path
+	updates     map[string]map[string]interface{}
+	sources     []string
+	status      int
+	body        map[string]interface{}
+	prevHOME    string
+	prevPATH    string
+	hadPATH     bool
+	pathChanged bool
+	// prevTemp holds what the temp-dir scenario changed, keyed by variable:
+	// TMPDIR is what os.TempDir reads on Unix, TMP and TEMP on Windows.
+	prevTemp    map[string]string
+	tempChanged bool
 }
 
 func (s *skFeatureState) reset() error {
@@ -87,6 +94,22 @@ func (s *skFeatureState) close() {
 	if s.prevHOME != "" {
 		_ = os.Setenv("FOXXYCODE_HOME", s.prevHOME)
 	}
+	if s.pathChanged {
+		if s.hadPATH {
+			_ = os.Setenv("PATH", s.prevPATH)
+		} else {
+			_ = os.Unsetenv("PATH")
+		}
+	}
+	for name, prev := range s.prevTemp {
+		if prev == "" {
+			_ = os.Unsetenv(name)
+			continue
+		}
+		_ = os.Setenv(name, prev)
+	}
+	s.prevTemp = nil
+	s.prevPATH, s.hadPATH, s.pathChanged = "", false, false
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -151,7 +174,7 @@ func (s *skFeatureState) do(method, path string, body interface{}) error {
 // ---- marketplace fixture ----
 
 func (s *skFeatureState) marketplaceURL(name string) string {
-	return "file://" + s.markets[name]
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(s.markets[name])}).String()
 }
 
 func writeMarketplace(repo, market, skill, version string) error {
@@ -223,6 +246,37 @@ func (s *skFeatureState) republishMarketplace(market, skill, version string) err
 	return s.publishMarketplace(market, skill, version)
 }
 
+func (s *skFeatureState) gitUnavailableToFoxxyCode() error {
+	empty := filepath.Join(s.root, "no-git-bin")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		return err
+	}
+	s.prevPATH, s.hadPATH = os.LookupEnv("PATH")
+	s.pathChanged = true
+	if err := os.Setenv("PATH", empty); err != nil {
+		return err
+	}
+	if gitws.GitAvailable() {
+		return fmt.Errorf("git is still found on the PATH")
+	}
+	return nil
+}
+
+func (s *skFeatureState) systemTemporaryDirectoryUnavailable() error {
+	s.prevTemp = map[string]string{}
+	missing := filepath.Join(s.root, "missing-tmp")
+	// TMPDIR is what os.TempDir reads on Unix; TMP and TEMP on Windows, where
+	// Go ignores TMPDIR. Point all three at a path that does not exist.
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		s.prevTemp[name], _ = os.LookupEnv(name)
+		if err := os.Setenv(name, missing); err != nil {
+			return err
+		}
+	}
+	s.tempChanged = true
+	return nil
+}
+
 func (s *skFeatureState) addSourceAndSync(market string) error {
 	if err := s.do(http.MethodPost, "/foxxycode/skills/sources", map[string]interface{}{
 		"source": s.marketplaceURL(market),
@@ -232,6 +286,11 @@ func (s *skFeatureState) addSourceAndSync(market string) error {
 	}
 	if s.status != http.StatusOK {
 		return fmt.Errorf("add+sync status %d body %v", s.status, s.body)
+	}
+	if sync, _ := s.body["sync"].(map[string]interface{}); sync != nil {
+		if failed, _ := sync["failed"].([]interface{}); len(failed) != 0 {
+			return fmt.Errorf("add+sync failed: %v", failed)
+		}
 	}
 	return nil
 }
@@ -442,6 +501,8 @@ func initializeSkillsScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
 	sc.Step(`^a local marketplace "([^"]*)" publishing skill "([^"]*)" at version "([^"]*)"$`, s.givenMarketplace)
+	sc.Step(`^git is unavailable to FoxxyCode$`, s.gitUnavailableToFoxxyCode)
+	sc.Step(`^the system temporary directory is unavailable$`, s.systemTemporaryDirectoryUnavailable)
 	sc.Step(`^I have added and synced the marketplace "([^"]*)"$`, s.addSourceAndSync)
 	sc.Step(`^I add the marketplace "([^"]*)" as a skill source and sync$`, s.addSourceAndSync)
 	sc.Step(`^the marketplace "([^"]*)" republishes skill "([^"]*)" at version "([^"]*)"$`, s.republishMarketplace)

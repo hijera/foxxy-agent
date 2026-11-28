@@ -75,11 +75,14 @@ function heldStream() {
   });
 }
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+async function baseFetch(input: RequestInfo | URL, init?: RequestInit) {
   const path = String(input);
   if (path === "/foxxycode/events") return heldStream();
   if (path.startsWith("/foxxycode/sessions?")) {
-    return json({ active_count: 1, sessions: [{ id: SID, title: "A chat" }] });
+    return json({
+      active_count: 1,
+      sessions: [{ id: SID, title: "A chat" }],
+    });
   }
   if (path.startsWith(`/foxxycode/sessions/${SID}/messages`)) {
     return json({ session_id: SID, messages: [] });
@@ -137,7 +140,9 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     });
   }
   return json({}, 404);
-});
+}
+
+const fetchMock = vi.fn(baseFetch);
 
 beforeEach(() => {
   resetSettingsConfigForTests();
@@ -147,6 +152,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   history.replaceState(null, "", "/");
   fetchMock.mockClear();
+  fetchMock.mockImplementation(baseFetch);
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -167,8 +173,9 @@ function mountAt(hash: string) {
   );
 }
 
-const pressEscape = (target: Element = document.activeElement ?? document.body) =>
-  fireEvent.keyDown(target, { key: "Escape" });
+const pressEscape = (
+  target: Element = document.activeElement ?? document.body,
+) => fireEvent.keyDown(target, { key: "Escape" });
 
 test("the edits open in their window, and the address names them", async () => {
   mountAt(`#/s/${SID}`);
@@ -201,8 +208,12 @@ test("the changed-files card opens Edits at regular size and keeps its file clic
   fireEvent.click(screen.getByRole("button", { name: "Review notes.txt" }));
   const drawer = await screen.findByTestId("edits-view");
   expect(drawer).toHaveClass("changes-panel");
-  expect(await within(drawer).findByTestId("dv-file-notes.txt")).toBeInTheDocument();
-  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/open-in-ide"))).toBe(false);
+  expect(
+    await within(drawer).findByTestId("dv-file-notes.txt"),
+  ).toBeInTheDocument();
+  expect(
+    fetchMock.mock.calls.some(([url]) => String(url).endsWith("/open-in-ide")),
+  ).toBe(false);
 });
 
 // The edits window sits over the chat like the Files window: the shell's
@@ -337,4 +348,43 @@ test("an edits address over the files window puts the files away", async () => {
   });
   await screen.findByTestId("edits-view");
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
+});
+
+// An address that names a file opens the window before the chat's workspace
+// context answers. The folder becoming known must not build the window again:
+// the second window read the open file a second time, after the first had
+// shown it.
+test("the chat's folder arriving after a files address does not open the window again", async () => {
+  let answerContext: (() => void) | null = null;
+  const contextAnswered = new Promise<void>((resolve) => {
+    answerContext = resolve;
+  });
+  fetchMock.mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.startsWith("/foxxycode/workspace/context")) {
+      await contextAnswered;
+      return json({
+        path: "/work/project",
+        name: "project",
+        is_git_repo: false,
+        is_worktree: false,
+      });
+    }
+    return baseFetch(input, init);
+  });
+  mountAt(`#/s/${SID}/files?path=notes.txt&line=2`);
+  const win = await screen.findByTestId("files-view");
+  await within(win).findByText("second note");
+  const textReads = () =>
+    fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/workspace/text"),
+    ).length;
+  expect(textReads()).toBe(1);
+  await act(async () => {
+    answerContext!();
+    await contextAnswered;
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  expect(screen.getByTestId("files-view")).toBe(win);
+  expect(textReads()).toBe(1);
 });

@@ -1477,6 +1477,70 @@
         "max_turns"
       ]
     },
+    "supervisor": {
+      "additionalProperties": false,
+      "description": "Checks goals with a second model and watches for stalled or looping turns.",
+      "properties": {
+        "enable": {
+          "description": "Check ordinary turns against the latest request even when no /goal is set. A session goal is checked regardless of this switch.",
+          "title": "Check every turn",
+          "type": "boolean"
+        },
+        "loop_repeat": {
+          "default": 3,
+          "description": "How many times a repeating cycle of identical tool operations may come round. 0 disables loop detection.",
+          "title": "Loop repeat",
+          "type": "integer"
+        },
+        "max_continuations": {
+          "default": 10,
+          "description": "Automatic follow-up turns one goal may use before it stops as limited.",
+          "title": "Max continuations",
+          "type": "integer"
+        },
+        "max_nudges": {
+          "default": 2,
+          "description": "Recovery turns after a stall, a tool loop or a failed turn.",
+          "title": "Max nudges",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Configured model that checks the work. Empty uses the session model, which then grades its own work; a model of another family is the better judge.",
+          "title": "Supervisor model",
+          "type": "string"
+        },
+        "stall_seconds": {
+          "default": 300,
+          "description": "Silence before a goal turn is cut, excluding permission prompts, running tools and background tasks. 0 disables stall detection.",
+          "title": "Stall seconds",
+          "type": "integer"
+        },
+        "token_budget": {
+          "default": 0,
+          "description": "Uncached input plus output tokens one goal may spend. 0 means no cap.",
+          "title": "Token budget",
+          "type": "integer"
+        },
+        "verify": {
+          "default": true,
+          "description": "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met.",
+          "title": "Verify before closing",
+          "type": "boolean"
+        }
+      },
+      "title": "Session supervisor",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enable",
+        "model",
+        "verify",
+        "max_continuations",
+        "token_budget",
+        "stall_seconds",
+        "max_nudges",
+        "loop_repeat"
+      ]
+    },
     "title": {
       "additionalProperties": false,
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
@@ -1893,6 +1957,7 @@
     "providers",
     "models",
     "agent",
+    "supervisor",
     "compaction",
     "memory",
     "autocomplete",
