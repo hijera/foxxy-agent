@@ -33,6 +33,12 @@ FOXXYCODE_HOME="${FOXXYCODE_HOME:-$TMP_DIR/foxxycode_home}"
 FOXXYCODE_CONFIG="${FOXXYCODE_CONFIG:-$TMP_DIR/config.yaml}"
 
 mkdir -p "$FOXXYCODE_CWD" "$FOXXYCODE_HOME"
+# Only the disposable mounts need permissions prepared by this script.
+for dir in "$FOXXYCODE_CWD" "$FOXXYCODE_HOME"; do
+  if [[ "$dir" == "$TMP_DIR/workspace" || "$dir" == "$TMP_DIR/foxxycode_home" ]]; then
+    chmod 0777 "$dir"
+  fi
+done
 
 python3 - "$ROOT/examples/config.demo.yaml" "$FOXXYCODE_CONFIG" "$PORT" <<'PY'
 from __future__ import annotations
@@ -53,6 +59,9 @@ raw = raw.replace('file: "__E2E_LOG_PATH__"', 'file: ""')
 
 open(dst_path, "w", encoding="utf-8").write(raw)
 PY
+if [[ "$FOXXYCODE_CONFIG" == "$TMP_DIR/config.yaml" ]]; then
+  chmod 0644 "$FOXXYCODE_CONFIG"
+fi
 
 if [[ ! -f "$FOXXYCODE_CONFIG" ]]; then
   echo "config path is not a file: $FOXXYCODE_CONFIG" >&2
